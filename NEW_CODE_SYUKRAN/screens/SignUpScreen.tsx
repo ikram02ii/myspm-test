@@ -10,9 +10,10 @@ import {
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { ChevronLeft } from "lucide-react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-import { LoginForm } from "../components/forms/LoginForm";
+import { SignUpForm } from "../components/forms/SignUpForm";
 import { GoogleLogo } from "../components/ui/GoogleLogo";
 import { fonts } from "../constants/fonts";
 import { POST_LOGIN_ONBOARDING_STORAGE_KEY } from "../constants/storageKeys";
@@ -20,16 +21,16 @@ import { POST_LOGIN_ONBOARDING_STORAGE_KEY } from "../constants/storageKeys";
 const accent = "#7B89F4";
 const pageBg = "#F8F9FB";
 
-export default function LoginScreen({
+export default function SignUpScreen({
   navigation,
 }: {
-  navigation: { navigate: (name: string) => void; push: (name: string) => void };
+  navigation: { navigate: (name: string) => void; goBack: () => void };
 }) {
   const insets = useSafeAreaInsets();
   const [error, setError] = useState<string | undefined>();
   const [loading, setLoading] = useState(false);
 
-  const handleLogin = async (_email: string, _password: string) => {
+  const handleSignUp = async (_fullName: string, _email: string, _password: string) => {
     setError(undefined);
     setLoading(true);
     setTimeout(async () => {
@@ -41,10 +42,6 @@ export default function LoginScreen({
         navigation.navigate("PostLoginOnboarding");
       }
     }, 800);
-  };
-
-  const handleForgotPassword = () => {
-    navigation.push("ForgotPassword");
   };
 
   return (
@@ -81,6 +78,15 @@ export default function LoginScreen({
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
+          <Pressable
+            onPress={() => navigation.goBack()}
+            style={({ pressed }) => [styles.backRow, pressed && styles.backPressed]}
+            hitSlop={12}
+          >
+            <ChevronLeft size={24} color="#525252" strokeWidth={2} />
+            <Text style={styles.backText}>Back</Text>
+          </Pressable>
+
           <View style={styles.logoPillShadow}>
             <View style={styles.logoPill}>
               <Text style={styles.logoText}>
@@ -90,16 +96,11 @@ export default function LoginScreen({
             </View>
           </View>
 
-          <Text style={styles.title}>Welcome Back</Text>
-          <Text style={styles.subtitle}>Continue your journey to SPM excellence.</Text>
+          <Text style={styles.title}>Create account</Text>
+          <Text style={styles.subtitle}>Join MySPM and start practicing smarter.</Text>
 
           <View style={styles.formBlock}>
-            <LoginForm
-              onSubmit={handleLogin}
-              onForgotPassword={handleForgotPassword}
-              loading={loading}
-              error={error}
-            />
+            <SignUpForm onSubmit={handleSignUp} loading={loading} error={error} />
           </View>
 
           <View style={styles.divider}>
@@ -116,10 +117,10 @@ export default function LoginScreen({
             <Text style={styles.googleLabel}>Google</Text>
           </Pressable>
 
-          <View style={styles.signupRow}>
-            <Text style={styles.signupMuted}>Don&apos;t have an account? </Text>
-            <Pressable onPress={() => navigation.navigate("SignUp")}>
-              <Text style={styles.signupLink}>Sign Up</Text>
+          <View style={styles.loginRow}>
+            <Text style={styles.loginMuted}>Already have an account? </Text>
+            <Pressable onPress={() => navigation.navigate("Login")}>
+              <Text style={styles.loginLink}>Log In</Text>
             </Pressable>
           </View>
         </ScrollView>
@@ -155,7 +156,22 @@ const styles = StyleSheet.create({
   scrollContent: {
     flexGrow: 1,
     paddingHorizontal: 28,
-    paddingTop: 16,
+    paddingTop: 8,
+  },
+  backRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "flex-start",
+    marginBottom: 12,
+    gap: 2,
+  },
+  backPressed: {
+    opacity: 0.7,
+  },
+  backText: {
+    fontSize: 16,
+    fontFamily: fonts.semiBold,
+    color: "#525252",
   },
   logoPillShadow: {
     alignSelf: "center",
@@ -251,18 +267,18 @@ const styles = StyleSheet.create({
     fontFamily: fonts.bold,
     color: "#1A1A1A",
   },
-  signupRow: {
+  loginRow: {
     flexDirection: "row",
     justifyContent: "center",
     alignItems: "center",
     marginTop: "auto",
     paddingTop: 36,
   },
-  signupMuted: {
+  loginMuted: {
     fontSize: 14,
     color: "#525252",
   },
-  signupLink: {
+  loginLink: {
     fontSize: 14,
     fontFamily: fonts.bold,
     color: accent,

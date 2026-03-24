@@ -8,15 +8,7 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import {
-  ChevronRight,
-  Globe,
-  HelpCircle,
-  Lock,
-  Settings,
-  Shield,
-  User,
-} from "lucide-react-native";
+import { Lock, Settings } from "lucide-react-native";
 import { LinearGradient } from "expo-linear-gradient";
 
 import { colors } from "../constants/colors";
@@ -39,13 +31,6 @@ const MOCK_PROGRESS = [
   { name: "Mathematics", score: 78 },
   { name: "Bahasa Melayu", score: 92 },
   { name: "English", score: 65 },
-];
-
-const SETTINGS_ITEMS = [
-  { icon: Globe, label: "Language", value: "English" },
-  { icon: Shield, label: "Notifications", value: "On" },
-  { icon: User, label: "Account", value: "" },
-  { icon: HelpCircle, label: "Help & Support", value: "" },
 ];
 
 const cardShadow = {
@@ -173,28 +158,6 @@ export default function ProfileScreen({
             </View>
           ))}
         </View>
-      </View>
-
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Settings</Text>
-        {SETTINGS_ITEMS.map((item) => (
-          <Pressable
-            key={item.label}
-            style={styles.settingsRow}
-            onPress={
-              item.label === "Language"
-                ? () => navigation.navigate("ProfileSettings")
-                : undefined
-            }
-          >
-            <View style={styles.settingsIconWrap}>
-              <item.icon size={18} color={BRAND} strokeWidth={2} />
-            </View>
-            <Text style={styles.settingsLabel}>{item.label}</Text>
-            <Text style={styles.settingsValue}>{item.value}</Text>
-            <ChevronRight size={18} color={colors.textTertiary} />
-          </Pressable>
-        ))}
       </View>
     </ScrollView>
   );
@@ -356,26 +319,4 @@ const styles = StyleSheet.create({
     borderRadius: 5,
     backgroundColor: BRAND,
   },
-  settingsRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#FFFFFF",
-    borderRadius: 16,
-    padding: 14,
-    marginBottom: 10,
-    gap: 12,
-    borderWidth: 1,
-    borderColor: CARD_BORDER,
-    ...cardShadow,
-  },
-  settingsIconWrap: {
-    width: 36,
-    height: 36,
-    borderRadius: 12,
-    backgroundColor: BRAND_SOFT,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  settingsLabel: { fontSize: 14, fontFamily: fonts.semiBold, color: colors.text, flex: 1 },
-  settingsValue: { fontSize: 13, fontFamily: fonts.medium, color: colors.textSecondary },
 });

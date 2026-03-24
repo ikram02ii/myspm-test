@@ -17,6 +17,7 @@ import { fonts } from "./constants/fonts";
 import { POST_LOGIN_ONBOARDING_STORAGE_KEY } from "./constants/storageKeys";
 import WelcomeScreen from "./screens/WelcomeScreen";
 import LoginScreen from "./screens/LoginScreen";
+import SignUpScreen from "./screens/SignUpScreen";
 import ForgotPasswordScreen from "./screens/ForgotPasswordScreen";
 import ResetPasswordScreen from "./screens/ResetPasswordScreen";
 import MainTabs from "./navigation/MainTabs";
@@ -25,6 +26,7 @@ import PostLoginOnboardingScreen from "./screens/PostLoginOnboardingScreen";
 export type RootStackParamList = {
   Welcome: undefined;
   Login: undefined;
+  SignUp: undefined;
   ForgotPassword: undefined;
   ResetPassword: { token?: string };
   PostLoginOnboarding: undefined;
@@ -75,6 +77,7 @@ export default function App() {
       >
         <Stack.Screen name="Welcome" component={WelcomeScreen} />
         <Stack.Screen name="Login" component={LoginScreen} />
+        <Stack.Screen name="SignUp" component={SignUpScreen} />
         <Stack.Screen name="PostLoginOnboarding" component={PostLoginOnboardingScreen} />
         <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
         <Stack.Screen

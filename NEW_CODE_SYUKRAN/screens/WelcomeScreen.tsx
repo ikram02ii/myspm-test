@@ -17,6 +17,7 @@ import { fonts } from "../constants/fonts";
 type AuthStackParamList = {
   Welcome: undefined;
   Login: undefined;
+  SignUp: undefined;
   ForgotPassword: undefined;
   ResetPassword: { token?: string };
 };
@@ -100,7 +101,7 @@ export default function WelcomeScreen({
 
       <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 16) + 8 }]}>
         <Pressable
-          onPress={() => navigation.navigate("Login")}
+          onPress={() => navigation.navigate("SignUp")}
           style={({ pressed }) => [pressed && styles.ctaPressed]}
         >
           <LinearGradient

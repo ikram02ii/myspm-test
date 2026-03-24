@@ -827,8 +827,7 @@ const styles = StyleSheet.create({
         shadowOffset: { width: 0, height: -2 },
         shadowOpacity: 0.06,
         shadowRadius: 8,
-      },
-      android: { elevation: 12 },
+      }
     }),
   },
   footerRow0: {
@@ -846,16 +845,7 @@ const styles = StyleSheet.create({
   },
   circleNext: {
     borderRadius: 999,
-    overflow: "hidden",
-    ...Platform.select({
-      ios: {
-        shadowColor: brand,
-        shadowOffset: { width: 0, height: 6 },
-        shadowOpacity: 0.35,
-        shadowRadius: 12,
-      },
-      android: { elevation: 6 },
-    }),
+    overflow: "hidden"
   },
   circleNextDisabled: {
     opacity: 0.4,

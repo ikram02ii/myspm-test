@@ -1,30 +1,57 @@
 import React from "react";
-import { ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import {
+  ChevronRight,
+  Globe,
+  HelpCircle,
+  Palette,
+  Shield,
+  User,
+} from "lucide-react-native";
 
 import { colors } from "../constants/colors";
 import { fonts } from "../constants/fonts";
 
-export default function ProfileSettingsScreen() {
-  return (
-    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Language</Text>
-        <View style={styles.row}>
-          <Text style={styles.rowLabel}>App language</Text>
-          <Text style={styles.rowValue}>English</Text>
-        </View>
-      </View>
+const BRAND = "#7B89F4";
+const BRAND_SOFT = "#EDE9FE";
+const CARD_BORDER = "rgba(15, 23, 42, 0.06)";
 
+const cardShadow = {
+  shadowColor: "#0F172A",
+  shadowOffset: { width: 0, height: 4 },
+  shadowOpacity: 0.06,
+  shadowRadius: 14,
+};
+
+const SETTINGS_ITEMS = [
+  { icon: Globe, label: "Language", value: "English" },
+  { icon: Shield, label: "Notifications", value: "On" },
+  { icon: Palette, label: "Theme", value: "System" },
+  { icon: User, label: "Account", value: "" },
+  { icon: HelpCircle, label: "Help & Support", value: "" },
+] as const;
+
+export default function ProfileSettingsScreen() {
+  const insets = useSafeAreaInsets();
+
+  return (
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={{ paddingBottom: insets.bottom + 120 }}
+      showsVerticalScrollIndicator={false}
+    >
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Preferences</Text>
-        <View style={styles.row}>
-          <Text style={styles.rowLabel}>Notifications</Text>
-          <Text style={styles.rowValue}>On</Text>
-        </View>
-        <View style={styles.row}>
-          <Text style={styles.rowLabel}>Theme</Text>
-          <Text style={styles.rowValue}>System</Text>
-        </View>
+        {SETTINGS_ITEMS.map((item) => (
+          <Pressable key={item.label} style={styles.settingsRow} onPress={() => {}}>
+            <View style={styles.settingsIconWrap}>
+              <item.icon size={18} color={BRAND} strokeWidth={2} />
+            </View>
+            <Text style={styles.settingsLabel}>{item.label}</Text>
+            <Text style={styles.settingsValue}>{item.value}</Text>
+            <ChevronRight size={18} color={colors.textTertiary} />
+          </Pressable>
+        ))}
       </View>
     </ScrollView>
   );
@@ -36,23 +63,45 @@ const styles = StyleSheet.create({
     backgroundColor: colors.screenBackground,
   },
   section: {
-    paddingVertical: 8,
+    marginTop: 20,
     paddingHorizontal: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
   },
   sectionTitle: {
-    fontSize: 16,
-    fontFamily: fonts.semiBold,
-    marginVertical: 12,
-    color: colors.darkText,
+    fontSize: 18,
+    fontFamily: fonts.bold,
+    color: colors.text,
+    marginBottom: 14,
+    letterSpacing: -0.3,
   },
-  row: {
+  settingsRow: {
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
-    paddingVertical: 12,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 10,
+    gap: 12,
+    borderWidth: 1,
+    borderColor: CARD_BORDER,
+    ...cardShadow,
   },
-  rowLabel: { fontSize: 15, color: colors.darkText },
-  rowValue: { fontSize: 15, color: colors.textSecondary },
+  settingsIconWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    backgroundColor: BRAND_SOFT,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  settingsLabel: {
+    fontSize: 14,
+    fontFamily: fonts.semiBold,
+    color: colors.text,
+    flex: 1,
+  },
+  settingsValue: {
+    fontSize: 13,
+    fontFamily: fonts.medium,
+    color: colors.textSecondary,
+  },
 });
