@@ -27,16 +27,15 @@ import {
 
 import { fonts } from "../constants/fonts";
 import { POST_LOGIN_ONBOARDING_STORAGE_KEY } from "../constants/storageKeys";
+import { theme } from "../constants/palette";
 
-
-
-const brand = "#7B89F4";
-const brandDeep = "#5B6AE8";
+const brand = theme.brand;
+const brandDeep = theme.brandDeep;
 const textMain = "#1A1A1A";
 const textMuted = "#737373";
 const tipBg = "#FFFBEB";
 const tipBorder = "#FDE68A";
-const infoBg = "#EEF2FF";
+const infoBg = theme.brandSoftSage;
 
 const MOCK_SCHOOLS = [
   { id: "s1", name: "SMK Victoria Institution", city: "Kuala Lumpur", initials: "VI" },
@@ -696,7 +695,7 @@ const styles = StyleSheet.create({
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: "#EEF2FF",
+    backgroundColor: infoBg,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -733,7 +732,7 @@ const styles = StyleSheet.create({
     width: 52,
     height: 52,
     borderRadius: 26,
-    backgroundColor: "#EEF2FF",
+    backgroundColor: infoBg,
     alignItems: "center",
     justifyContent: "center",
   },

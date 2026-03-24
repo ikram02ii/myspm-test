@@ -13,6 +13,7 @@ import { ArrowRight, BarChart2, BookOpen, Brain, Flame, Star } from "lucide-reac
 
 import { colors } from "../constants/colors";
 import { fonts } from "../constants/fonts";
+import { theme } from "../constants/palette";
 
 type AuthStackParamList = {
   Welcome: undefined;
@@ -22,9 +23,7 @@ type AuthStackParamList = {
   ResetPassword: { token?: string };
 };
 
-const accent = "#7B89F4";
-const accentDeep = "#5B6AE8";
-const welcomeBg = "#F8F9FB";
+const welcomeBg = theme.authBackground;
 const bodyMuted = "#666666";
 
 export default function WelcomeScreen({
@@ -62,7 +61,7 @@ export default function WelcomeScreen({
 
         <View style={styles.brandRow}>
           <LinearGradient
-            colors={[accent, accentDeep]}
+            colors={[...theme.gradientHero]}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
             style={styles.logoCircle}
@@ -105,7 +104,7 @@ export default function WelcomeScreen({
           style={({ pressed }) => [pressed && styles.ctaPressed]}
         >
           <LinearGradient
-            colors={[accent, accentDeep]}
+            colors={[...theme.gradientHero]}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 0 }}
             style={styles.cta}
@@ -235,7 +234,7 @@ const styles = StyleSheet.create({
     color: "#1A1A1A",
   },
   brandSpm: {
-    color: accent,
+    color: theme.brand,
   },
   headline: {
     fontSize: 28,
@@ -247,7 +246,7 @@ const styles = StyleSheet.create({
     color: "#1A1A1A",
   },
   headlineAccent: {
-    color: accent,
+    color: theme.brand,
   },
   subcopy: {
     fontSize: 15,
@@ -323,7 +322,7 @@ const styles = StyleSheet.create({
     color: bodyMuted,
   },
   loginAccent: {
-    color: accent,
+    color: theme.brand,
     fontFamily: fonts.bold,
   },
 });

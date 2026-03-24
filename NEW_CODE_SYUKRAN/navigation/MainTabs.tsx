@@ -16,13 +16,14 @@ import {
   User,
 } from "lucide-react-native";
 import { colors } from "../constants/colors";
+import { theme } from "../constants/palette";
 import HomeStack from "./HomeStack";
 import PracticeStack from "./PracticeStack";
 import CameraScreen from "../screens/CameraScreen";
 import LeaderboardScreen from "../screens/LeaderboardScreen";
 import ProfileStack from "./ProfileStack";
 
-const BRAND = "#7B89F4";
+const BRAND = theme.brand;
 
 export type MainTabParamList = {
   Home: undefined;
@@ -62,7 +63,7 @@ function FloatingTabBar(props: BottomTabBarProps) {
       <View style={[styles.floatingInner, { paddingBottom: bottomPad }]} pointerEvents="box-none">
         <View style={styles.tabBarPill}>
           <LinearGradient
-            colors={["#EDE9FE", "#FFFFFF", "#F8F7FF"]}
+            colors={[...theme.tabBarGradient]}
             locations={[0, 0.55, 1]}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
@@ -171,7 +172,7 @@ const styles = StyleSheet.create({
     position: "relative",
     ...Platform.select({
       ios: {
-        shadowColor: BRAND,
+        shadowColor: theme.shadowBrand,
         shadowOffset: { width: 0, height: 8 },
         shadowOpacity: 0.22,
         shadowRadius: 16,

@@ -2,6 +2,7 @@ import { createNativeStackNavigator } from "@react-navigation/native-stack";
 
 import { colors } from "../constants/colors";
 import { fonts } from "../constants/fonts";
+import { theme } from "../constants/palette";
 import PracticeScreen from "../screens/PracticeScreen";
 import AddPracticeSubjectScreen from "../screens/AddPracticeSubjectScreen";
 
@@ -12,7 +13,7 @@ export type PracticeStackParamList = {
 
 const Stack = createNativeStackNavigator<PracticeStackParamList>();
 
-const BRAND = "#7B89F4";
+const BRAND = theme.brand;
 
 export default function PracticeStack() {
   return (

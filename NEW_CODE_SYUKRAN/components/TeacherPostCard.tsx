@@ -4,9 +4,10 @@ import { StyleSheet, Text, View, ViewStyle } from "react-native";
 import type { TeacherPost } from "../constants/teacherPostsMock";
 import { colors } from "../constants/colors";
 import { fonts } from "../constants/fonts";
+import { theme } from "../constants/palette";
 
-const BRAND = "#7B89F4";
-const BRAND_SOFT = "#EDE9FE";
+const BRAND = theme.brand;
+const BRAND_SOFT = theme.brandSoft;
 
 const cardShadow = {
   shadowColor: "#0F172A",

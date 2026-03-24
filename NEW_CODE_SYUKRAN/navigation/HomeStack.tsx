@@ -2,6 +2,7 @@ import { createNativeStackNavigator } from "@react-navigation/native-stack";
 
 import { colors } from "../constants/colors";
 import { fonts } from "../constants/fonts";
+import { theme } from "../constants/palette";
 import HomeScreen from "../screens/HomeScreen";
 import TeacherPostsScreen from "../screens/TeacherPostsScreen";
 
@@ -12,7 +13,7 @@ export type HomeStackParamList = {
 
 const Stack = createNativeStackNavigator<HomeStackParamList>();
 
-const BRAND = "#7B89F4";
+const BRAND = theme.brand;
 
 export default function HomeStack() {
   return (

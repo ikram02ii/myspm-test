@@ -12,9 +12,10 @@ import { Flame, Trophy } from "lucide-react-native";
 
 import { colors } from "../constants/colors";
 import { fonts } from "../constants/fonts";
+import { theme } from "../constants/palette";
 
-const BRAND = "#7B89F4";
-const BRAND_SOFT = "#EDE9FE";
+const BRAND = theme.brand;
+const BRAND_SOFT = theme.brandSoft;
 const CARD_BORDER = "rgba(15, 23, 42, 0.06)";
 
 const TABS = ["School", "National", "Subject"] as const;

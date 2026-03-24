@@ -17,9 +17,9 @@ import { SignUpForm } from "../components/forms/SignUpForm";
 import { GoogleLogo } from "../components/ui/GoogleLogo";
 import { fonts } from "../constants/fonts";
 import { POST_LOGIN_ONBOARDING_STORAGE_KEY } from "../constants/storageKeys";
+import { theme } from "../constants/palette";
 
-const accent = "#7B89F4";
-const pageBg = "#F8F9FB";
+const pageBg = theme.authBackground;
 
 export default function SignUpScreen({
   navigation,
@@ -47,20 +47,20 @@ export default function SignUpScreen({
   return (
     <View style={styles.root}>
       <LinearGradient
-        colors={["#EDE9FE", pageBg, "#F0F4FF"]}
+        colors={[...theme.authGradient]}
         locations={[0, 0.45, 1]}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
         style={StyleSheet.absoluteFill}
       />
       <LinearGradient
-        colors={["rgba(123, 137, 244, 0.45)", "rgba(123, 137, 244, 0)"]}
+        colors={[theme.authGlowTop, "rgba(227, 83, 54, 0)"]}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
         style={styles.glowTopLeft}
       />
       <LinearGradient
-        colors={["rgba(91, 106, 232, 0)", "rgba(123, 137, 244, 0.28)"]}
+        colors={["rgba(152, 168, 105, 0)", theme.authGlowBottom]}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
         style={styles.glowBottomRight}
@@ -178,7 +178,7 @@ const styles = StyleSheet.create({
     marginBottom: 28,
     ...Platform.select({
       ios: {
-        shadowColor: "#7B89F4",
+        shadowColor: theme.shadowBrand,
         shadowOffset: { width: 0, height: 6 },
         shadowOpacity: 0.2,
         shadowRadius: 14,
@@ -192,7 +192,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderRadius: 999,
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "rgba(123, 137, 244, 0.12)",
+    borderColor: theme.pillBorderBrand,
   },
   logoText: {
     fontSize: 20,
@@ -202,7 +202,7 @@ const styles = StyleSheet.create({
     color: "#1A1A1A",
   },
   logoSpm: {
-    color: accent,
+    color: theme.brand,
   },
   title: {
     fontSize: 28,
@@ -281,6 +281,6 @@ const styles = StyleSheet.create({
   loginLink: {
     fontSize: 14,
     fontFamily: fonts.bold,
-    color: accent,
+    color: theme.brand,
   },
 });

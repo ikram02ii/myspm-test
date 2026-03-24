@@ -6,8 +6,9 @@ import { LinearGradient } from "expo-linear-gradient";
 
 import { colors } from "../constants/colors";
 import { fonts } from "../constants/fonts";
+import { theme } from "../constants/palette";
 
-const BRAND = "#7B89F4";
+const BRAND = theme.brand;
 
 export default function CameraScreen() {
   const insets = useSafeAreaInsets();
@@ -54,7 +55,7 @@ export default function CameraScreen() {
 
       <Pressable style={styles.scanButton} onPress={handleScanQuestion}>
         <LinearGradient
-          colors={["#6258E3", "#7B89F4"]}
+          colors={[...theme.gradientHero]}
           start={{ x: 0, y: 0.5 }}
           end={{ x: 1, y: 0.5 }}
           style={styles.scanButtonGrad}
@@ -231,7 +232,7 @@ const styles = StyleSheet.create({
   },
   quickCard: {
     flex: 1,
-    backgroundColor: "#F1F5F9",
+    backgroundColor: "#FFFFFF",
     borderRadius: 24,
     alignItems: "center",
     paddingVertical: 20,

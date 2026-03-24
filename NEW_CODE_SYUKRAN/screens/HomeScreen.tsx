@@ -26,10 +26,11 @@ import TeacherPostCard from "../components/TeacherPostCard";
 import { TEACHER_POSTS_MOCK } from "../constants/teacherPostsMock";
 import { colors } from "../constants/colors";
 import { fonts } from "../constants/fonts";
+import { theme } from "../constants/palette";
 import type { HomeStackParamList } from "../navigation/HomeStack";
 
-const BRAND = "#7B89F4";
-const BRAND_DEEP = "#6258E3";
+const BRAND = theme.brand;
+const BRAND_DEEP = theme.brandDeep;
 
 const MASTERY_ROWS = [
   { name: "Mathematics", pct: 82 },
@@ -262,7 +263,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 5,
     borderRadius: 999,
-    backgroundColor: "#EDE9FE",
+    backgroundColor: theme.brandSoft,
   },
   aiBadgeText: {
     fontSize: 10,
@@ -357,7 +358,7 @@ const styles = StyleSheet.create({
     width: 52,
     height: 52,
     borderRadius: 26,
-    backgroundColor: "#EDE9FE",
+    backgroundColor: theme.brandSoft,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -381,7 +382,7 @@ const styles = StyleSheet.create({
   masteryTrack: {
     height: 10,
     borderRadius: 5,
-    backgroundColor: "#EDE9FE",
+    backgroundColor: theme.brandSoft,
     overflow: "hidden",
   },
   masteryFill: {

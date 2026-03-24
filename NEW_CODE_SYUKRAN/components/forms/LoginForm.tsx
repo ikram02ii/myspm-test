@@ -13,10 +13,11 @@ import { ArrowRight, Eye, EyeOff, Lock, Mail } from "lucide-react-native";
 
 import { ErrorMessage } from "../ui/ErrorMessage";
 import { fonts } from "../../constants/fonts";
+import { theme } from "../../constants/palette";
 import { validateEmail, validatePassword } from "../../utils/validation";
 
-const accent = "#7B89F4";
-const accentDeep = "#5B6AE8";
+const accent = theme.brand;
+const accentDeep = theme.brandDeep;
 const labelMuted = "#9CA3AF";
 const inputPlaceholder = "#A3A3A3";
 
@@ -237,7 +238,7 @@ const styles = StyleSheet.create({
     borderColor: "rgba(0,0,0,0.04)",
     ...Platform.select({
       ios: {
-        shadowColor: "#7B89F4",
+        shadowColor: theme.shadowBrand,
         shadowOffset: { width: 0, height: 4 },
         shadowOpacity: 0.08,
         shadowRadius: 12,

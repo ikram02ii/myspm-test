@@ -29,10 +29,11 @@ import {
 } from "../constants/practiceSubjects";
 import { colors } from "../constants/colors";
 import { fonts } from "../constants/fonts";
+import { theme } from "../constants/palette";
 import type { PracticeStackParamList } from "../navigation/PracticeStack";
 
-const BRAND = "#7B89F4";
-const BRAND_SOFT = "#EEF2FF";
+const BRAND = theme.brand;
+const BRAND_SOFT = theme.brandSoftSage;
 
 type DifficultyId = "easy" | "medium" | "hard";
 
@@ -301,7 +302,7 @@ export default function PracticeScreen({ navigation, route }: Props) {
               >
                 {on ? (
                   <LinearGradient
-                    colors={["#6B63E8", BRAND]}
+                    colors={[...theme.gradientCta]}
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 1 }}
                     style={styles.countBtnGrad}
@@ -319,7 +320,7 @@ export default function PracticeScreen({ navigation, route }: Props) {
 
       <Pressable style={[styles.startBtn, !canStart && styles.startBtnOff]} disabled={!canStart}>
         <LinearGradient
-          colors={canStart ? ["#6B63E8", BRAND] : ["#A1A1AA", "#9CA3AF"]}
+          colors={canStart ? [...theme.gradientCta] : ["#A1A1AA", "#9CA3AF"]}
           start={{ x: 0, y: 0.5 }}
           end={{ x: 1, y: 0.5 }}
           style={styles.startGrad}
