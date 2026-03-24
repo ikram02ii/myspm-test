@@ -1,5 +1,7 @@
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  Animated,
+  Easing,
   Platform,
   Pressable,
   ScrollView,
@@ -126,6 +128,7 @@ type Props = NativeStackScreenProps<PracticeStackParamList, "PracticeIndex">;
 export default function PracticeScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
   const webTopPadding = Platform.OS === "web" ? 67 : 0;
+  const entrance = useRef(new Animated.Value(0)).current;
 
   const [addedSubjectIds, setAddedSubjectIds] = useState<string[]>([
     ...DEFAULT_PRACTICE_SUBJECT_IDS,
@@ -175,6 +178,15 @@ export default function PracticeScreen({ navigation, route }: Props) {
 
   const canStart = !!selectedSubject && !!selectedTopic;
 
+  useEffect(() => {
+    Animated.timing(entrance, {
+      toValue: 1,
+      duration: 260,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [entrance]);
+
   const pickSubject = (id: string) => {
     setSelectedSubject(id);
     const list = TOPICS_BY_SUBJECT[id];
@@ -191,6 +203,22 @@ export default function PracticeScreen({ navigation, route }: Props) {
       contentContainerStyle={{ paddingBottom: insets.bottom + 130 }}
       showsVerticalScrollIndicator={false}
     >
+      <Animated.View
+        style={[
+          styles.animatedContent,
+          {
+            opacity: entrance,
+            transform: [
+              {
+                translateY: entrance.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [12, 0],
+                }),
+              },
+            ],
+          },
+        ]}
+      >
       <View style={[styles.hero, { paddingTop: insets.top + 12 }]}>
         <Text style={styles.heroTitle}>Practice Setup</Text>
         <Text style={styles.heroSubtitle}>
@@ -331,6 +359,7 @@ export default function PracticeScreen({ navigation, route }: Props) {
       </Pressable>
 
       <Text style={styles.estimated}>{estimatedLabel}</Text>
+      </Animated.View>
     </ScrollView>
   );
 }
@@ -339,6 +368,9 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.screenBackground,
+  },
+  animatedContent: {
+    flex: 1,
   },
   hero: {
     paddingHorizontal: 20,

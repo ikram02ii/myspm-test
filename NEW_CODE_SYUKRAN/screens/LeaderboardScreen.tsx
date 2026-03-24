@@ -1,7 +1,10 @@
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
+  Animated,
+  Easing,
   Platform,
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -93,17 +96,60 @@ function TopThree({ leaders }: { leaders: typeof MOCK_SCHOOL_LEADERS }) {
 export default function LeaderboardScreen() {
   const insets = useSafeAreaInsets();
   const webTopPadding = Platform.OS === "web" ? 67 : 0;
+  const entrance = useRef(new Animated.Value(0)).current;
   const [activeTab, setActiveTab] = useState<(typeof TABS)[number]>("School");
+  const [refreshing, setRefreshing] = useState(false);
 
   const currentLeaders =
     activeTab === "School" ? MOCK_SCHOOL_LEADERS : MOCK_NATIONAL_LEADERS;
+
+  useEffect(() => {
+    Animated.timing(entrance, {
+      toValue: 1,
+      duration: 260,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [entrance]);
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    console.log("API request: refresh leaderboard");
+    setTimeout(() => {
+      setRefreshing(false);
+    }, 1000);
+  };
 
   return (
     <ScrollView
       style={[styles.container, { paddingTop: webTopPadding }]}
       contentContainerStyle={{ paddingBottom: insets.bottom + 120 }}
       showsVerticalScrollIndicator={false}
+      refreshControl={
+        <RefreshControl
+          refreshing={refreshing}
+          onRefresh={onRefresh}
+          tintColor={theme.brand}
+          colors={[theme.brand]}
+        />
+      }
     >
+      <Animated.View
+        style={[
+          styles.animatedContent,
+          {
+            opacity: entrance,
+            transform: [
+              {
+                translateY: entrance.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [12, 0],
+                }),
+              },
+            ],
+          },
+        ]}
+      >
       <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
         <Text style={styles.title}>Leaderboard</Text>
         <Text style={styles.subtitle}>Compete and climb the ranks</Text>
@@ -175,12 +221,16 @@ export default function LeaderboardScreen() {
           ))}
         </View>
       )}
+      </Animated.View>
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.screenBackground },
+  animatedContent: {
+    flex: 1,
+  },
   header: { paddingHorizontal: 20 },
   title: {
     fontSize: 28,

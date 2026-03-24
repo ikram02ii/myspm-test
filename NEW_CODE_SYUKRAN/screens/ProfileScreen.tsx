@@ -1,5 +1,7 @@
-import React from "react";
+import React, { useEffect, useRef } from "react";
 import {
+  Animated,
+  Easing,
   Platform,
   Pressable,
   ScrollView,
@@ -10,10 +12,12 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Lock, Settings } from "lucide-react-native";
 import { LinearGradient } from "expo-linear-gradient";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import { colors } from "../constants/colors";
 import { fonts } from "../constants/fonts";
 import { theme } from "../constants/palette";
+import { POST_LOGIN_ONBOARDING_STORAGE_KEY } from "../constants/storageKeys";
 
 const BRAND = theme.brand;
 const BRAND_DEEP = theme.brandDeep;
@@ -44,15 +48,37 @@ const cardShadow = {
 export default function ProfileScreen({
   navigation,
 }: {
-  navigation: { navigate: (name: string) => void };
+  navigation: {
+    navigate: (name: string) => void;
+    getParent?: () => { getParent?: () => { navigate: (name: string) => void } };
+  };
 }) {
   const insets = useSafeAreaInsets();
   const webTopPadding = Platform.OS === "web" ? 67 : 0;
+  const entrance = useRef(new Animated.Value(0)).current;
   const displayName = "User";
   const displaySchool = "SMK Example";
   const displayXP = 2450;
   const displayStreak = 7;
   const displayQuestions = 156;
+  const handleLogout = async () => {
+    await AsyncStorage.removeItem(POST_LOGIN_ONBOARDING_STORAGE_KEY);
+    const rootNavigation = navigation.getParent?.()?.getParent?.();
+    if (rootNavigation) {
+      rootNavigation.navigate("Welcome");
+      return;
+    }
+    navigation.navigate("Welcome");
+  };
+
+  useEffect(() => {
+    Animated.timing(entrance, {
+      toValue: 1,
+      duration: 260,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [entrance]);
 
   return (
     <ScrollView
@@ -60,6 +86,22 @@ export default function ProfileScreen({
       contentContainerStyle={{ paddingBottom: insets.bottom + 120 }}
       showsVerticalScrollIndicator={false}
     >
+      <Animated.View
+        style={[
+          styles.animatedContent,
+          {
+            opacity: entrance,
+            transform: [
+              {
+                translateY: entrance.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [12, 0],
+                }),
+              },
+            ],
+          },
+        ]}
+      >
       <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
         <View>
           <Text style={styles.title}>Profile</Text>
@@ -160,12 +202,25 @@ export default function ProfileScreen({
           ))}
         </View>
       </View>
+
+      <View style={styles.logoutSection}>
+        <Pressable
+          style={({ pressed }) => [styles.logoutBtn, pressed && styles.logoutBtnPressed]}
+          onPress={handleLogout}
+        >
+          <Text style={styles.logoutBtnText}>Logout</Text>
+        </Pressable>
+      </View>
+      </Animated.View>
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.screenBackground },
+  animatedContent: {
+    flex: 1,
+  },
   header: {
     paddingHorizontal: 20,
     flexDirection: "row",
@@ -319,5 +374,27 @@ const styles = StyleSheet.create({
     height: "100%",
     borderRadius: 5,
     backgroundColor: BRAND,
+  },
+  logoutSection: {
+    marginTop: "auto",
+    paddingHorizontal: 20,
+    paddingTop: 28,
+  },
+  logoutBtn: {
+    height: 52,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#FECACA",
+  },
+  logoutBtnPressed: {
+    opacity: 0.9,
+  },
+  logoutBtnText: {
+    fontSize: 15,
+    fontFamily: fonts.bold,
+    color: "#B91C1C",
   },
 });

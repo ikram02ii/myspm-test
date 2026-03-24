@@ -5,6 +5,9 @@
   "scripts": {
     "dev": "expo start",
     "android": "expo run:android",
+    "android:bump": "node scripts/bump-version.js",
+    "android:bump:minor": "node scripts/bump-version.js minor",
+    "android:bump:major": "node scripts/bump-version.js major",
     "android:prebuild": "expo prebuild --platform android --clean",
     "android:release": "expo run:android --variant release",
     "ios": "expo run:ios",

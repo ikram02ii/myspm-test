@@ -44,7 +44,7 @@ export default function WelcomeScreen({
         <View style={styles.heroWrap}>
           <View style={styles.heroCard}>
             <View style={styles.heroPlaceholder}>
-              <Text style={styles.heroPlaceholderText}>to be added</Text>
+              <Text style={styles.heroPlaceholderText}>picture to be added</Text>
             </View>
             <View style={styles.badgeTopScorer}>
               <View style={styles.badgeStarCircle}>

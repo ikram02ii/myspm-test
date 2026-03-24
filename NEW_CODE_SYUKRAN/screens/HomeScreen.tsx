@@ -1,7 +1,10 @@
-import React from "react";
+import React, { useEffect, useRef } from "react";
 import {
+  Animated,
+  Easing,
   Platform,
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -43,18 +46,137 @@ type Props = NativeStackScreenProps<HomeStackParamList, "HomeIndex">;
 export default function HomeScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
   const webTopPadding = Platform.OS === "web" ? 67 : 0;
+  const entrance = useRef(new Animated.Value(0)).current;
+  const skeletonPulse = useRef(new Animated.Value(1)).current;
+  const loadingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [isLoadingDashboard, setIsLoadingDashboard] = React.useState(true);
+  const [refreshing, setRefreshing] = React.useState(false);
   const goPractice = () => navigation.getParent()?.navigate("Practice");
   const goCamera = () => navigation.getParent()?.navigate("Camera");
   const displayName = "User";
   const displayStreak = 7;
   const displayXP = 2450;
 
+  const runDashboardLoad = (onDone?: () => void) => {
+    if (loadingTimeoutRef.current) {
+      clearTimeout(loadingTimeoutRef.current);
+    }
+    loadingTimeoutRef.current = setTimeout(() => {
+      setIsLoadingDashboard(false);
+      entrance.setValue(0);
+      Animated.timing(entrance, {
+        toValue: 1,
+        duration: 260,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }).start();
+      onDone?.();
+    }, 3000);
+  };
+
+  useEffect(() => {
+    runDashboardLoad();
+    return () => {
+      if (loadingTimeoutRef.current) {
+        clearTimeout(loadingTimeoutRef.current);
+      }
+    };
+  }, [entrance]);
+
+  useEffect(() => {
+    const pulseAnim = Animated.loop(
+      Animated.sequence([
+        Animated.timing(skeletonPulse, {
+          toValue: 0.55,
+          duration: 700,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+        }),
+        Animated.timing(skeletonPulse, {
+          toValue: 1,
+          duration: 700,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+        }),
+      ])
+    );
+    pulseAnim.start();
+    return () => {
+      pulseAnim.stop();
+    };
+  }, [skeletonPulse]);
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    console.log("API request: refresh dashboard");
+    setIsLoadingDashboard(true);
+    runDashboardLoad(() => {
+      setRefreshing(false);
+    });
+  };
+
   return (
     <ScrollView
       style={[styles.container, { paddingTop: webTopPadding }]}
       contentContainerStyle={{ paddingBottom: insets.bottom + 120 }}
       showsVerticalScrollIndicator={false}
+      refreshControl={
+        <RefreshControl
+          refreshing={refreshing}
+          onRefresh={onRefresh}
+          tintColor={theme.brand}
+          colors={[theme.brand]}
+        />
+      }
     >
+      {isLoadingDashboard ? (
+        <Animated.View
+          style={[
+            styles.skeletonWrap,
+            { paddingTop: insets.top + 12, opacity: skeletonPulse },
+          ]}
+        >
+          <View style={styles.skeletonHeader}>
+            <View>
+              <View style={[styles.skeletonBase, styles.skeletonGreeting]} />
+              <View style={styles.skeletonBadgeRow}>
+                <View style={[styles.skeletonBase, styles.skeletonBadge]} />
+                <View style={[styles.skeletonBase, styles.skeletonBadge]} />
+              </View>
+            </View>
+            <View style={[styles.skeletonBase, styles.skeletonAvatar]} />
+          </View>
+
+          <View style={styles.skeletonBlock}>
+            <View style={[styles.skeletonBase, styles.skeletonCardLarge]} />
+            <View style={styles.skeletonDualRow}>
+              <View style={[styles.skeletonBase, styles.skeletonDualCard]} />
+              <View style={[styles.skeletonBase, styles.skeletonDualCard]} />
+            </View>
+          </View>
+
+          <View style={styles.skeletonBlock}>
+            <View style={[styles.skeletonBase, styles.skeletonCardMedium]} />
+            <View style={[styles.skeletonBase, styles.skeletonCardMedium]} />
+          </View>
+        </Animated.View>
+      ) : (
+      <Animated.View
+        style={[
+          styles.animatedContent,
+          {
+            opacity: entrance,
+            transform: [
+              {
+                translateY: entrance.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [12, 0],
+                }),
+              },
+            ],
+          },
+        ]}
+      >
       <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
         <View>
           <Text style={styles.greeting}>Hello, {displayName}</Text>
@@ -176,6 +298,8 @@ export default function HomeScreen({ navigation }: Props) {
           />
         ))}
       </View>
+      </Animated.View>
+      )}
     </ScrollView>
   );
 }
@@ -189,6 +313,63 @@ const cardShadow = {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.screenBackground },
+  animatedContent: {
+    flex: 1,
+  },
+  skeletonWrap: {
+    flex: 1,
+    paddingHorizontal: 20,
+  },
+  skeletonHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+  },
+  skeletonBase: {
+    backgroundColor: "#E2E8F0",
+    borderRadius: 12,
+  },
+  skeletonGreeting: {
+    width: 170,
+    height: 28,
+  },
+  skeletonBadgeRow: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 10,
+  },
+  skeletonBadge: {
+    width: 98,
+    height: 24,
+    borderRadius: 20,
+  },
+  skeletonAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+  },
+  skeletonBlock: {
+    marginTop: 24,
+  },
+  skeletonCardLarge: {
+    height: 260,
+    borderRadius: 20,
+  },
+  skeletonDualRow: {
+    flexDirection: "row",
+    gap: 12,
+    marginTop: 14,
+  },
+  skeletonDualCard: {
+    flex: 1,
+    height: 120,
+    borderRadius: 18,
+  },
+  skeletonCardMedium: {
+    height: 140,
+    borderRadius: 20,
+    marginBottom: 12,
+  },
   header: {
     paddingHorizontal: 20,
     flexDirection: "row",

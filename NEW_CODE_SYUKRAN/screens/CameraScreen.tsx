@@ -1,5 +1,5 @@
-import React from "react";
-import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import React, { useEffect, useRef } from "react";
+import { Animated, Easing, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Camera, ImagePlus, Lightbulb, Scan } from "lucide-react-native";
 import { LinearGradient } from "expo-linear-gradient";
@@ -13,9 +13,19 @@ const BRAND = theme.brand;
 export default function CameraScreen() {
   const insets = useSafeAreaInsets();
   const webTopPadding = Platform.OS === "web" ? 67 : 0;
+  const entrance = useRef(new Animated.Value(0)).current;
 
   const handleScanQuestion = () => {};
   const handlePickFromGallery = () => {};
+
+  useEffect(() => {
+    Animated.timing(entrance, {
+      toValue: 1,
+      duration: 260,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [entrance]);
 
   return (
     <ScrollView
@@ -23,6 +33,22 @@ export default function CameraScreen() {
       contentContainerStyle={{ paddingTop: insets.top + 16, paddingBottom: insets.bottom + 120 }}
       showsVerticalScrollIndicator={false}
     >
+      <Animated.View
+        style={[
+          styles.animatedContent,
+          {
+            opacity: entrance,
+            transform: [
+              {
+                translateY: entrance.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [12, 0],
+                }),
+              },
+            ],
+          },
+        ]}
+      >
       <Text style={styles.title}>AI Scan Assistant</Text>
       <Text style={styles.subtitle}>Scan your work to get instant grading and explanations.</Text>
 
@@ -86,12 +112,16 @@ export default function CameraScreen() {
           </Text>
         </View>
       </View>
+      </Animated.View>
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.screenBackground, paddingHorizontal: 14 },
+  animatedContent: {
+    flex: 1,
+  },
   title: {
     marginTop: 4,
     fontSize: 32,

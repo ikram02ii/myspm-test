@@ -9,6 +9,7 @@ import {
   KeyboardAvoidingView,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
+import Constants from "expo-constants";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ChevronLeft } from "lucide-react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -20,6 +21,7 @@ import { POST_LOGIN_ONBOARDING_STORAGE_KEY } from "../constants/storageKeys";
 import { theme } from "../constants/palette";
 
 const pageBg = theme.authBackground;
+const currentVersion = `v${Constants.expoConfig?.version ?? "1.0.0"}`;
 
 export default function SignUpScreen({
   navigation,
@@ -123,6 +125,8 @@ export default function SignUpScreen({
               <Text style={styles.loginLink}>Log In</Text>
             </Pressable>
           </View>
+
+          <Text style={styles.versionText}>AMAST SDN BHD | {currentVersion}</Text>
         </ScrollView>
       </KeyboardAvoidingView>
     </View>
@@ -282,5 +286,12 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontFamily: fonts.bold,
     color: theme.brand,
+  },
+  versionText: {
+    textAlign: "center",
+    marginTop: 12,
+    fontSize: 12,
+    color: "#737373",
+    fontFamily: fonts.medium,
   },
 });
