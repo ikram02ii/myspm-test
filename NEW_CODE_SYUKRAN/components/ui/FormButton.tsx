@@ -8,6 +8,7 @@ import {
   TextStyle,
 } from "react-native";
 import { colors } from "../../constants/colors";
+import { fonts } from "../../constants/fonts";
 
 interface FormButtonProps {
   title: string;
@@ -87,6 +88,6 @@ const styles = StyleSheet.create({
   },
   buttonText: {
     fontSize: 16,
-    fontWeight: "600",
+    fontFamily: fonts.semiBold,
   },
 });

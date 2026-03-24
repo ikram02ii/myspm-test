@@ -1,5 +1,13 @@
-import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
+import React from "react";
+import { Platform, StyleSheet, View } from "react-native";
+import {
+  BottomTabBar,
+  BottomTabBarProps,
+  createBottomTabNavigator,
+} from "@react-navigation/bottom-tabs";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { LinearGradient } from "expo-linear-gradient";
+import type { LucideIcon } from "lucide-react-native";
 import {
   BookOpen,
   Camera,
@@ -7,13 +15,14 @@ import {
   Trophy,
   User,
 } from "lucide-react-native";
-
 import { colors } from "../constants/colors";
-import HomeScreen from "../screens/HomeScreen";
-import PracticeScreen from "../screens/PracticeScreen";
+import HomeStack from "./HomeStack";
+import PracticeStack from "./PracticeStack";
 import CameraScreen from "../screens/CameraScreen";
 import LeaderboardScreen from "../screens/LeaderboardScreen";
 import ProfileStack from "./ProfileStack";
+
+const BRAND = "#7B89F4";
 
 export type MainTabParamList = {
   Home: undefined;
@@ -25,41 +34,87 @@ export type MainTabParamList = {
 
 const Tab = createBottomTabNavigator<MainTabParamList>();
 
-export default function MainTabs() {
+function TabBarIcon({
+  focused,
+  color,
+  Icon,
+}: {
+  focused: boolean;
+  color: string;
+  Icon: LucideIcon;
+}) {
+  if (focused) {
+    return (
+      <View style={styles.activeIconRing}>
+        <Icon size={22} color="#FFFFFF" strokeWidth={2.2} />
+      </View>
+    );
+  }
+  return <Icon size={24} color={color} strokeWidth={2} />;
+}
+
+function FloatingTabBar(props: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
-  const tabBarHeight = 56 + insets.bottom;
+  const bottomPad = Math.max(insets.bottom, 12) + 6;
 
   return (
+    <View style={styles.floatingRoot} pointerEvents="box-none">
+      <View style={[styles.floatingInner, { paddingBottom: bottomPad }]} pointerEvents="box-none">
+        <View style={styles.tabBarPill}>
+          <LinearGradient
+            colors={["#EDE9FE", "#FFFFFF", "#F8F7FF"]}
+            locations={[0, 0.55, 1]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={StyleSheet.absoluteFill}
+          />
+          <BottomTabBar {...props} style={styles.bottomTabBarInner} />
+        </View>
+      </View>
+    </View>
+  );
+}
+
+export default function MainTabs() {
+  return (
     <Tab.Navigator
+      sceneContainerStyle={{ flex: 1, backgroundColor: colors.screenBackground }}
+      tabBar={(props) => <FloatingTabBar {...props} />}
       screenOptions={{
         headerShown: false,
-        tabBarActiveTintColor: colors.primary,
-        tabBarInactiveTintColor: colors.textSecondary,
-        tabBarLabelStyle: { fontSize: 11, fontWeight: "500" },
+        tabBarShowLabel: false,
+        tabBarActiveTintColor: BRAND,
+        tabBarInactiveTintColor: "#94A3B8",
+        tabBarItemStyle: styles.tabItem,
         tabBarStyle: {
-          height: tabBarHeight,
-          paddingBottom: insets.bottom,
-          paddingTop: 8,
-          backgroundColor: colors.background,
-          borderTopColor: colors.border,
-          borderTopWidth: 1,
+          position: "absolute",
+          top: 28,
+          backgroundColor: "transparent",
+          borderTopWidth: 0,
+          elevation: 0,
+          shadowOpacity: 0,
+          height: 0,
         },
       }}
     >
       <Tab.Screen
         name="Home"
-        component={HomeScreen}
+        component={HomeStack}
         options={{
           title: "Home",
-          tabBarIcon: ({ color, size }) => <Home size={size ?? 22} color={color} />,
+          tabBarIcon: ({ focused, color }) => (
+            <TabBarIcon focused={focused} color={color} Icon={Home} />
+          ),
         }}
       />
       <Tab.Screen
         name="Practice"
-        component={PracticeScreen}
+        component={PracticeStack}
         options={{
           title: "Practice",
-          tabBarIcon: ({ color, size }) => <BookOpen size={size ?? 22} color={color} />,
+          tabBarIcon: ({ focused, color }) => (
+            <TabBarIcon focused={focused} color={color} Icon={BookOpen} />
+          ),
         }}
       />
       <Tab.Screen
@@ -67,7 +122,9 @@ export default function MainTabs() {
         component={CameraScreen}
         options={{
           title: "Scan",
-          tabBarIcon: ({ color, size }) => <Camera size={size ?? 22} color={color} />,
+          tabBarIcon: ({ focused, color }) => (
+            <TabBarIcon focused={focused} color={color} Icon={Camera} />
+          ),
         }}
       />
       <Tab.Screen
@@ -75,7 +132,9 @@ export default function MainTabs() {
         component={LeaderboardScreen}
         options={{
           title: "Leaderboard",
-          tabBarIcon: ({ color, size }) => <Trophy size={size ?? 22} color={color} />,
+          tabBarIcon: ({ focused, color }) => (
+            <TabBarIcon focused={focused} color={color} Icon={Trophy} />
+          ),
         }}
       />
       <Tab.Screen
@@ -83,9 +142,62 @@ export default function MainTabs() {
         component={ProfileStack}
         options={{
           title: "Profile",
-          tabBarIcon: ({ color, size }) => <User size={size ?? 22} color={color} />,
+          tabBarIcon: ({ focused, color }) => (
+            <TabBarIcon focused={focused} color={color} Icon={User} />
+          ),
         }}
       />
     </Tab.Navigator>
   );
 }
+
+const styles = StyleSheet.create({
+  floatingRoot: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "transparent",
+    zIndex: 100,
+  },
+  floatingInner: {
+    paddingHorizontal: 20,
+    backgroundColor: "transparent",
+  },
+  tabBarPill: {
+    borderRadius: 28,
+    minHeight: 56,
+    overflow: "hidden",
+    position: "relative",
+    ...Platform.select({
+      ios: {
+        shadowColor: BRAND,
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.22,
+        shadowRadius: 16,
+      },
+      android: { elevation: 5 },
+    }),
+  },
+  bottomTabBarInner: {
+    backgroundColor: "transparent",
+    borderTopWidth: 0,
+    elevation: 0,
+    shadowOpacity: 0,
+    minHeight: 56,
+    height: 56,
+    paddingTop: 4,
+    paddingBottom: 0,
+  },
+  tabItem: {
+    paddingVertical: 0,
+  },
+  activeIconRing: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    backgroundColor: BRAND,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+});

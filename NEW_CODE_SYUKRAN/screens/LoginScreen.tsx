@@ -4,28 +4,42 @@ import {
   StyleSheet,
   ScrollView,
   Text,
-  TouchableOpacity,
-  SafeAreaView,
-  Linking,
+  Pressable,
+  Platform,
+  KeyboardAvoidingView,
 } from "react-native";
+import { LinearGradient } from "expo-linear-gradient";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+
 import { LoginForm } from "../components/forms/LoginForm";
-import { FormButton } from "../components/ui/FormButton";
-import { colors } from "../constants/colors";
+import { GoogleLogo } from "../components/ui/GoogleLogo";
+import { fonts } from "../constants/fonts";
+import { POST_LOGIN_ONBOARDING_STORAGE_KEY } from "../constants/storageKeys";
+
+const accent = "#7B89F4";
+const pageBg = "#F8F9FB";
 
 export default function LoginScreen({
   navigation,
 }: {
   navigation: { navigate: (name: string) => void; push: (name: string) => void };
 }) {
+  const insets = useSafeAreaInsets();
   const [error, setError] = useState<string | undefined>();
   const [loading, setLoading] = useState(false);
 
   const handleLogin = async (_email: string, _password: string) => {
     setError(undefined);
     setLoading(true);
-    setTimeout(() => {
+    setTimeout(async () => {
       setLoading(false);
-      navigation.navigate("Main");
+      const done = await AsyncStorage.getItem(POST_LOGIN_ONBOARDING_STORAGE_KEY);
+      if (done === "true") {
+        navigation.navigate("Main");
+      } else {
+        navigation.navigate("PostLoginOnboarding");
+      }
     }, 800);
   };
 
@@ -33,153 +47,224 @@ export default function LoginScreen({
     navigation.push("ForgotPassword");
   };
 
-  const handleOpenPolicy = () => {
-    Linking.openURL("https://myspm.io/privacy").catch(() => {});
-  };
-
   return (
-    <SafeAreaView style={styles.container}>
-      <ScrollView
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
+    <View style={styles.root}>
+      <LinearGradient
+        colors={["#EDE9FE", pageBg, "#F0F4FF"]}
+        locations={[0, 0.45, 1]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={StyleSheet.absoluteFill}
+      />
+      <LinearGradient
+        colors={["rgba(123, 137, 244, 0.45)", "rgba(123, 137, 244, 0)"]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.glowTopLeft}
+      />
+      <LinearGradient
+        colors={["rgba(91, 106, 232, 0)", "rgba(123, 137, 244, 0.28)"]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.glowBottomRight}
+      />
+
+      <KeyboardAvoidingView
+        style={[styles.flex, { paddingTop: insets.top }]}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
-        <View style={styles.header}>
-          <Text style={styles.title}>MySPM</Text>
-          <Text style={styles.subtitle}>Sign in to your account</Text>
-        </View>
+        <ScrollView
+          contentContainerStyle={[
+            styles.scrollContent,
+            { paddingBottom: insets.bottom + 24 },
+          ]}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={styles.logoPillShadow}>
+            <View style={styles.logoPill}>
+              <Text style={styles.logoText}>
+                <Text style={styles.logoMy}>My</Text>
+                <Text style={styles.logoSpm}>SPM</Text>
+              </Text>
+            </View>
+          </View>
 
-        <View style={styles.formContainer}>
-          <LoginForm
-            onSubmit={handleLogin}
-            loading={loading}
-            error={error}
-          />
-        </View>
+          <Text style={styles.title}>Welcome Back</Text>
+          <Text style={styles.subtitle}>Continue your journey to SPM excellence.</Text>
 
-        <View style={styles.divider}>
-          <View style={styles.dividerLine} />
-          <Text style={styles.dividerText}>Or continue with</Text>
-          <View style={styles.dividerLine} />
-        </View>
+          <View style={styles.formBlock}>
+            <LoginForm
+              onSubmit={handleLogin}
+              onForgotPassword={handleForgotPassword}
+              loading={loading}
+              error={error}
+            />
+          </View>
 
-        <View style={styles.oauthContainer}>
-          <FormButton
-            title="Google"
+          <View style={styles.divider}>
+            <View style={styles.dividerLine} />
+            <Text style={styles.dividerText}>OR CONTINUE WITH</Text>
+            <View style={styles.dividerLine} />
+          </View>
+
+          <Pressable
+            style={({ pressed }) => [styles.googleBtn, pressed && styles.googleBtnPressed]}
             onPress={() => {}}
-            variant="secondary"
-            disabled
-            style={styles.oauthButton}
-          />
-          <FormButton
-            title="Apple"
-            onPress={() => {}}
-            variant="secondary"
-            disabled
-            style={styles.oauthButton}
-          />
-        </View>
+          >
+            <GoogleLogo size={22} />
+            <Text style={styles.googleLabel}>Google</Text>
+          </Pressable>
 
-        <View style={styles.footer}>
-          <TouchableOpacity onPress={handleForgotPassword}>
-            <Text style={styles.link}>Forgot password?</Text>
-          </TouchableOpacity>
-
-          <View style={styles.footerDivider} />
-
-          <TouchableOpacity onPress={handleOpenPolicy}>
-            <Text style={styles.link}>Privacy Policy</Text>
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.signupContainer}>
-          <Text style={styles.signupText}>Don't have an account? </Text>
-          <TouchableOpacity disabled>
-            <Text style={[styles.link, styles.signupLink]}>Sign up</Text>
-          </TouchableOpacity>
-        </View>
-      </ScrollView>
-    </SafeAreaView>
+          <View style={styles.signupRow}>
+            <Text style={styles.signupMuted}>Don&apos;t have an account? </Text>
+            <Pressable onPress={() => {}}>
+              <Text style={styles.signupLink}>Sign Up</Text>
+            </Pressable>
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  root: {
     flex: 1,
-    backgroundColor: "#FFF",
+    backgroundColor: pageBg,
+  },
+  flex: {
+    flex: 1,
+  },
+  glowTopLeft: {
+    position: "absolute",
+    top: -60,
+    left: -80,
+    width: 280,
+    height: 280,
+    borderRadius: 140,
+  },
+  glowBottomRight: {
+    position: "absolute",
+    bottom: -100,
+    right: -60,
+    width: 320,
+    height: 320,
+    borderRadius: 160,
   },
   scrollContent: {
     flexGrow: 1,
-    paddingHorizontal: 20,
-    paddingVertical: 20,
+    paddingHorizontal: 28,
+    paddingTop: 16,
   },
-  header: {
-    alignItems: "center",
-    marginBottom: 32,
+  logoPillShadow: {
+    alignSelf: "center",
+    marginBottom: 28,
+    ...Platform.select({
+      ios: {
+        shadowColor: "#7B89F4",
+        shadowOffset: { width: 0, height: 6 },
+        shadowOpacity: 0.2,
+        shadowRadius: 14,
+      },
+      android: { elevation: 6 },
+    }),
+  },
+  logoPill: {
+    backgroundColor: "#FFFFFF",
+    paddingHorizontal: 28,
+    paddingVertical: 12,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "rgba(123, 137, 244, 0.12)",
+  },
+  logoText: {
+    fontSize: 20,
+    fontFamily: fonts.extraBold,
+  },
+  logoMy: {
+    color: "#1A1A1A",
+  },
+  logoSpm: {
+    color: accent,
   },
   title: {
-    fontSize: 32,
-    fontWeight: "bold",
-    color: colors.primary,
+    fontSize: 28,
+    fontFamily: fonts.bold,
+    color: "#1A1A1A",
+    textAlign: "center",
     marginBottom: 8,
   },
   subtitle: {
-    fontSize: 16,
-    color: colors.gray,
+    fontSize: 15,
+    lineHeight: 22,
+    color: "#737373",
+    textAlign: "center",
+    marginBottom: 32,
   },
-  formContainer: {
-    marginBottom: 24,
+  formBlock: {
+    width: "100%",
   },
   divider: {
     flexDirection: "row",
     alignItems: "center",
-    marginVertical: 24,
+    marginTop: 28,
+    marginBottom: 22,
   },
   dividerLine: {
     flex: 1,
-    height: 1,
-    backgroundColor: colors.gray,
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: "#D4D4D8",
   },
   dividerText: {
-    marginHorizontal: 12,
-    color: colors.gray,
-    fontSize: 14,
+    marginHorizontal: 14,
+    fontSize: 11,
+    fontFamily: fonts.semiBold,
+    letterSpacing: 0.6,
+    color: "#A1A1AA",
   },
-  oauthContainer: {
-    gap: 12,
-  },
-  oauthButton: {
-    marginBottom: 0,
-  },
-  footer: {
+  googleBtn: {
     flexDirection: "row",
-    justifyContent: "center",
     alignItems: "center",
-    marginTop: 24,
-    marginBottom: 16,
+    justifyContent: "center",
+    gap: 12,
+    height: 52,
+    borderRadius: 999,
+    backgroundColor: "#FFFFFF",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "rgba(0,0,0,0.06)",
+    ...Platform.select({
+      ios: {
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.06,
+        shadowRadius: 8,
+      },
+      android: { elevation: 2 },
+    }),
   },
-  footerDivider: {
-    width: 1,
-    height: 16,
-    backgroundColor: colors.gray,
-    marginHorizontal: 12,
+  googleBtnPressed: {
+    opacity: 0.92,
   },
-  link: {
-    color: colors.primary,
-    fontSize: 14,
-    fontWeight: "600",
+  googleLabel: {
+    fontSize: 16,
+    fontFamily: fonts.bold,
+    color: "#1A1A1A",
   },
-  signupContainer: {
+  signupRow: {
     flexDirection: "row",
     justifyContent: "center",
     alignItems: "center",
     marginTop: "auto",
-    paddingVertical: 16,
+    paddingTop: 36,
   },
-  signupText: {
-    color: colors.darkText,
+  signupMuted: {
     fontSize: 14,
+    color: "#525252",
   },
   signupLink: {
-    marginHorizontal: 0,
+    fontSize: 14,
+    fontFamily: fonts.bold,
+    color: accent,
   },
 });

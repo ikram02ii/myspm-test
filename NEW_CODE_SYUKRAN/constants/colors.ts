@@ -14,6 +14,8 @@ export const colors = {
   textSecondary: "#6B7280",
   textTertiary: "#9CA3AF",
   textInverse: "#FFFFFF",
+  /** Main tab / scroll screen canvas (matches Practice) */
+  screenBackground: "#FAFAFA",
   background: "#FFFFFF",
   border: "#E5E7EB",
   borderLight: "#F3F4F6",

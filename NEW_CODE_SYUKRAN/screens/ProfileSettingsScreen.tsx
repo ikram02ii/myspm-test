@@ -2,6 +2,7 @@ import React from "react";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { colors } from "../constants/colors";
+import { fonts } from "../constants/fonts";
 
 export default function ProfileSettingsScreen() {
   return (
@@ -32,7 +33,7 @@ export default function ProfileSettingsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.background,
+    backgroundColor: colors.screenBackground,
   },
   section: {
     paddingVertical: 8,
@@ -42,7 +43,7 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     fontSize: 16,
-    fontWeight: "600",
+    fontFamily: fonts.semiBold,
     marginVertical: 12,
     color: colors.darkText,
   },

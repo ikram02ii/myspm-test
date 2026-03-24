@@ -12,6 +12,7 @@ import { FormButton } from "../components/ui/FormButton";
 import { ErrorMessage } from "../components/ui/ErrorMessage";
 import { validatePassword, validatePasswordMatch } from "../utils/validation";
 import { colors } from "../constants/colors";
+import { fonts } from "../constants/fonts";
 
 interface FormErrors {
   password?: string;
@@ -202,7 +203,7 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: 28,
-    fontWeight: "bold",
+    fontFamily: fonts.bold,
     color: colors.darkText,
     marginBottom: 8,
   },
@@ -222,7 +223,7 @@ const styles = StyleSheet.create({
   },
   requirementsTitle: {
     fontSize: 12,
-    fontWeight: "600",
+    fontFamily: fonts.semiBold,
     color: colors.darkText,
     marginBottom: 10,
   },
@@ -234,7 +235,7 @@ const styles = StyleSheet.create({
   },
   requirementMet: {
     color: colors.success,
-    fontWeight: "500",
+    fontFamily: fonts.medium,
   },
   button: {
     marginTop: 20,

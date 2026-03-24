@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { View, TouchableOpacity, Text, StyleSheet } from "react-native";
 import { FormInput } from "../ui/FormInput";
 import { colors } from "../../constants/colors";
+import { fonts } from "../../constants/fonts";
 
 interface PasswordInputProps {
   label?: string;
@@ -71,7 +72,7 @@ const styles = StyleSheet.create({
   },
   toggleText: {
     fontSize: 12,
-    fontWeight: "600",
+    fontFamily: fonts.semiBold,
     color: colors.primary,
   },
 });

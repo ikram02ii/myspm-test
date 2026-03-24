@@ -8,22 +8,37 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { ChevronRight, Globe, HelpCircle, Lock, Settings, Shield, User } from "lucide-react-native";
+import {
+  ChevronRight,
+  Globe,
+  HelpCircle,
+  Lock,
+  Settings,
+  Shield,
+  User,
+} from "lucide-react-native";
+import { LinearGradient } from "expo-linear-gradient";
 
 import { colors } from "../constants/colors";
+import { fonts } from "../constants/fonts";
+
+const BRAND = "#7B89F4";
+const BRAND_DEEP = "#6258E3";
+const BRAND_SOFT = "#EDE9FE";
+const CARD_BORDER = "rgba(15, 23, 42, 0.06)";
 
 const MOCK_ACHIEVEMENTS = [
-  { id: "1", title: "First Steps", icon: "star", color: colors.primary, earned: true },
-  { id: "2", title: "Week Streak", icon: "flame", color: colors.streak, earned: true },
-  { id: "3", title: "Top 10", icon: "trophy", color: colors.gold, earned: false },
-  { id: "4", title: "Scholar", icon: "book", color: colors.success, earned: true },
-  { id: "5", title: "Master", icon: "crown", color: colors.xp, earned: false },
+  { id: "1", title: "First Steps", earned: true },
+  { id: "2", title: "Week Streak", earned: true },
+  { id: "3", title: "Top 10", earned: false },
+  { id: "4", title: "Scholar", earned: true },
+  { id: "5", title: "Master", earned: false },
 ];
 
 const MOCK_PROGRESS = [
-  { name: "Mathematics", score: 78, color: colors.primary },
-  { name: "Bahasa Melayu", score: 92, color: colors.success },
-  { name: "English", score: 65, color: colors.warning },
+  { name: "Mathematics", score: 78 },
+  { name: "Bahasa Melayu", score: 92 },
+  { name: "English", score: 65 },
 ];
 
 const SETTINGS_ITEMS = [
@@ -32,6 +47,13 @@ const SETTINGS_ITEMS = [
   { icon: User, label: "Account", value: "" },
   { icon: HelpCircle, label: "Help & Support", value: "" },
 ];
+
+const cardShadow = {
+  shadowColor: "#0F172A",
+  shadowOffset: { width: 0, height: 4 },
+  shadowOpacity: 0.06,
+  shadowRadius: 14
+};
 
 export default function ProfileScreen({
   navigation,
@@ -49,23 +71,44 @@ export default function ProfileScreen({
   return (
     <ScrollView
       style={[styles.container, { paddingTop: webTopPadding }]}
-      contentContainerStyle={{ paddingBottom: insets.bottom + 100 }}
+      contentContainerStyle={{ paddingBottom: insets.bottom + 120 }}
       showsVerticalScrollIndicator={false}
     >
       <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
-        <Text style={styles.title}>Profile</Text>
-        <Pressable style={styles.settingsBtn} onPress={() => navigation.navigate("ProfileSettings")}>
-          <Settings size={22} color={colors.textSecondary} />
+        <View>
+          <Text style={styles.title}>Profile</Text>
+          <Text style={styles.subtitle}>Your progress and account</Text>
+        </View>
+        <Pressable
+          style={styles.settingsBtn}
+          onPress={() => navigation.navigate("ProfileSettings")}
+          hitSlop={8}
+        >
+          <Settings size={22} color={BRAND} strokeWidth={2} />
         </Pressable>
       </View>
 
       <View style={styles.profileCard}>
         <View style={styles.avatarContainer}>
-          <View style={styles.avatar}>
-            <Text style={styles.avatarText}>{displayName.charAt(0)}</Text>
-          </View>
+          <LinearGradient
+            colors={[BRAND_DEEP, BRAND]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.avatarRing}
+          >
+            <View style={styles.avatarInner}>
+              <Text style={styles.avatarText}>{displayName.charAt(0)}</Text>
+            </View>
+          </LinearGradient>
           <Pressable style={styles.editAvatarBtn}>
-            <Text style={styles.editAvatarText}>+</Text>
+            <LinearGradient
+              colors={[BRAND_DEEP, BRAND]}
+              start={{ x: 0, y: 0.5 }}
+              end={{ x: 1, y: 0.5 }}
+              style={styles.editAvatarGrad}
+            >
+              <Text style={styles.editAvatarText}>+</Text>
+            </LinearGradient>
           </Pressable>
         </View>
         <Text style={styles.profileName}>{displayName}</Text>
@@ -81,7 +124,7 @@ export default function ProfileScreen({
           <View style={styles.statDivider} />
           <View style={styles.statItem}>
             <Text style={styles.statValue}>{displayStreak}</Text>
-            <Text style={styles.statLabel}>Day Streak</Text>
+            <Text style={styles.statLabel}>Day streak</Text>
           </View>
           <View style={styles.statDivider} />
           <View style={styles.statItem}>
@@ -102,34 +145,31 @@ export default function ProfileScreen({
               <View
                 style={[
                   styles.achievementIcon,
-                  { backgroundColor: a.earned ? a.color + "25" : colors.surfaceAlt },
+                  { backgroundColor: a.earned ? BRAND_SOFT : colors.surfaceAlt },
                 ]}
               >
-                <Lock size={24} color={a.earned ? a.color : colors.textTertiary} />
+                <Lock size={22} color={a.earned ? BRAND : colors.textTertiary} strokeWidth={2} />
               </View>
               <Text style={[styles.achievementTitle, !a.earned && { color: colors.textTertiary }]}>
                 {a.title}
               </Text>
-              {!a.earned && (
-                <Lock size={10} color={colors.textTertiary} style={{ marginTop: 2 }} />
-              )}
             </View>
           ))}
         </View>
       </View>
 
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Subject Performance</Text>
+        <Text style={styles.sectionTitle}>Subject performance</Text>
         <View style={styles.progressCard}>
           {MOCK_PROGRESS.map((s) => (
-            <View key={s.name} style={styles.progressRow}>
-              <Text style={styles.progressLabel}>{s.name}</Text>
-              <View style={styles.progressBarContainer}>
-                <View
-                  style={[styles.progressBar, { width: `${s.score}%`, backgroundColor: s.color }]}
-                />
+            <View key={s.name} style={styles.progressBlock}>
+              <View style={styles.progressLabels}>
+                <Text style={styles.progressLabel}>{s.name}</Text>
+                <Text style={styles.progressValue}>{s.score}%</Text>
               </View>
-              <Text style={[styles.progressValue, { color: s.color }]}>{s.score}%</Text>
+              <View style={styles.progressTrack}>
+                <View style={[styles.progressFill, { width: `${s.score}%` }]} />
+              </View>
             </View>
           ))}
         </View>
@@ -147,10 +187,12 @@ export default function ProfileScreen({
                 : undefined
             }
           >
-            <item.icon size={18} color={colors.textSecondary} />
+            <View style={styles.settingsIconWrap}>
+              <item.icon size={18} color={BRAND} strokeWidth={2} />
+            </View>
             <Text style={styles.settingsLabel}>{item.label}</Text>
             <Text style={styles.settingsValue}>{item.value}</Text>
-            <ChevronRight size={16} color={colors.textTertiary} />
+            <ChevronRight size={18} color={colors.textTertiary} />
           </Pressable>
         ))}
       </View>
@@ -159,124 +201,181 @@ export default function ProfileScreen({
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background },
+  container: { flex: 1, backgroundColor: colors.screenBackground },
   header: {
     paddingHorizontal: 20,
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "center",
+    alignItems: "flex-start",
   },
-  title: { fontSize: 28, fontWeight: "700", color: colors.text },
-  settingsBtn: { width: 40, height: 40, alignItems: "center", justifyContent: "center" },
+  title: {
+    fontSize: 28,
+    fontFamily: fonts.bold,
+    color: colors.text,
+    letterSpacing: -0.5,
+  },
+  subtitle: {
+    fontSize: 14,
+    fontFamily: fonts.medium,
+    color: colors.textSecondary,
+    marginTop: 4,
+  },
+  settingsBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    backgroundColor: BRAND_SOFT,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   profileCard: {
     marginHorizontal: 20,
-    marginTop: 20,
-    backgroundColor: colors.surface,
+    marginTop: 22,
+    backgroundColor: "#FFFFFF",
     borderRadius: 20,
     padding: 24,
     alignItems: "center",
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: CARD_BORDER,
+    ...cardShadow,
   },
   avatarContainer: { position: "relative" },
-  avatar: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    backgroundColor: colors.primaryLight,
+  avatarRing: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
     alignItems: "center",
     justifyContent: "center",
   },
-  avatarText: { fontSize: 28, fontWeight: "700", color: colors.primary },
+  avatarInner: {
+    width: 74,
+    height: 74,
+    borderRadius: 37,
+    backgroundColor: "#FFFFFF",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  avatarText: { fontSize: 30, fontFamily: fonts.bold, color: BRAND },
   editAvatarBtn: {
     position: "absolute",
     bottom: 0,
-    right: -2,
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: colors.primary,
+    right: -4,
+    borderRadius: 14,
+    overflow: "hidden",
+    borderWidth: 2,
+    borderColor: "#FFFFFF",
+  },
+  editAvatarGrad: {
+    width: 28,
+    height: 28,
     alignItems: "center",
     justifyContent: "center",
-    borderWidth: 2,
-    borderColor: colors.surface,
   },
-  editAvatarText: { fontSize: 14, color: colors.textInverse, fontWeight: "700" },
-  profileName: { fontSize: 20, fontWeight: "700", color: colors.text, marginTop: 12 },
-  profileSchool: { fontSize: 13, color: colors.textSecondary, marginTop: 2 },
+  editAvatarText: { fontSize: 16, color: colors.textInverse, fontFamily: fonts.bold, marginTop: -1 },
+  profileName: { fontSize: 22, fontFamily: fonts.bold, color: colors.text, marginTop: 14 },
+  profileSchool: { fontSize: 14, fontFamily: fonts.medium, color: colors.textSecondary, marginTop: 4 },
   profileBadge: {
-    marginTop: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: 20,
-    backgroundColor: colors.primaryLight,
+    marginTop: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 5,
+    borderRadius: 999,
+    backgroundColor: BRAND_SOFT,
   },
-  profileBadgeText: { fontSize: 12, fontWeight: "600", color: colors.primary },
+  profileBadgeText: { fontSize: 12, fontFamily: fonts.semiBold, color: BRAND },
   statsRow: {
     flexDirection: "row",
-    marginTop: 20,
-    paddingTop: 20,
+    marginTop: 22,
+    paddingTop: 22,
     borderTopWidth: 1,
     borderTopColor: colors.borderLight,
     width: "100%",
   },
   statItem: { flex: 1, alignItems: "center" },
-  statValue: { fontSize: 18, fontWeight: "700", color: colors.text },
-  statLabel: { fontSize: 11, color: colors.textSecondary, marginTop: 2 },
+  statValue: { fontSize: 18, fontFamily: fonts.bold, color: BRAND },
+  statLabel: { fontSize: 11, fontFamily: fonts.medium, color: colors.textSecondary, marginTop: 4 },
   statDivider: { width: 1, backgroundColor: colors.borderLight },
   section: { marginTop: 28, paddingHorizontal: 20 },
-  sectionTitle: { fontSize: 16, fontWeight: "600", color: colors.text, marginBottom: 12 },
+  sectionTitle: {
+    fontSize: 18,
+    fontFamily: fonts.bold,
+    color: colors.text,
+    marginBottom: 14,
+    letterSpacing: -0.3,
+  },
   achievementGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
   achievementCard: {
     width: "31%",
-    backgroundColor: colors.surface,
-    borderRadius: 14,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 16,
     padding: 12,
     alignItems: "center",
-    gap: 6,
+    gap: 8,
     borderWidth: 1,
-    borderColor: colors.borderLight,
+    borderColor: CARD_BORDER,
+    ...cardShadow,
   },
-  achievementLocked: { opacity: 0.5 },
+  achievementLocked: { opacity: 0.55 },
   achievementIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: 14,
+    width: 48,
+    height: 48,
+    borderRadius: 16,
     alignItems: "center",
     justifyContent: "center",
   },
-  achievementTitle: { fontSize: 11, fontWeight: "500", color: colors.text, textAlign: "center" },
-  progressCard: {
-    backgroundColor: colors.surface,
-    borderRadius: 16,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: colors.borderLight,
-    gap: 14,
+  achievementTitle: {
+    fontSize: 11,
+    fontFamily: fonts.semiBold,
+    color: colors.text,
+    textAlign: "center",
   },
-  progressRow: { flexDirection: "row", alignItems: "center" },
-  progressLabel: { fontSize: 13, fontWeight: "500", color: colors.text, width: 100 },
-  progressBarContainer: {
-    flex: 1,
-    height: 8,
-    backgroundColor: colors.surfaceAlt,
-    borderRadius: 4,
-    marginHorizontal: 10,
+  progressCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 20,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: CARD_BORDER,
+    gap: 18,
+    ...cardShadow,
+  },
+  progressBlock: { gap: 8 },
+  progressLabels: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  progressLabel: { fontSize: 14, fontFamily: fonts.semiBold, color: colors.text },
+  progressValue: { fontSize: 14, fontFamily: fonts.bold, color: BRAND },
+  progressTrack: {
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: BRAND_SOFT,
     overflow: "hidden",
   },
-  progressBar: { height: "100%", borderRadius: 4 },
-  progressValue: { fontSize: 13, fontWeight: "600", width: 36, textAlign: "right" },
+  progressFill: {
+    height: "100%",
+    borderRadius: 5,
+    backgroundColor: BRAND,
+  },
   settingsRow: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: colors.surface,
-    borderRadius: 14,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 16,
     padding: 14,
-    marginBottom: 8,
+    marginBottom: 10,
     gap: 12,
     borderWidth: 1,
-    borderColor: colors.borderLight,
+    borderColor: CARD_BORDER,
+    ...cardShadow,
   },
-  settingsLabel: { fontSize: 14, fontWeight: "500", color: colors.text, flex: 1 },
-  settingsValue: { fontSize: 13, color: colors.textSecondary },
+  settingsIconWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    backgroundColor: BRAND_SOFT,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  settingsLabel: { fontSize: 14, fontFamily: fonts.semiBold, color: colors.text, flex: 1 },
+  settingsValue: { fontSize: 13, fontFamily: fonts.medium, color: colors.textSecondary },
 });

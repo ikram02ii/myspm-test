@@ -8,9 +8,14 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Flame } from "lucide-react-native";
+import { Flame, Trophy } from "lucide-react-native";
 
 import { colors } from "../constants/colors";
+import { fonts } from "../constants/fonts";
+
+const BRAND = "#7B89F4";
+const BRAND_SOFT = "#EDE9FE";
+const CARD_BORDER = "rgba(15, 23, 42, 0.06)";
 
 const TABS = ["School", "National", "Subject"] as const;
 
@@ -36,37 +41,50 @@ const MOCK_SCHOOL_RANKINGS = [
 
 const medalColors = [colors.gold, colors.silver, colors.bronze];
 
+const cardShadow = {
+  shadowColor: "#0F172A",
+  shadowOffset: { width: 0, height: 4 },
+  shadowOpacity: 0.06,
+  shadowRadius: 14,
+};
+
 function TopThree({ leaders }: { leaders: typeof MOCK_SCHOOL_LEADERS }) {
   const top3 = leaders.slice(0, 3);
   const order = [top3[1], top3[0], top3[2]].filter(Boolean);
   const heights = [100, 130, 80];
 
   return (
-    <View style={styles.podiumContainer}>
-      {order.map((person, idx) => {
-        if (!person) return null;
-        const rankIdx = idx === 1 ? 0 : idx === 0 ? 1 : 2;
-        const medalColor = medalColors[rankIdx];
-        return (
-          <View key={person.rank} style={[styles.podiumItem, { marginTop: idx === 1 ? 0 : 24 }]}>
-            <View style={[styles.podiumAvatar, { borderColor: medalColor }]}>
-              <Text style={styles.podiumAvatarText}>{person.avatar}</Text>
+    <View style={styles.podiumWrap}>
+      <View style={styles.podiumHeader}>
+        <Trophy size={18} color={BRAND} strokeWidth={2} />
+        <Text style={styles.podiumHeaderText}>Top learners</Text>
+      </View>
+      <View style={styles.podiumContainer}>
+        {order.map((person, idx) => {
+          if (!person) return null;
+          const rankIdx = idx === 1 ? 0 : idx === 0 ? 1 : 2;
+          const medalColor = medalColors[rankIdx];
+          return (
+            <View key={person.rank} style={[styles.podiumItem, { marginTop: idx === 1 ? 0 : 24 }]}>
+              <View style={[styles.podiumAvatar, { borderColor: medalColor }]}>
+                <Text style={styles.podiumAvatarText}>{person.avatar}</Text>
+              </View>
+              <Text style={styles.podiumName} numberOfLines={1}>
+                {person.name.split(" ")[0]}
+              </Text>
+              <Text style={styles.podiumXp}>{person.xp.toLocaleString()} XP</Text>
+              <View
+                style={[
+                  styles.podiumBar,
+                  { height: heights[idx], backgroundColor: medalColor + "35" },
+                ]}
+              >
+                <Text style={[styles.podiumRank, { color: medalColor }]}>#{person.rank}</Text>
+              </View>
             </View>
-            <Text style={styles.podiumName} numberOfLines={1}>
-              {person.name.split(" ")[0]}
-            </Text>
-            <Text style={styles.podiumXp}>{person.xp.toLocaleString()} XP</Text>
-            <View
-              style={[
-                styles.podiumBar,
-                { height: heights[idx], backgroundColor: medalColor + "40" },
-              ]}
-            >
-              <Text style={[styles.podiumRank, { color: medalColor }]}>#{person.rank}</Text>
-            </View>
-          </View>
-        );
-      })}
+          );
+        })}
+      </View>
     </View>
   );
 }
@@ -82,11 +100,12 @@ export default function LeaderboardScreen() {
   return (
     <ScrollView
       style={[styles.container, { paddingTop: webTopPadding }]}
-      contentContainerStyle={{ paddingBottom: insets.bottom + 100 }}
+      contentContainerStyle={{ paddingBottom: insets.bottom + 120 }}
       showsVerticalScrollIndicator={false}
     >
       <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
         <Text style={styles.title}>Leaderboard</Text>
+        <Text style={styles.subtitle}>Compete and climb the ranks</Text>
       </View>
 
       <View style={styles.tabBar}>
@@ -104,7 +123,7 @@ export default function LeaderboardScreen() {
       <TopThree leaders={currentLeaders} />
 
       <View style={styles.listSection}>
-        <Text style={styles.listTitle}>Full Rankings</Text>
+        <Text style={styles.listTitle}>Full rankings</Text>
         {currentLeaders.map((person, idx) => (
           <View key={person.rank} style={styles.rankRow}>
             <Text style={styles.rankNum}>{person.rank}</Text>
@@ -113,14 +132,14 @@ export default function LeaderboardScreen() {
                 styles.rankAvatar,
                 {
                   backgroundColor:
-                    idx < 3 ? medalColors[idx] + "25" : colors.surfaceAlt,
+                    idx < 3 ? medalColors[idx] + "22" : BRAND_SOFT,
                 },
               ]}
             >
               <Text
                 style={[
                   styles.rankAvatarText,
-                  { color: idx < 3 ? medalColors[idx] : colors.textSecondary },
+                  { color: idx < 3 ? medalColors[idx] : BRAND },
                 ]}
               >
                 {person.avatar}
@@ -141,14 +160,14 @@ export default function LeaderboardScreen() {
 
       {activeTab === "School" && (
         <View style={styles.schoolSection}>
-          <Text style={styles.listTitle}>School vs School</Text>
+          <Text style={styles.listTitle}>School vs school</Text>
           {MOCK_SCHOOL_RANKINGS.map((school) => (
             <View key={school.rank} style={styles.schoolRow}>
               <Text style={styles.schoolRank}>#{school.rank}</Text>
               <View style={styles.schoolInfo}>
                 <Text style={styles.schoolName}>{school.name}</Text>
                 <Text style={styles.schoolMeta}>
-                  {school.students} students | Avg {school.avgXp.toLocaleString()} XP
+                  {school.students} students · Avg {school.avgXp.toLocaleString()} XP
                 </Text>
               </View>
             </View>
@@ -160,27 +179,63 @@ export default function LeaderboardScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background },
+  container: { flex: 1, backgroundColor: colors.screenBackground },
   header: { paddingHorizontal: 20 },
-  title: { fontSize: 28, fontWeight: "700", color: colors.text },
+  title: {
+    fontSize: 28,
+    fontFamily: fonts.bold,
+    color: colors.text,
+    letterSpacing: -0.5,
+  },
+  subtitle: {
+    fontSize: 14,
+    fontFamily: fonts.medium,
+    color: colors.textSecondary,
+    marginTop: 4,
+  },
   tabBar: {
     flexDirection: "row",
     marginHorizontal: 20,
     marginTop: 20,
-    backgroundColor: colors.surfaceAlt,
-    borderRadius: 12,
+    backgroundColor: BRAND_SOFT,
+    borderRadius: 14,
     padding: 4,
   },
-  tab: { flex: 1, paddingVertical: 10, alignItems: "center", borderRadius: 10 },
-  tabActive: { backgroundColor: colors.surface },
-  tabText: { fontSize: 13, fontWeight: "500", color: colors.textSecondary },
-  tabTextActive: { color: colors.primary, fontWeight: "600" },
+  tab: { flex: 1, paddingVertical: 10, alignItems: "center", borderRadius: 11 },
+  tabActive: {
+    backgroundColor: "#FFFFFF",
+    ...cardShadow,
+  },
+  tabText: { fontSize: 13, fontFamily: fonts.medium, color: colors.textSecondary },
+  tabTextActive: { color: BRAND, fontFamily: fonts.semiBold },
+  podiumWrap: {
+    marginHorizontal: 20,
+    marginTop: 22,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 20,
+    paddingVertical: 18,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: CARD_BORDER,
+    ...cardShadow,
+  },
+  podiumHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 8,
+    paddingHorizontal: 8,
+  },
+  podiumHeaderText: {
+    fontSize: 14,
+    fontFamily: fonts.semiBold,
+    color: colors.text,
+  },
   podiumContainer: {
     flexDirection: "row",
     justifyContent: "center",
     alignItems: "flex-end",
-    marginTop: 24,
-    paddingHorizontal: 20,
+    paddingHorizontal: 4,
     gap: 12,
   },
   podiumItem: { alignItems: "center", flex: 1 },
@@ -188,14 +243,14 @@ const styles = StyleSheet.create({
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: colors.primaryLight,
+    backgroundColor: BRAND_SOFT,
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 2.5,
   },
-  podiumAvatarText: { fontSize: 18, fontWeight: "700", color: colors.primary },
-  podiumName: { fontSize: 12, fontWeight: "600", color: colors.text, marginTop: 6 },
-  podiumXp: { fontSize: 11, fontWeight: "500", color: colors.textSecondary, marginTop: 2 },
+  podiumAvatarText: { fontSize: 18, fontFamily: fonts.bold, color: BRAND },
+  podiumName: { fontSize: 12, fontFamily: fonts.semiBold, color: colors.text, marginTop: 6 },
+  podiumXp: { fontSize: 11, fontFamily: fonts.medium, color: colors.textSecondary, marginTop: 2 },
   podiumBar: {
     width: "100%",
     borderTopLeftRadius: 12,
@@ -205,22 +260,29 @@ const styles = StyleSheet.create({
     justifyContent: "flex-start",
     paddingTop: 10,
   },
-  podiumRank: { fontSize: 18, fontWeight: "700" },
-  listSection: { marginTop: 32, paddingHorizontal: 20 },
-  listTitle: { fontSize: 16, fontWeight: "600", color: colors.text, marginBottom: 12 },
+  podiumRank: { fontSize: 18, fontFamily: fonts.bold },
+  listSection: { marginTop: 28, paddingHorizontal: 20 },
+  listTitle: {
+    fontSize: 18,
+    fontFamily: fonts.bold,
+    color: colors.text,
+    marginBottom: 14,
+    letterSpacing: -0.3,
+  },
   rankRow: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: colors.surface,
-    borderRadius: 14,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 16,
     padding: 14,
-    marginBottom: 8,
+    marginBottom: 10,
     borderWidth: 1,
-    borderColor: colors.borderLight,
+    borderColor: CARD_BORDER,
+    ...cardShadow,
   },
   rankNum: {
     fontSize: 14,
-    fontWeight: "700",
+    fontFamily: fonts.bold,
     color: colors.textTertiary,
     width: 24,
     textAlign: "center",
@@ -233,32 +295,38 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginLeft: 8,
   },
-  rankAvatarText: { fontSize: 16, fontWeight: "600" },
+  rankAvatarText: { fontSize: 16, fontFamily: fonts.semiBold },
   rankInfo: { flex: 1, marginLeft: 12 },
-  rankName: { fontSize: 14, fontWeight: "600", color: colors.text },
+  rankName: { fontSize: 14, fontFamily: fonts.semiBold, color: colors.text },
   rankMeta: { flexDirection: "row", alignItems: "center", gap: 3, marginTop: 2 },
   rankStreak: { fontSize: 11, color: colors.textTertiary },
-  rankXp: { fontSize: 16, fontWeight: "700", color: colors.primary },
-  rankXpLabel: { fontSize: 10, fontWeight: "500", color: colors.textSecondary, marginLeft: 2 },
-  schoolSection: { marginTop: 28, paddingHorizontal: 20 },
+  rankXp: { fontSize: 16, fontFamily: fonts.bold, color: BRAND },
+  rankXpLabel: {
+    fontSize: 10,
+    fontFamily: fonts.medium,
+    color: colors.textSecondary,
+    marginLeft: 2,
+  },
+  schoolSection: { marginTop: 28, paddingHorizontal: 20, paddingBottom: 8 },
   schoolRow: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: colors.surface,
-    borderRadius: 14,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 16,
     padding: 14,
-    marginBottom: 8,
+    marginBottom: 10,
     borderWidth: 1,
-    borderColor: colors.borderLight,
+    borderColor: CARD_BORDER,
+    ...cardShadow,
   },
   schoolRank: {
     fontSize: 16,
-    fontWeight: "700",
-    color: colors.primary,
+    fontFamily: fonts.bold,
+    color: BRAND,
     width: 36,
     textAlign: "center",
   },
   schoolInfo: { flex: 1, marginLeft: 8 },
-  schoolName: { fontSize: 14, fontWeight: "600", color: colors.text },
+  schoolName: { fontSize: 14, fontFamily: fonts.semiBold, color: colors.text },
   schoolMeta: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
 });

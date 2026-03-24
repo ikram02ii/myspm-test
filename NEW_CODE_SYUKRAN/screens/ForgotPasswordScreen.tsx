@@ -12,6 +12,7 @@ import { FormButton } from "../components/ui/FormButton";
 import { ErrorMessage } from "../components/ui/ErrorMessage";
 import { validateEmail } from "../utils/validation";
 import { colors } from "../constants/colors";
+import { fonts } from "../constants/fonts";
 
 export default function ForgotPasswordScreen({
   navigation,
@@ -144,14 +145,14 @@ const styles = StyleSheet.create({
   backButtonText: {
     color: colors.primary,
     fontSize: 16,
-    fontWeight: "600",
+    fontFamily: fonts.semiBold,
   },
   header: {
     marginBottom: 32,
   },
   title: {
     fontSize: 28,
-    fontWeight: "bold",
+    fontFamily: fonts.bold,
     color: colors.darkText,
     marginBottom: 8,
   },
@@ -180,7 +181,7 @@ const styles = StyleSheet.create({
   },
   link: {
     color: colors.primary,
-    fontWeight: "600",
+    fontFamily: fonts.semiBold,
   },
   successContainer: {
     flex: 1,
@@ -189,7 +190,7 @@ const styles = StyleSheet.create({
   },
   successTitle: {
     fontSize: 28,
-    fontWeight: "bold",
+    fontFamily: fonts.bold,
     color: colors.primary,
     marginBottom: 12,
     textAlign: "center",
@@ -209,7 +210,7 @@ const styles = StyleSheet.create({
   },
   stepsTitle: {
     fontSize: 14,
-    fontWeight: "600",
+    fontFamily: fonts.semiBold,
     color: colors.darkText,
     marginBottom: 12,
   },

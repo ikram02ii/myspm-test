@@ -1,6 +1,7 @@
 import React from "react";
 import { View, Text, StyleSheet } from "react-native";
 import { colors } from "../../constants/colors";
+import { fonts } from "../../constants/fonts";
 
 interface ErrorMessageProps {
   message?: string;
@@ -33,6 +34,6 @@ const styles = StyleSheet.create({
   text: {
     color: colors.error,
     fontSize: 14,
-    fontWeight: "500",
+    fontFamily: fonts.medium,
   },
 });

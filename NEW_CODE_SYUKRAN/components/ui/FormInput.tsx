@@ -7,6 +7,7 @@ import {
   Text,
 } from "react-native";
 import { colors } from "../../constants/colors";
+import { fonts } from "../../constants/fonts";
 
 interface FormInputProps extends TextInputProps {
   label?: string;
@@ -48,7 +49,7 @@ const styles = StyleSheet.create({
   },
   label: {
     fontSize: 14,
-    fontWeight: "600",
+    fontFamily: fonts.semiBold,
     marginBottom: 8,
     color: colors.darkText,
   },
