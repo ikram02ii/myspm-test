@@ -20,7 +20,7 @@ import { colors } from "../constants/colors";
 import { theme } from "../constants/palette";
 import HomeStack from "./HomeStack";
 import PracticeStack from "./PracticeStack";
-import CameraScreen from "../screens/CameraScreen";
+import CameraStack from "./CameraStack";
 import LeaderboardScreen from "../screens/LeaderboardScreen";
 import ProfileStack from "./ProfileStack";
 
@@ -71,11 +71,19 @@ function FloatingTabBar(props: BottomTabBarProps) {
   const bottomPad = Math.max(insets.bottom, 12) + 6;
   const tabRoute = props.state.routes[props.state.index];
   const onPracticeTab = tabRoute?.name === "Practice";
+  const onCameraTab = tabRoute?.name === "Camera";
   const practiceInner =
     onPracticeTab && tabRoute != null
       ? getFocusedRouteNameFromRoute(tabRoute) ?? "PracticeLibrary"
       : null;
+  const cameraInner =
+    onCameraTab && tabRoute != null
+      ? getFocusedRouteNameFromRoute(tabRoute) ?? "CameraIndex"
+      : null;
   if (practiceInner === "PracticeSession") {
+    return null;
+  }
+  if (cameraInner === "CameraCapture" || cameraInner === "CameraPreview") {
     return null;
   }
 
@@ -133,7 +141,7 @@ export default function MainTabs() {
       />
       <Tab.Screen
         name="Camera"
-        component={CameraScreen}
+        component={CameraStack}
         options={{
           title: "Scan",
           tabBarIcon: ({ focused, color }) => (

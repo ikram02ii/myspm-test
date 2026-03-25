@@ -32,16 +32,16 @@ const CARD_BORDER = "rgba(15, 23, 42, 0.06)";
 
 const MOCK_ACHIEVEMENTS = [
   { id: "1", title: "First Steps", earned: true },
-  { id: "2", title: "Week Streak", earned: true },
+  { id: "2", title: "Week Streak", earned: false },
   { id: "3", title: "Top 10", earned: false },
-  { id: "4", title: "Scholar", earned: true },
+  { id: "4", title: "Scholar", earned: false },
   { id: "5", title: "Master", earned: false },
 ];
 
 const MOCK_PROGRESS = [
-  { name: "Mathematics", score: 78 },
-  { name: "Bahasa Melayu", score: 92 },
-  { name: "English", score: 65 },
+  { name: "Mathematics", score: 0 },
+  { name: "Bahasa Melayu", score: 0 },
+  { name: "English", score: 0 },
 ];
 
 const cardShadow = {

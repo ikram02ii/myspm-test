@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Animated, Easing, Image, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import LottieView from "lottie-react-native";
+import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Camera, ImagePlus, Lightbulb, Scan } from "lucide-react-native";
 import { LinearGradient } from "expo-linear-gradient";
@@ -9,10 +10,13 @@ import { ToastMessage } from "../components/ui/ToastMessage";
 import { colors } from "../constants/colors";
 import { fonts } from "../constants/fonts";
 import { theme } from "../constants/palette";
+import type { CameraStackParamList } from "../navigation/CameraStack";
 
 const BRAND = theme.brand;
 
-export default function CameraScreen() {
+type Props = NativeStackScreenProps<CameraStackParamList, "CameraIndex">;
+
+export default function CameraScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
   const webTopPadding = Platform.OS === "web" ? 67 : 0;
   const entrance = useRef(new Animated.Value(0)).current;
@@ -29,8 +33,8 @@ export default function CameraScreen() {
     }, 2500);
   };
 
-  const handleScanQuestion = () => showComingSoonToast();
-  const handlePickFromGallery = () => showComingSoonToast();
+  const handleScanQuestion = () => navigation.navigate("CameraCapture");
+  const handlePickFromGallery = () => navigation.navigate("CameraHistory");
 
   useEffect(() => {
     Animated.timing(entrance, {
@@ -74,7 +78,7 @@ export default function CameraScreen() {
         ]}
       >
       <Text style={styles.title}>AI Scan Assistant</Text>
-      <Text style={styles.subtitle}>Scan your work to get instant grading and explanations.</Text>
+      <Text style={styles.subtitle}>Scan your work to get instant solution sand explanations.</Text>
 
       <View style={styles.heroCard}>
         <View style={styles.heroPlaceholder}>

@@ -41,9 +41,8 @@ export default function TeacherPostCard({
         </View>
       </View>
       {post.pinned ? (
-        <View style={styles.pinnedChip} accessibilityLabel="Pinned post">
+        <View style={styles.pinnedIconWrap} accessibilityLabel="Pinned post">
           <Pin size={16} color={BRAND_DEEP} strokeWidth={2.5} />
-          <Text style={styles.pinnedChipText}>Pinned</Text>
         </View>
       ) : null}
       {post.title ? <Text style={styles.title}>{post.title}</Text> : null}
@@ -71,24 +70,18 @@ const styles = StyleSheet.create({
     alignItems: "flex-start",
   },
   top: { flex: 1, flexDirection: "row", gap: 12, alignItems: "flex-start", minWidth: 0 },
-  pinnedChip: {
-    flexDirection: "row",
+  pinnedIconWrap: {
+    position: "absolute",
+    top: 12,
+    right: 12,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
     alignItems: "center",
-    alignSelf: "flex-start",
-    gap: 6,
-    marginTop: 10,
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    borderRadius: 999,
+    justifyContent: "center",
     backgroundColor: BRAND_SOFT,
     borderWidth: 1,
     borderColor: theme.pillBorderBrand,
-  },
-  pinnedChipText: {
-    fontSize: 12,
-    fontFamily: fonts.bold,
-    color: BRAND_DEEP,
-    letterSpacing: 0.2,
   },
   avatar: {
     width: 44,

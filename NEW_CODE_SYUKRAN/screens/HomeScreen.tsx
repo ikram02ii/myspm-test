@@ -38,9 +38,9 @@ const BRAND = theme.brand;
 const BRAND_DEEP = theme.brandDeep;
 
 const MOCK_MASTERY_ROWS = [
-  { name: "Mathematics", pct: 10 },
-  { name: "Physics", pct: 5},
-  { name: "Biology", pct: 2 },
+  { name: "Mathematics", pct: 0 },
+  { name: "Physics", pct: 0},
+  { name: "Biology", pct: 0 },
 ];
 
 type Props = NativeStackScreenProps<HomeStackParamList, "HomeIndex">;
@@ -344,7 +344,7 @@ export default function HomeScreen({ navigation }: Props) {
                 resizeMode="contain"
               />
             </View>
-            <Text style={styles.dualTitle}>Mock Exam</Text>
+            <Text style={styles.dualTitle}>Exam Task</Text>
           </Pressable>
         </View>
       </View>

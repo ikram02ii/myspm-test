@@ -13,6 +13,8 @@ import {
 import { colors } from "../constants/colors";
 import { fonts } from "../constants/fonts";
 import { theme } from "../constants/palette";
+import { FEATURE_FLAGS } from "../constants/featureFlags";
+import { UnderMaintenanceOverlay } from "../components/ui/UnderMaintenanceOverlay";
 
 const BRAND = theme.brand;
 const BRAND_SOFT = theme.brandSoft;
@@ -37,28 +39,33 @@ export default function ProfileSettingsScreen() {
   const insets = useSafeAreaInsets();
 
   return (
-    <ScrollView
-      style={styles.container}
-      contentContainerStyle={{ paddingBottom: insets.bottom + 120 }}
-      showsVerticalScrollIndicator={false}
-    >
-      <View style={styles.section}>
-        {SETTINGS_ITEMS.map((item) => (
-          <Pressable key={item.label} style={styles.settingsRow} onPress={() => {}}>
-            <View style={styles.settingsIconWrap}>
-              <item.icon size={18} color={BRAND} strokeWidth={2} />
-            </View>
-            <Text style={styles.settingsLabel}>{item.label}</Text>
-            <Text style={styles.settingsValue}>{item.value}</Text>
-            <ChevronRight size={18} color={colors.textTertiary} />
-          </Pressable>
-        ))}
-      </View>
-    </ScrollView>
+    <View style={styles.root}>
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={{ paddingBottom: insets.bottom + 120 }}
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.section}>
+          {SETTINGS_ITEMS.map((item) => (
+            <Pressable key={item.label} style={styles.settingsRow} onPress={() => {}}>
+              <View style={styles.settingsIconWrap}>
+                <item.icon size={18} color={BRAND} strokeWidth={2} />
+              </View>
+              <Text style={styles.settingsLabel}>{item.label}</Text>
+              <Text style={styles.settingsValue}>{item.value}</Text>
+              <ChevronRight size={18} color={colors.textTertiary} />
+            </Pressable>
+          ))}
+        </View>
+      </ScrollView>
+
+      <UnderMaintenanceOverlay visible={FEATURE_FLAGS.settingsUnderMaintenance} />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  root: { flex: 1 },
   container: {
     flex: 1,
     backgroundColor: colors.screenBackground,

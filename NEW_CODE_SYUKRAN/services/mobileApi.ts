@@ -58,3 +58,31 @@ export async function mobileApiPost<T>(endpoint: string, body: unknown): Promise
   }
   return data;
 }
+
+export async function mobileApiPostFormData<T>(endpoint: string, formData: FormData): Promise<T> {
+  const token = await AsyncStorage.getItem(AUTH_TOKEN_STORAGE_KEY);
+  if (!token) {
+    throw new Error("Not signed in");
+  }
+  const url = `${MOBILE_API_BASE_URL}${endpoint}`;
+  console.log("[Mobile API][Request]", { method: "POST_FORMDATA", url });
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    body: formData,
+  });
+  const data = (await response.json()) as T & { error?: string };
+  console.log("[Mobile API][Response]", {
+    method: "POST_FORMDATA",
+    url,
+    status: response.status,
+    ok: response.ok,
+    body: data,
+  });
+  if (!response.ok) {
+    throw new Error(data.error ?? "Request failed");
+  }
+  return data;
+}

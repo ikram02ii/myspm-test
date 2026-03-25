@@ -16,6 +16,8 @@ import { Flame, Trophy } from "lucide-react-native";
 import { colors } from "../constants/colors";
 import { fonts } from "../constants/fonts";
 import { theme } from "../constants/palette";
+import { FEATURE_FLAGS } from "../constants/featureFlags";
+import { UnderMaintenanceOverlay } from "../components/ui/UnderMaintenanceOverlay";
 
 const BRAND = theme.brand;
 const BRAND_SOFT = theme.brandSoft;
@@ -121,112 +123,117 @@ export default function LeaderboardScreen() {
   };
 
   return (
-    <ScrollView
-      style={[styles.container, { paddingTop: webTopPadding }]}
-      contentContainerStyle={{ paddingBottom: insets.bottom + 120 }}
-      showsVerticalScrollIndicator={false}
-      refreshControl={
-        <RefreshControl
-          refreshing={refreshing}
-          onRefresh={onRefresh}
-          tintColor={theme.brand}
-          colors={[theme.brand]}
-        />
-      }
-    >
-      <Animated.View
-        style={[
-          styles.animatedContent,
-          {
-            opacity: entrance,
-            transform: [
-              {
-                translateY: entrance.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: [12, 0],
-                }),
-              },
-            ],
-          },
-        ]}
+    <View style={styles.root}>
+      <ScrollView
+        style={[styles.container, { paddingTop: webTopPadding }]}
+        contentContainerStyle={{ paddingBottom: insets.bottom + 120 }}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={theme.brand}
+            colors={[theme.brand]}
+          />
+        }
       >
-      <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
-        <Text style={styles.title}>Leaderboard</Text>
-        <Text style={styles.subtitle}>Compete and climb the ranks</Text>
-      </View>
-
-      <View style={styles.tabBar}>
-        {TABS.map((tab) => (
-          <Pressable
-            key={tab}
-            style={[styles.tab, activeTab === tab && styles.tabActive]}
-            onPress={() => setActiveTab(tab)}
-          >
-            <Text style={[styles.tabText, activeTab === tab && styles.tabTextActive]}>{tab}</Text>
-          </Pressable>
-        ))}
-      </View>
-
-      <TopThree leaders={currentLeaders} />
-
-      <View style={styles.listSection}>
-        <Text style={styles.listTitle}>Full rankings</Text>
-        {currentLeaders.map((person, idx) => (
-          <View key={person.rank} style={styles.rankRow}>
-            <Text style={styles.rankNum}>{person.rank}</Text>
-            <View
-              style={[
-                styles.rankAvatar,
+        <Animated.View
+          style={[
+            styles.animatedContent,
+            {
+              opacity: entrance,
+              transform: [
                 {
-                  backgroundColor:
-                    idx < 3 ? medalColors[idx] + "22" : BRAND_SOFT,
+                  translateY: entrance.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [12, 0],
+                  }),
                 },
-              ]}
+              ],
+            },
+          ]}
+        >
+        <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
+          <Text style={styles.title}>Leaderboard</Text>
+          <Text style={styles.subtitle}>Compete and climb the ranks</Text>
+        </View>
+
+        <View style={styles.tabBar}>
+          {TABS.map((tab) => (
+            <Pressable
+              key={tab}
+              style={[styles.tab, activeTab === tab && styles.tabActive]}
+              onPress={() => setActiveTab(tab)}
             >
-              <Text
+              <Text style={[styles.tabText, activeTab === tab && styles.tabTextActive]}>{tab}</Text>
+            </Pressable>
+          ))}
+        </View>
+
+        <TopThree leaders={currentLeaders} />
+
+        <View style={styles.listSection}>
+          <Text style={styles.listTitle}>Full rankings</Text>
+          {currentLeaders.map((person, idx) => (
+            <View key={person.rank} style={styles.rankRow}>
+              <Text style={styles.rankNum}>{person.rank}</Text>
+              <View
                 style={[
-                  styles.rankAvatarText,
-                  { color: idx < 3 ? medalColors[idx] : BRAND },
+                  styles.rankAvatar,
+                  {
+                    backgroundColor:
+                      idx < 3 ? medalColors[idx] + "22" : BRAND_SOFT,
+                  },
                 ]}
               >
-                {person.avatar}
-              </Text>
-            </View>
-            <View style={styles.rankInfo}>
-              <Text style={styles.rankName}>{person.name}</Text>
-              <View style={styles.rankMeta}>
-                <Flame size={12} color={colors.streak} />
-                <Text style={styles.rankStreak}>{person.streak} day streak</Text>
-              </View>
-            </View>
-            <Text style={styles.rankXp}>{person.xp.toLocaleString()}</Text>
-            <Text style={styles.rankXpLabel}>XP</Text>
-          </View>
-        ))}
-      </View>
-
-      {activeTab === "School" && (
-        <View style={styles.schoolSection}>
-          <Text style={styles.listTitle}>School vs school</Text>
-          {MOCK_SCHOOL_RANKINGS.map((school) => (
-            <View key={school.rank} style={styles.schoolRow}>
-              <Text style={styles.schoolRank}>#{school.rank}</Text>
-              <View style={styles.schoolInfo}>
-                <Text style={styles.schoolName}>{school.name}</Text>
-                <Text style={styles.schoolMeta}>
-                  {school.students} students · Avg {school.avgXp.toLocaleString()} XP
+                <Text
+                  style={[
+                    styles.rankAvatarText,
+                    { color: idx < 3 ? medalColors[idx] : BRAND },
+                  ]}
+                >
+                  {person.avatar}
                 </Text>
               </View>
+              <View style={styles.rankInfo}>
+                <Text style={styles.rankName}>{person.name}</Text>
+                <View style={styles.rankMeta}>
+                  <Flame size={12} color={colors.streak} />
+                  <Text style={styles.rankStreak}>{person.streak} day streak</Text>
+                </View>
+              </View>
+              <Text style={styles.rankXp}>{person.xp.toLocaleString()}</Text>
+              <Text style={styles.rankXpLabel}>XP</Text>
             </View>
           ))}
         </View>
-      )}
-      </Animated.View>
-    </ScrollView>
+
+        {activeTab === "School" && (
+          <View style={styles.schoolSection}>
+            <Text style={styles.listTitle}>School vs school</Text>
+            {MOCK_SCHOOL_RANKINGS.map((school) => (
+              <View key={school.rank} style={styles.schoolRow}>
+                <Text style={styles.schoolRank}>#{school.rank}</Text>
+                <View style={styles.schoolInfo}>
+                  <Text style={styles.schoolName}>{school.name}</Text>
+                  <Text style={styles.schoolMeta}>
+                    {school.students} students · Avg {school.avgXp.toLocaleString()} XP
+                  </Text>
+                </View>
+              </View>
+            ))}
+          </View>
+        )}
+        </Animated.View>
+      </ScrollView>
+
+      <UnderMaintenanceOverlay visible={FEATURE_FLAGS.leaderboardUnderMaintenance} />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  root: { flex: 1 },
   container: { flex: 1, backgroundColor: colors.screenBackground },
   animatedContent: {
     flex: 1,
