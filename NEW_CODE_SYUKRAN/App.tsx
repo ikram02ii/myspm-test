@@ -22,6 +22,7 @@ import ForgotPasswordScreen from "./screens/ForgotPasswordScreen";
 import ResetPasswordScreen from "./screens/ResetPasswordScreen";
 import MainTabs from "./navigation/MainTabs";
 import PostLoginOnboardingScreen from "./screens/PostLoginOnboardingScreen";
+import { configureGoogleSignIn } from "./services/googleSignIn";
 
 export type RootStackParamList = {
   Welcome: undefined;
@@ -58,6 +59,7 @@ export default function App() {
   });
 
   useEffect(() => {
+    configureGoogleSignIn();
     if (__DEV__) {
       AsyncStorage.removeItem(POST_LOGIN_ONBOARDING_STORAGE_KEY).catch(() => {});
     }

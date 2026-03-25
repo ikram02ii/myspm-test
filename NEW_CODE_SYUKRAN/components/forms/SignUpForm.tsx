@@ -21,7 +21,7 @@ const accentDeep = theme.brandDeep;
 const labelMuted = "#9CA3AF";
 const inputPlaceholder = "#A3A3A3";
 
-const REQUIRE_SIGNUP_FIELDS = false;
+const REQUIRE_SIGNUP_FIELDS = true;
 
 interface SignUpFormProps {
   onSubmit: (fullName: string, email: string, password: string) => Promise<void>;

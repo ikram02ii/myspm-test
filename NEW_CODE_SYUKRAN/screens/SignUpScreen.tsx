@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   View,
   StyleSheet,
@@ -7,6 +7,7 @@ import {
   Pressable,
   Platform,
   KeyboardAvoidingView,
+  ActivityIndicator,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import Constants from "expo-constants";
@@ -16,9 +17,20 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import { SignUpForm } from "../components/forms/SignUpForm";
 import { GoogleLogo } from "../components/ui/GoogleLogo";
+import { ToastMessage } from "../components/ui/ToastMessage";
 import { fonts } from "../constants/fonts";
-import { POST_LOGIN_ONBOARDING_STORAGE_KEY } from "../constants/storageKeys";
+import {
+  AUTH_TOKEN_STORAGE_KEY,
+  AUTH_USER_STORAGE_KEY,
+  POST_LOGIN_ONBOARDING_STORAGE_KEY,
+} from "../constants/storageKeys";
+import {
+  GOOGLE_WEB_CLIENT_ID,
+  GOOGLE_IOS_CLIENT_ID,
+} from "../constants/api";
 import { theme } from "../constants/palette";
+import { signUpWithGoogle, signUpWithPassword } from "../services/mobileAuth";
+import { getGoogleIdToken, mapGoogleSignInError } from "../services/googleSignIn";
 
 const pageBg = theme.authBackground;
 const currentVersion = `v${Constants.expoConfig?.version ?? "1.0.0"}`;
@@ -29,13 +41,40 @@ export default function SignUpScreen({
   navigation: { navigate: (name: string) => void; goBack: () => void };
 }) {
   const insets = useSafeAreaInsets();
-  const [error, setError] = useState<string | undefined>();
   const [loading, setLoading] = useState(false);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [googleLoading, setGoogleLoading] = useState(false);
 
-  const handleSignUp = async (_fullName: string, _email: string, _password: string) => {
-    setError(undefined);
+  const showToast = (message: string) => {
+    setToastMessage(message);
+    if (toastTimeoutRef.current) {
+      clearTimeout(toastTimeoutRef.current);
+    }
+    toastTimeoutRef.current = setTimeout(() => {
+      setToastMessage(null);
+    }, 2500);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (toastTimeoutRef.current) {
+        clearTimeout(toastTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  const handleSignUp = async (fullName: string, email: string, password: string) => {
     setLoading(true);
-    setTimeout(async () => {
+    try {
+      const result = await signUpWithPassword({
+        name: fullName,
+        email,
+        password,
+      });
+      await AsyncStorage.setItem(AUTH_TOKEN_STORAGE_KEY, result.token);
+      await AsyncStorage.setItem(AUTH_USER_STORAGE_KEY, JSON.stringify(result.user));
+
       setLoading(false);
       const done = await AsyncStorage.getItem(POST_LOGIN_ONBOARDING_STORAGE_KEY);
       if (done === "true") {
@@ -43,11 +82,51 @@ export default function SignUpScreen({
       } else {
         navigation.navigate("PostLoginOnboarding");
       }
-    }, 800);
+    } catch (apiError) {
+      setLoading(false);
+      showToast(apiError instanceof Error ? apiError.message : "Signup failed");
+    }
+  };
+
+  const handleGoogleSignUp = async () => {
+    if (googleLoading) return;
+    if (!GOOGLE_WEB_CLIENT_ID) {
+      showToast("Google Web Client ID is not configured");
+      return;
+    }
+    if (Platform.OS === "ios" && !GOOGLE_IOS_CLIENT_ID) {
+      showToast("Google iOS Client ID is not configured");
+      return;
+    }
+
+    setGoogleLoading(true);
+    try {
+      const idToken = await getGoogleIdToken();
+      const result = await signUpWithGoogle({ idToken });
+      await AsyncStorage.setItem(AUTH_TOKEN_STORAGE_KEY, result.token);
+      await AsyncStorage.setItem(AUTH_USER_STORAGE_KEY, JSON.stringify(result.user));
+      setGoogleLoading(false);
+
+      const done = await AsyncStorage.getItem(POST_LOGIN_ONBOARDING_STORAGE_KEY);
+      if (done === "true") {
+        navigation.navigate("Main");
+      } else {
+        navigation.navigate("PostLoginOnboarding");
+      }
+    } catch (apiError) {
+      setGoogleLoading(false);
+      const msg = mapGoogleSignInError(apiError);
+      if (msg === "Google sign in failed") {
+        showToast(apiError instanceof Error ? apiError.message : "Google signup failed");
+      } else {
+        showToast(msg);
+      }
+    }
   };
 
   return (
     <View style={styles.root}>
+      <ToastMessage message={toastMessage} top={insets.top + 12} />
       <LinearGradient
         colors={[...theme.authGradient]}
         locations={[0, 0.45, 1]}
@@ -102,7 +181,7 @@ export default function SignUpScreen({
           <Text style={styles.subtitle}>Join MySPM and start practicing smarter.</Text>
 
           <View style={styles.formBlock}>
-            <SignUpForm onSubmit={handleSignUp} loading={loading} error={error} />
+            <SignUpForm onSubmit={handleSignUp} loading={loading} />
           </View>
 
           <View style={styles.divider}>
@@ -113,10 +192,14 @@ export default function SignUpScreen({
 
           <Pressable
             style={({ pressed }) => [styles.googleBtn, pressed && styles.googleBtnPressed]}
-            onPress={() => {}}
+            onPress={handleGoogleSignUp}
+            disabled={googleLoading}
           >
             <GoogleLogo size={22} />
-            <Text style={styles.googleLabel}>Google</Text>
+            <Text style={styles.googleLabel}>
+              {googleLoading ? "Connecting..." : "Google"}
+            </Text>
+            {googleLoading ? <ActivityIndicator size="small" color="#1A1A1A" /> : null}
           </Pressable>
 
           <View style={styles.loginRow}>

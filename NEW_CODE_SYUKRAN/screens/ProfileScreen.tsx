@@ -17,7 +17,11 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { colors } from "../constants/colors";
 import { fonts } from "../constants/fonts";
 import { theme } from "../constants/palette";
-import { POST_LOGIN_ONBOARDING_STORAGE_KEY } from "../constants/storageKeys";
+import {
+  AUTH_TOKEN_STORAGE_KEY,
+  AUTH_USER_STORAGE_KEY,
+  POST_LOGIN_ONBOARDING_STORAGE_KEY,
+} from "../constants/storageKeys";
 
 const BRAND = theme.brand;
 const BRAND_DEEP = theme.brandDeep;
@@ -62,7 +66,11 @@ export default function ProfileScreen({
   const displayStreak = 7;
   const displayQuestions = 156;
   const handleLogout = async () => {
-    await AsyncStorage.removeItem(POST_LOGIN_ONBOARDING_STORAGE_KEY);
+    await AsyncStorage.multiRemove([
+      POST_LOGIN_ONBOARDING_STORAGE_KEY,
+      AUTH_TOKEN_STORAGE_KEY,
+      AUTH_USER_STORAGE_KEY,
+    ]);
     const rootNavigation = navigation.getParent?.()?.getParent?.();
     if (rootNavigation) {
       rootNavigation.navigate("Welcome");

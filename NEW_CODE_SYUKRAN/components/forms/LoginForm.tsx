@@ -14,7 +14,7 @@ import { ArrowRight, Eye, EyeOff, Lock, Mail } from "lucide-react-native";
 import { ErrorMessage } from "../ui/ErrorMessage";
 import { fonts } from "../../constants/fonts";
 import { theme } from "../../constants/palette";
-import { validateEmail, validatePassword } from "../../utils/validation";
+import { validateEmail } from "../../utils/validation";
 
 const accent = theme.brand;
 const accentDeep = theme.brandDeep;
@@ -22,7 +22,7 @@ const labelMuted = "#9CA3AF";
 const inputPlaceholder = "#A3A3A3";
 
 /** Turn on when auth API validates credentials; until then Log In works with empty fields. */
-const REQUIRE_LOGIN_FIELDS = false;
+const REQUIRE_LOGIN_FIELDS = true;
 
 interface LoginFormProps {
   onSubmit: (email: string, password: string) => Promise<void>;
@@ -62,11 +62,8 @@ export const LoginForm: React.FC<LoginFormProps> = ({
       newErrors.email = "Please enter a valid email address";
     }
 
-    if (!password) {
+    if (!password.trim()) {
       newErrors.password = "Password is required";
-    } else if (!validatePassword(password)) {
-      newErrors.password =
-        "Password must be at least 8 characters with uppercase, lowercase, number, and special character";
     }
 
     setErrors(newErrors);
@@ -89,11 +86,8 @@ export const LoginForm: React.FC<LoginFormProps> = ({
         delete newErrors.email;
       }
     } else if (field === "password") {
-      if (!password) {
+      if (!password.trim()) {
         newErrors.password = "Password is required";
-      } else if (!validatePassword(password)) {
-        newErrors.password =
-          "Password must be at least 8 characters with uppercase, lowercase, number, and special character";
       } else {
         delete newErrors.password;
       }
