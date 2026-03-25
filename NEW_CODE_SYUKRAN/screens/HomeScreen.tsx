@@ -1,7 +1,8 @@
-import React, { useEffect, useRef } from "react";
+import React, { useCallback, useEffect, useRef } from "react";
 import {
   Animated,
   Easing,
+  Image,
   Platform,
   Pressable,
   RefreshControl,
@@ -12,30 +13,31 @@ import {
 } from "react-native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { LinearGradient } from "expo-linear-gradient";
 import {
   BarChart2,
   Camera,
   Clock,
   FileText,
   Flame,
-  PenLine,
   Sparkles,
   Star,
   Zap,
 } from "lucide-react-native";
-import { LinearGradient } from "expo-linear-gradient";
 
 import TeacherPostCard from "../components/TeacherPostCard";
-import { TEACHER_POSTS_MOCK } from "../constants/teacherPostsMock";
+import { ToastMessage } from "../components/ui/ToastMessage";
 import { colors } from "../constants/colors";
 import { fonts } from "../constants/fonts";
 import { theme } from "../constants/palette";
 import type { HomeStackParamList } from "../navigation/HomeStack";
+import { fetchMobileDashboard, type MobileDashboardData } from "../services/mobileDashboard";
+import { fetchPracticeSetList, type PracticeSetSummary } from "../services/mobilePracticeSets";
 
 const BRAND = theme.brand;
 const BRAND_DEEP = theme.brandDeep;
 
-const MASTERY_ROWS = [
+const MOCK_MASTERY_ROWS = [
   { name: "Mathematics", pct: 82 },
   { name: "Physics", pct: 68 },
   { name: "Biology", pct: 91 },
@@ -48,40 +50,91 @@ export default function HomeScreen({ navigation }: Props) {
   const webTopPadding = Platform.OS === "web" ? 67 : 0;
   const entrance = useRef(new Animated.Value(0)).current;
   const skeletonPulse = useRef(new Animated.Value(1)).current;
-  const loadingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [isLoadingDashboard, setIsLoadingDashboard] = React.useState(true);
   const [refreshing, setRefreshing] = React.useState(false);
-  const goPractice = () => navigation.getParent()?.navigate("Practice");
-  const goCamera = () => navigation.getParent()?.navigate("Camera");
-  const displayName = "User";
-  const displayStreak = 7;
-  const displayXP = 2450;
+  const [dashboard, setDashboard] = React.useState<MobileDashboardData | null>(null);
+  const [dashboardError, setDashboardError] = React.useState<string | null>(null);
+  const [toastMessage, setToastMessage] = React.useState<string | null>(null);
+  const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [todayGoalSet, setTodayGoalSet] = React.useState<PracticeSetSummary | null>(null);
 
-  const runDashboardLoad = (onDone?: () => void) => {
-    if (loadingTimeoutRef.current) {
-      clearTimeout(loadingTimeoutRef.current);
+  const showToast = (message: string) => {
+    setToastMessage(message);
+    if (toastTimeoutRef.current) {
+      clearTimeout(toastTimeoutRef.current);
     }
-    loadingTimeoutRef.current = setTimeout(() => {
-      setIsLoadingDashboard(false);
-      entrance.setValue(0);
-      Animated.timing(entrance, {
-        toValue: 1,
-        duration: 260,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
-      }).start();
-      onDone?.();
-    }, 3000);
+    toastTimeoutRef.current = setTimeout(() => {
+      setToastMessage(null);
+    }, 2500);
   };
 
   useEffect(() => {
-    runDashboardLoad();
     return () => {
-      if (loadingTimeoutRef.current) {
-        clearTimeout(loadingTimeoutRef.current);
+      if (toastTimeoutRef.current) {
+        clearTimeout(toastTimeoutRef.current);
       }
     };
+  }, []);
+
+  const goPractice = () => navigation.getParent()?.navigate("Practice");
+  const goCamera = () => navigation.getParent()?.navigate("Camera");
+  const goTodayGoal = () => {
+    if (!todayGoalSet) {
+      goPractice();
+      return;
+    }
+    (navigation.getParent() as any)?.navigate("Practice", {
+      screen: "PracticeSetDetail",
+      params: {
+        setId: todayGoalSet.id,
+        title: todayGoalSet.title,
+        subject: todayGoalSet.subject,
+        formLevel: todayGoalSet.formLevel,
+        questionCount: todayGoalSet.questionCount,
+      },
+    });
+  };
+
+  const runEntrance = useCallback(() => {
+    entrance.setValue(0);
+    Animated.timing(entrance, {
+      toValue: 1,
+      duration: 260,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
   }, [entrance]);
+
+  const loadDashboard = useCallback(
+    async (onDone?: () => void) => {
+      setDashboardError(null);
+      try {
+        const [data, sets] = await Promise.all([
+          fetchMobileDashboard(),
+          fetchPracticeSetList().catch(() => [] as PracticeSetSummary[]),
+        ]);
+        setDashboard(data);
+        runEntrance();
+        if (sets.length > 0) {
+          setTodayGoalSet(sets[Math.floor(Math.random() * sets.length)]);
+        } else {
+          setTodayGoalSet(null);
+        }
+      } catch (error) {
+        setDashboardError(error instanceof Error ? error.message : "Failed to load dashboard");
+        setDashboard(null);
+        setTodayGoalSet(null);
+      } finally {
+        setIsLoadingDashboard(false);
+        onDone?.();
+      }
+    },
+    [runEntrance]
+  );
+
+  useEffect(() => {
+    void loadDashboard();
+  }, [loadDashboard]);
 
   useEffect(() => {
     const pulseAnim = Animated.loop(
@@ -108,14 +161,23 @@ export default function HomeScreen({ navigation }: Props) {
 
   const onRefresh = () => {
     setRefreshing(true);
-    console.log("API request: refresh dashboard");
     setIsLoadingDashboard(true);
-    runDashboardLoad(() => {
+    void loadDashboard(() => {
       setRefreshing(false);
     });
   };
 
+  const displayName = dashboard?.greetingName ?? "User";
+  const displayStreak = dashboard?.streakDays ?? 0;
+  const displayXP = dashboard?.totalXp ?? 0;
+  const teacherPosts = dashboard?.teacherPosts ?? [];
+  const todayGoalMinutes = todayGoalSet
+    ? Math.max(1, Math.round(todayGoalSet.questionCount * 2.5))
+    : 45;
+
   return (
+    <>
+    <ToastMessage message={toastMessage} top={insets.top + 12} />
     <ScrollView
       style={[styles.container, { paddingTop: webTopPadding }]}
       contentContainerStyle={{ paddingBottom: insets.bottom + 120 }}
@@ -179,15 +241,24 @@ export default function HomeScreen({ navigation }: Props) {
       >
       <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
         <View>
-          <Text style={styles.greeting}>Hello, {displayName}</Text>
-          <View style={styles.streakRow}>
-            <View style={styles.streakBadge}>
-              <Flame size={14} color={colors.streak} />
-              <Text style={styles.streakText}>{displayStreak} day streak</Text>
-            </View>
-            <View style={styles.xpBadge}>
-              <Star size={14} color={colors.xp} />
-              <Text style={styles.xpText}>{displayXP.toLocaleString()} XP</Text>
+          <View style={styles.greetingRow}>
+            <Image
+              source={require("../assets/3d-icons/student.png")}
+              style={styles.greetingIcon}
+              // resizeMode="stretch"
+            />
+            <View style={styles.greetingTextCol}>
+              <Text style={styles.greeting}>Hello, {displayName}</Text>
+              <View style={styles.streakRow}>
+                <View style={styles.streakBadge}>
+                  <Flame size={14} color={colors.streak} />
+                  <Text style={styles.streakText}>{displayStreak} day streak</Text>
+                </View>
+                <View style={styles.xpBadge}>
+                  <Star size={14} color={colors.xp} />
+                  <Text style={styles.xpText}>{displayXP.toLocaleString()} XP</Text>
+                </View>
+              </View>
             </View>
           </View>
         </View>
@@ -196,9 +267,15 @@ export default function HomeScreen({ navigation }: Props) {
         </View>
       </View>
 
+      {dashboardError ? (
+        <View style={[styles.block, { paddingHorizontal: 20 }]}>
+          <Text style={styles.dashboardErrorText}>{dashboardError}</Text>
+        </View>
+      ) : null}
+
       <View style={styles.block}>
         <View style={styles.sectionHeadRow}>
-          <Text style={styles.blockTitle}>Today's Goal</Text>
+          <Text style={styles.blockTitle}>Today&apos;s Goal</Text>
         </View>
 
         <View style={styles.goalCard}>
@@ -209,22 +286,29 @@ export default function HomeScreen({ navigation }: Props) {
             </View>
             <Zap size={22} color={BRAND} strokeWidth={2} />
           </View>
-          <Text style={styles.goalTitle}>Physics – Forces and Motion</Text>
-          <Text style={styles.goalSubtitle}>Focus on Newton's Second Law applications</Text>
+          <Text style={styles.goalTitle}>
+            {todayGoalSet ? `${todayGoalSet.subject} – ${todayGoalSet.title}` : "Physics – Forces and Motion"}
+          </Text>
+          <Text style={styles.goalSubtitle}>
+            {todayGoalSet
+              ? `Form ${todayGoalSet.formLevel} · ${todayGoalSet.questionCount} questions`
+              : "Focus on Newton&apos;s Second Law applications"}
+          </Text>
           <View style={styles.goalMetaRow}>
             <View style={styles.goalMetaItem}>
               <Clock size={16} color={colors.textSecondary} />
-              <Text style={styles.goalMetaText}>45 min</Text>
+              <Text style={styles.goalMetaText}>{todayGoalMinutes} min</Text>
             </View>
             <View style={styles.goalMetaItem}>
               <BarChart2 size={16} color={colors.textSecondary} />
-              <Text style={styles.goalMetaText}>Intermediate</Text>
+              <Text style={styles.goalMetaText}>
+                {todayGoalSet
+                  ? todayGoalSet.difficultyLevel.charAt(0).toUpperCase() + todayGoalSet.difficultyLevel.slice(1)
+                  : "Intermediate"}
+              </Text>
             </View>
           </View>
-          <Pressable
-            style={styles.goalCtaWrap}
-            onPress={goPractice}
-          >
+          <Pressable style={styles.goalCtaWrap} onPress={goTodayGoal}>
             <LinearGradient
               colors={[BRAND_DEEP, BRAND]}
               start={{ x: 0, y: 0.5 }}
@@ -238,14 +322,27 @@ export default function HomeScreen({ navigation }: Props) {
 
         <View style={styles.dualRow}>
           <Pressable style={styles.dualCard} onPress={goPractice}>
-            <View style={[styles.dualIcon, { backgroundColor: "#FEF9C3" }]}>
-              <PenLine size={20} color="#CA8A04" strokeWidth={2} />
+            <View style={styles.dualIconSpacer} />
+            <View style={[styles.dualIconCorner, { backgroundColor: "#FEF9C3" }]}>
+              <Image
+                source={require("../assets/3d-icons/writing_hand.png")}
+                style={{ width: 60, height: 60 }}
+                resizeMode="contain"
+              />
             </View>
             <Text style={styles.dualTitle}>Daily Practice</Text>
           </Pressable>
-          <Pressable style={styles.dualCard}>
-            <View style={[styles.dualIcon, { backgroundColor: "#DBEAFE" }]}>
-              <FileText size={20} color="#2563EB" strokeWidth={2} />
+          <Pressable
+            style={styles.dualCard}
+            onPress={() => showToast("Stay Tuned for this Features")}
+          >
+            <View style={styles.dualIconSpacer} />
+            <View style={[styles.dualIconCorner, { backgroundColor: "#FEF9C3" }]}>
+              <Image
+                source={require("../assets/3d-icons/exam.png")}
+                style={{ width: 60, height: 60 }}
+                resizeMode="contain"
+              />
             </View>
             <Text style={styles.dualTitle}>Mock Exam</Text>
           </Pressable>
@@ -269,7 +366,7 @@ export default function HomeScreen({ navigation }: Props) {
         </Pressable>
         <Text style={[styles.blockTitle, styles.blockTitleSpacing]}>Mastery Progress</Text>
         <View style={styles.masteryCard}>
-          {MASTERY_ROWS.map((row) => (
+          {MOCK_MASTERY_ROWS.map((row) => (
             <View key={row.name} style={styles.masteryRow}>
               <View style={styles.masteryLabels}>
                 <Text style={styles.masteryName}>{row.name}</Text>
@@ -290,17 +387,24 @@ export default function HomeScreen({ navigation }: Props) {
             <Text style={styles.viewAllMuted}>View All</Text>
           </Pressable>
         </View>
-        {TEACHER_POSTS_MOCK.slice(0, 2).map((post, index) => (
-          <TeacherPostCard
-            key={post.id}
-            post={post}
-            style={index > 0 ? styles.postCardGap : undefined}
-          />
-        ))}
+        {teacherPosts.length === 0 ? (
+          <Text style={styles.emptyFeed}>
+            No posts from teachers you follow yet. Follow teachers during onboarding to see updates here.
+          </Text>
+        ) : (
+          teacherPosts.slice(0, 2).map((post, index) => (
+            <TeacherPostCard
+              key={post.id}
+              post={post}
+              style={index > 0 ? styles.postCardGap : undefined}
+            />
+          ))
+        )}
       </View>
       </Animated.View>
       )}
     </ScrollView>
+    </>
   );
 }
 
@@ -377,6 +481,9 @@ const styles = StyleSheet.create({
     alignItems: "flex-start",
   },
   greeting: { fontSize: 22, fontFamily: fonts.bold, color: colors.text },
+  greetingRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  greetingIcon: { width: 60, height: 60 },
+  greetingTextCol: { flexShrink: 1 },
   streakRow: { flexDirection: "row", gap: 10, marginTop: 6 },
   streakBadge: {
     flexDirection: "row",
@@ -421,7 +528,6 @@ const styles = StyleSheet.create({
     letterSpacing: -0.3,
   },
   blockTitleSpacing: { marginBottom: 14 },
-  linkBrand: { fontSize: 14, fontFamily: fonts.semiBold, color: BRAND },
   viewAllMuted: { fontSize: 14, fontFamily: fonts.medium, color: colors.textSecondary },
   goalCard: {
     backgroundColor: "#FFFFFF",
@@ -479,7 +585,7 @@ const styles = StyleSheet.create({
     shadowColor: BRAND,
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.35,
-    shadowRadius: 12
+    shadowRadius: 12,
   },
   goalCta: {
     paddingVertical: 16,
@@ -491,25 +597,43 @@ const styles = StyleSheet.create({
     fontFamily: fonts.bold,
     color: "#FFFFFF",
   },
+  dashboardErrorText: {
+    fontSize: 14,
+    fontFamily: fonts.medium,
+    color: "#B91C1C",
+    lineHeight: 20,
+  },
+  emptyFeed: {
+    fontSize: 14,
+    fontFamily: fonts.medium,
+    color: colors.textSecondary,
+    lineHeight: 20,
+  },
   dualRow: { flexDirection: "row", gap: 12, marginTop: 14 },
   dualCard: {
     flex: 1,
     backgroundColor: "#FFFFFF",
     borderRadius: 18,
     padding: 16,
+    position: "relative",
     borderWidth: 1,
     borderColor: "rgba(15, 23, 42, 0.06)",
     ...cardShadow,
   },
-  dualIcon: {
+  dualIconSpacer: {
+    // height: 10,
+  },
+  dualIconCorner: {
     width: 44,
     height: 44,
     borderRadius: 22,
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 10,
+    position: "absolute",
+    top:2,
+    left: 1,
   },
-  dualTitle: { fontSize: 15, fontFamily: fonts.bold, color: colors.text },
+  dualTitle: { fontSize: 15, fontFamily: fonts.bold, color: colors.text, textAlign: "right" },
   scanBanner: {
     flexDirection: "row",
     alignItems: "center",
@@ -519,29 +643,6 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     backgroundColor: "#0F172A",
     marginBottom: 22,
-  },
-  scanBannerPressed: { opacity: 0.92 },
-  scanBannerText: { flex: 1, paddingRight: 14 },
-  scanBannerTitle: {
-    fontSize: 17,
-    fontFamily: fonts.bold,
-    color: "#FFFFFF",
-    letterSpacing: -0.3,
-  },
-  scanBannerSub: {
-    fontSize: 13,
-    fontFamily: fonts.medium,
-    color: "#94A3B8",
-    marginTop: 6,
-    lineHeight: 18,
-  },
-  scanBannerIconWrap: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    backgroundColor: theme.brandSoft,
-    alignItems: "center",
-    justifyContent: "center",
   },
   masteryCard: {
     backgroundColor: "#FFFFFF",
@@ -570,6 +671,29 @@ const styles = StyleSheet.create({
     height: "100%",
     borderRadius: 5,
     backgroundColor: BRAND,
+  },
+  scanBannerPressed: { opacity: 0.92 },
+  scanBannerText: { flex: 1, paddingRight: 14 },
+  scanBannerTitle: {
+    fontSize: 17,
+    fontFamily: fonts.bold,
+    color: "#FFFFFF",
+    letterSpacing: -0.3,
+  },
+  scanBannerSub: {
+    fontSize: 13,
+    fontFamily: fonts.medium,
+    color: "#94A3B8",
+    marginTop: 6,
+    lineHeight: 18,
+  },
+  scanBannerIconWrap: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: theme.brandSoft,
+    alignItems: "center",
+    justifyContent: "center",
   },
   postCardGap: { marginTop: 12 },
 });

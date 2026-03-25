@@ -5,12 +5,14 @@ export type MobileAuthUser = {
   name: string;
   email: string;
   role: string;
-  school?: string;
+  school?: number;
 };
 
 export type MobileLoginResponse = {
   token: string;
   user: MobileAuthUser;
+  /** False when student has school_id set (onboarding done). */
+  needsOnboarding: boolean;
 };
 
 export type MobileSignUpPayload = {
@@ -30,6 +32,22 @@ type ApiErrorBody = {
 };
 
 type ApiJson = Record<string, unknown>;
+
+function parseAuthResponse(data: unknown): MobileLoginResponse {
+  if (typeof data !== "object" || data == null) {
+    throw new Error("Invalid authentication response");
+  }
+  const d = data as Record<string, unknown>;
+  if (
+    typeof d.token !== "string" ||
+    typeof d.needsOnboarding !== "boolean" ||
+    typeof d.user !== "object" ||
+    d.user == null
+  ) {
+    throw new Error("Invalid authentication response");
+  }
+  return data as MobileLoginResponse;
+}
 
 async function postJson(endpoint: string, requestBody: ApiJson): Promise<{
   status: number;
@@ -89,11 +107,7 @@ export async function loginWithPassword(email: string, password: string): Promis
     throw new Error(apiMessage ?? "Login failed");
   }
 
-  if (!("token" in data) || !("user" in data)) {
-    throw new Error("Invalid login response");
-  }
-
-  return data;
+  return parseAuthResponse(data);
 }
 
 export async function signUpWithPassword(payload: MobileSignUpPayload): Promise<MobileLoginResponse> {
@@ -110,11 +124,7 @@ export async function signUpWithPassword(payload: MobileSignUpPayload): Promise<
     throw new Error(apiMessage ?? "Signup failed");
   }
 
-  if (!("token" in data) || !("user" in data)) {
-    throw new Error("Invalid signup response");
-  }
-
-  return data;
+  return parseAuthResponse(data);
 }
 
 export async function authenticateWithGoogle(
@@ -131,11 +141,7 @@ export async function authenticateWithGoogle(
     throw new Error(apiMessage ?? "Google authentication failed");
   }
 
-  if (!("token" in data) || !("user" in data)) {
-    throw new Error("Invalid Google authentication response");
-  }
-
-  return data;
+  return parseAuthResponse(data);
 }
 
 export const loginWithGoogle = authenticateWithGoogle;

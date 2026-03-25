@@ -1,9 +1,10 @@
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Animated, Easing, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Camera, ImagePlus, Lightbulb, Scan } from "lucide-react-native";
 import { LinearGradient } from "expo-linear-gradient";
 
+import { ToastMessage } from "../components/ui/ToastMessage";
 import { colors } from "../constants/colors";
 import { fonts } from "../constants/fonts";
 import { theme } from "../constants/palette";
@@ -14,9 +15,21 @@ export default function CameraScreen() {
   const insets = useSafeAreaInsets();
   const webTopPadding = Platform.OS === "web" ? 67 : 0;
   const entrance = useRef(new Animated.Value(0)).current;
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const handleScanQuestion = () => {};
-  const handlePickFromGallery = () => {};
+  const showComingSoonToast = () => {
+    setToastMessage("Stay Tuned for this Features");
+    if (toastTimeoutRef.current) {
+      clearTimeout(toastTimeoutRef.current);
+    }
+    toastTimeoutRef.current = setTimeout(() => {
+      setToastMessage(null);
+    }, 2500);
+  };
+
+  const handleScanQuestion = () => showComingSoonToast();
+  const handlePickFromGallery = () => showComingSoonToast();
 
   useEffect(() => {
     Animated.timing(entrance, {
@@ -27,12 +40,22 @@ export default function CameraScreen() {
     }).start();
   }, [entrance]);
 
+  useEffect(() => {
+    return () => {
+      if (toastTimeoutRef.current) {
+        clearTimeout(toastTimeoutRef.current);
+      }
+    };
+  }, []);
+
   return (
-    <ScrollView
-      style={[styles.container, { paddingTop: webTopPadding }]}
-      contentContainerStyle={{ paddingTop: insets.top + 16, paddingBottom: insets.bottom + 120 }}
-      showsVerticalScrollIndicator={false}
-    >
+    <>
+      <ToastMessage message={toastMessage} top={insets.top + 12} />
+      <ScrollView
+        style={[styles.container, { paddingTop: webTopPadding }]}
+        contentContainerStyle={{ paddingTop: insets.top + 16, paddingBottom: insets.bottom + 120 }}
+        showsVerticalScrollIndicator={false}
+      >
       <Animated.View
         style={[
           styles.animatedContent,
@@ -114,6 +137,7 @@ export default function CameraScreen() {
       </View>
       </Animated.View>
     </ScrollView>
+    </>
   );
 }
 

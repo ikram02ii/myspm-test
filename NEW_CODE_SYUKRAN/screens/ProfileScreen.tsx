@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from "react";
 import {
+  ActivityIndicator,
   Animated,
   Easing,
   Platform,
@@ -22,6 +23,7 @@ import {
   AUTH_USER_STORAGE_KEY,
   POST_LOGIN_ONBOARDING_STORAGE_KEY,
 } from "../constants/storageKeys";
+import { fetchMobileProfile, type MobileProfileData } from "../services/mobileProfile";
 
 const BRAND = theme.brand;
 const BRAND_DEEP = theme.brandDeep;
@@ -60,11 +62,41 @@ export default function ProfileScreen({
   const insets = useSafeAreaInsets();
   const webTopPadding = Platform.OS === "web" ? 67 : 0;
   const entrance = useRef(new Animated.Value(0)).current;
-  const displayName = "User";
-  const displaySchool = "SMK Example";
-  const displayXP = 2450;
-  const displayStreak = 7;
-  const displayQuestions = 156;
+  const [profile, setProfile] = React.useState<MobileProfileData | null>(null);
+  const [profileLoading, setProfileLoading] = React.useState(true);
+  const [profileError, setProfileError] = React.useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    const load = async () => {
+      setProfileLoading(true);
+      setProfileError(null);
+      try {
+        const data = await fetchMobileProfile();
+        if (!active) return;
+        setProfile(data);
+      } catch (error) {
+        if (!active) return;
+        setProfileError(error instanceof Error ? error.message : "Failed to load profile");
+        setProfile(null);
+      } finally {
+        if (active) setProfileLoading(false);
+      }
+    };
+    void load();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const displayName = profile?.name ?? "User";
+  const displaySchool = profile?.schoolName ?? "School not set";
+  const displayXP = profile?.totalXp ?? 0;
+  const displayStreak = profile?.streakDays ?? 0;
+  const displayQuestions = profile?.questionsAnswered ?? 0;
+  const formLabel =
+    profile?.formLevel != null ? `Form ${profile.formLevel}` : "Form not set";
+
   const handleLogout = async () => {
     await AsyncStorage.multiRemove([
       POST_LOGIN_ONBOARDING_STORAGE_KEY,
@@ -80,13 +112,23 @@ export default function ProfileScreen({
   };
 
   useEffect(() => {
+    if (profileLoading) return;
+    entrance.setValue(0);
     Animated.timing(entrance, {
       toValue: 1,
       duration: 260,
       easing: Easing.out(Easing.cubic),
       useNativeDriver: true,
     }).start();
-  }, [entrance]);
+  }, [entrance, profileLoading, profile]);
+
+  if (profileLoading) {
+    return (
+      <View style={[styles.container, styles.centered, { paddingTop: webTopPadding + insets.top }]}>
+        <ActivityIndicator size="large" color={BRAND} />
+      </View>
+    );
+  }
 
   return (
     <ScrollView
@@ -110,7 +152,7 @@ export default function ProfileScreen({
           },
         ]}
       >
-      <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
+        <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
         <View>
           <Text style={styles.title}>Profile</Text>
           <Text style={styles.subtitle}>Your progress and account</Text>
@@ -123,6 +165,10 @@ export default function ProfileScreen({
           <Settings size={22} color={BRAND} strokeWidth={2} />
         </Pressable>
       </View>
+
+      {profileError ? (
+        <Text style={styles.profileLoadError}>{profileError}</Text>
+      ) : null}
 
       <View style={styles.profileCard}>
         <View style={styles.avatarContainer}>
@@ -150,7 +196,7 @@ export default function ProfileScreen({
         <Text style={styles.profileName}>{displayName}</Text>
         <Text style={styles.profileSchool}>{displaySchool}</Text>
         <View style={styles.profileBadge}>
-          <Text style={styles.profileBadgeText}>Form 5</Text>
+          <Text style={styles.profileBadgeText}>{formLabel}</Text>
         </View>
         <View style={styles.statsRow}>
           <View style={styles.statItem}>
@@ -226,6 +272,7 @@ export default function ProfileScreen({
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.screenBackground },
+  centered: { justifyContent: "center", alignItems: "center" },
   animatedContent: {
     flex: 1,
   },
@@ -254,6 +301,13 @@ const styles = StyleSheet.create({
     backgroundColor: BRAND_SOFT,
     alignItems: "center",
     justifyContent: "center",
+  },
+  profileLoadError: {
+    marginHorizontal: 20,
+    marginTop: 8,
+    fontSize: 13,
+    fontFamily: fonts.medium,
+    color: "#B91C1C",
   },
   profileCard: {
     marginHorizontal: 20,

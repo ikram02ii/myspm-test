@@ -1,13 +1,15 @@
 import React from "react";
 import { StyleSheet, Text, View, ViewStyle } from "react-native";
+import { Pin } from "lucide-react-native";
 
-import type { TeacherPost } from "../constants/teacherPostsMock";
+import type { TeacherFeedPost } from "../types/teacherFeedPost";
 import { colors } from "../constants/colors";
 import { fonts } from "../constants/fonts";
 import { theme } from "../constants/palette";
 
 const BRAND = theme.brand;
 const BRAND_SOFT = theme.brandSoft;
+const BRAND_DEEP = theme.brandDeep;
 
 const cardShadow = {
   shadowColor: "#0F172A",
@@ -20,23 +22,37 @@ export default function TeacherPostCard({
   post,
   style,
 }: {
-  post: TeacherPost;
+  post: TeacherFeedPost;
   style?: ViewStyle;
 }) {
   return (
     <View style={[styles.card, style]}>
-      <View style={styles.top}>
-        <View style={styles.avatar}>
-          <Text style={styles.avatarText}>{post.initials}</Text>
-        </View>
-        <View style={styles.author}>
-          <Text style={styles.name}>{post.author}</Text>
-          <Text style={styles.role}>
-            {post.role} · {post.timeAgo}
-          </Text>
+      <View style={styles.cardHeader}>
+        <View style={styles.top}>
+          <View style={styles.avatar}>
+            <Text style={styles.avatarText}>{post.initials}</Text>
+          </View>
+          <View style={styles.author}>
+            <Text style={styles.name}>{post.author}</Text>
+            <Text style={styles.role}>
+              {post.categoryLabel} · {post.audienceLabel} · {post.timeAgo}
+            </Text>
+          </View>
         </View>
       </View>
-      <Text style={styles.body}>{post.body}</Text>
+      {post.pinned ? (
+        <View style={styles.pinnedChip} accessibilityLabel="Pinned post">
+          <Pin size={16} color={BRAND_DEEP} strokeWidth={2.5} />
+          <Text style={styles.pinnedChipText}>Pinned</Text>
+        </View>
+      ) : null}
+      {post.title ? <Text style={styles.title}>{post.title}</Text> : null}
+      {post.excerpt ? <Text style={styles.excerpt}>{post.excerpt}</Text> : null}
+      {post.content ? (
+        <Text style={[styles.body, post.excerpt ? styles.bodyAfterExcerpt : null]}>
+          {post.content}
+        </Text>
+      ) : null}
     </View>
   );
 }
@@ -50,7 +66,30 @@ const styles = StyleSheet.create({
     borderColor: "rgba(15, 23, 42, 0.06)",
     ...cardShadow,
   },
-  top: { flexDirection: "row", gap: 12, alignItems: "flex-start" },
+  cardHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+  },
+  top: { flex: 1, flexDirection: "row", gap: 12, alignItems: "flex-start", minWidth: 0 },
+  pinnedChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "flex-start",
+    gap: 6,
+    marginTop: 10,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 999,
+    backgroundColor: BRAND_SOFT,
+    borderWidth: 1,
+    borderColor: theme.pillBorderBrand,
+  },
+  pinnedChipText: {
+    fontSize: 12,
+    fontFamily: fonts.bold,
+    color: BRAND_DEEP,
+    letterSpacing: 0.2,
+  },
   avatar: {
     width: 44,
     height: 44,
@@ -63,11 +102,26 @@ const styles = StyleSheet.create({
   author: { flex: 1 },
   name: { fontSize: 15, fontFamily: fonts.bold, color: colors.text },
   role: { fontSize: 12, fontFamily: fonts.medium, color: colors.textSecondary, marginTop: 2 },
+  title: {
+    fontSize: 16,
+    fontFamily: fonts.bold,
+    color: colors.text,
+    lineHeight: 22,
+    marginTop: 12,
+  },
+  excerpt: {
+    fontSize: 14,
+    fontFamily: fonts.medium,
+    color: colors.textSecondary,
+    lineHeight: 21,
+    marginTop: 8,
+  },
   body: {
     fontSize: 14,
     fontFamily: fonts.regular,
     color: colors.text,
     lineHeight: 21,
-    marginTop: 14,
+    marginTop: 8,
   },
+  bodyAfterExcerpt: { marginTop: 10 },
 });

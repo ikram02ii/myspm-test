@@ -68,11 +68,12 @@ export default function LoginScreen({
       await AsyncStorage.setItem(AUTH_USER_STORAGE_KEY, JSON.stringify(result.user));
 
       setLoading(false);
-      const done = await AsyncStorage.getItem(POST_LOGIN_ONBOARDING_STORAGE_KEY);
-      if (done === "true") {
-        navigation.navigate("Main");
-      } else {
+      if (result.needsOnboarding) {
+        await AsyncStorage.removeItem(POST_LOGIN_ONBOARDING_STORAGE_KEY);
         navigation.navigate("PostLoginOnboarding");
+      } else {
+        await AsyncStorage.setItem(POST_LOGIN_ONBOARDING_STORAGE_KEY, "true");
+        navigation.navigate("Main");
       }
     } catch (apiError) {
       setLoading(false);
@@ -103,11 +104,12 @@ export default function LoginScreen({
       await AsyncStorage.setItem(AUTH_USER_STORAGE_KEY, JSON.stringify(result.user));
       setGoogleLoading(false);
 
-      const done = await AsyncStorage.getItem(POST_LOGIN_ONBOARDING_STORAGE_KEY);
-      if (done === "true") {
-        navigation.navigate("Main");
-      } else {
+      if (result.needsOnboarding) {
+        await AsyncStorage.removeItem(POST_LOGIN_ONBOARDING_STORAGE_KEY);
         navigation.navigate("PostLoginOnboarding");
+      } else {
+        await AsyncStorage.setItem(POST_LOGIN_ONBOARDING_STORAGE_KEY, "true");
+        navigation.navigate("Main");
       }
     } catch (apiError) {
       setGoogleLoading(false);

@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -7,6 +7,7 @@ import {
   Pressable,
   TextInput,
   Platform,
+  ActivityIndicator,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -21,13 +22,19 @@ import {
   Lightbulb,
   Search,
   Sparkles,
-  Star,
   User,
 } from "lucide-react-native";
 
 import { fonts } from "../constants/fonts";
 import { POST_LOGIN_ONBOARDING_STORAGE_KEY } from "../constants/storageKeys";
 import { theme } from "../constants/palette";
+import {
+  completeMobileOnboarding,
+  fetchOnboardingData,
+  type OnboardingSchool,
+  type OnboardingSubject,
+  type OnboardingTeacher,
+} from "../services/mobileOnboarding";
 
 const brand = theme.brand;
 const brandDeep = theme.brandDeep;
@@ -37,24 +44,15 @@ const tipBg = "#FFFBEB";
 const tipBorder = "#FDE68A";
 const infoBg = theme.brandSoftSage;
 
-const MOCK_SCHOOLS = [
-  { id: "s1", name: "SMK Victoria Institution", city: "Kuala Lumpur", initials: "VI" },
-  { id: "s2", name: "SMK Taman Melawati", city: "Kuala Lumpur", initials: "TM" },
-  { id: "s3", name: "MRSM Langkawi", city: "Langkawi", initials: "ML" },
-];
+/** Core subject fixed in UI; display name comes from LOV when present. */
+const CORE_SUBJECT_CODE = "BM";
 
-const MOCK_TEACHERS = [
-  { id: "t1", name: "Cikgu Sarah", subject: "Add Maths", rating: "4.9", students: "1.2k" },
-  { id: "t2", name: "Pn. Aisyah", subject: "Bahasa Melayu", rating: "4.8", students: "980" },
-  { id: "t3", name: "Mr. David", subject: "English", rating: "4.9", students: "2.1k" },
-];
-
-const SUBJECT_GRID = [
-  { id: "en", label: "English" },
-  { id: "math", label: "Maths" },
-  { id: "science", label: "Science" },
-  { id: "sejarah", label: "Sejarah" },
-];
+const getInitials = (name: string): string => {
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return "NA";
+  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+  return `${words[0][0] ?? ""}${words[1][0] ?? ""}`.toUpperCase();
+};
 
 type RootNav = {
   replace: (name: "Main") => void;
@@ -65,28 +63,74 @@ export default function PostLoginOnboardingScreen({ navigation }: { navigation: 
   
   const insets = useSafeAreaInsets();
   const [step, setStep] = useState(0);
+  const [loadingData, setLoadingData] = useState(true);
+  const [loadingError, setLoadingError] = useState<string | null>(null);
 
-  const [formLevel, setFormLevel] = useState<"Form 4" | "Form 5" | null>(null);
-  const [selectedSubjects, setSelectedSubjects] = useState<string[]>(["bm"]);
+  const [formLevel, setFormLevel] = useState<4 | 5 | null>(null);
+  const [subjects, setSubjects] = useState<OnboardingSubject[]>([]);
+  const [schools, setSchools] = useState<OnboardingSchool[]>([]);
+  const [teachers, setTeachers] = useState<OnboardingTeacher[]>([]);
+  const [selectedSubjects, setSelectedSubjects] = useState<string[]>([]);
   const [schoolQuery, setSchoolQuery] = useState("");
-  const [selectedSchoolId, setSelectedSchoolId] = useState<string | null>(null);
-  const [followedTeachers, setFollowedTeachers] = useState<string[]>([]);
+  const [selectedSchoolId, setSelectedSchoolId] = useState<number | null>(null);
+  const [followedTeachers, setFollowedTeachers] = useState<number[]>([]);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   const pct = useMemo(() => [25, 50, 75, 100][step], [step]);
   const stepLabel = useMemo(() => `STEP 0${step + 1} OF 4`, [step]);
 
+  useEffect(() => {
+    let active = true;
+
+    const loadData = async () => {
+      setLoadingData(true);
+      setLoadingError(null);
+      try {
+        const data = await fetchOnboardingData();
+        if (!active) return;
+        setSubjects(data.subjects);
+        setSchools(data.schools);
+        setTeachers(data.teachers);
+        setSelectedSubjects([CORE_SUBJECT_CODE]);
+      } catch (error) {
+        if (!active) return;
+        setLoadingError(error instanceof Error ? error.message : "Failed to load onboarding options");
+      } finally {
+        if (active) setLoadingData(false);
+      }
+    };
+
+    void loadData();
+    return () => {
+      active = false;
+    };
+  }, []);
+
   const filteredSchools = useMemo(() => {
     const q = schoolQuery.trim().toLowerCase();
-    if (!q) return MOCK_SCHOOLS;
-    return MOCK_SCHOOLS.filter(
-      (s) => s.name.toLowerCase().includes(q) || s.city.toLowerCase().includes(q)
-    );
-  }, [schoolQuery]);
+    if (!q) return schools;
+    return schools.filter((s) => {
+      const hay = `${s.name} ${s.city ?? ""} ${s.state ?? ""}`.toLowerCase();
+      return hay.includes(q);
+    });
+  }, [schoolQuery, schools]);
+
+  const bmSubject = useMemo(
+    () => subjects.find((s) => s.code === CORE_SUBJECT_CODE),
+    [subjects]
+  );
+  const selectableSubjects = useMemo(
+    () => subjects.filter((s) => s.code !== CORE_SUBJECT_CODE),
+    [subjects]
+  );
 
   const canNext = () => {
     if (step === 0) return formLevel !== null;
+    if (loadingData) return false;
     if (step === 1) return selectedSubjects.length > 0;
     if (step === 2) return selectedSchoolId !== null;
+    if (step === 3) return followedTeachers.length >= 1;
     return true;
   };
 
@@ -101,18 +145,36 @@ export default function PostLoginOnboardingScreen({ navigation }: { navigation: 
       setStep((s) => s + 1);
       return;
     }
-    await AsyncStorage.setItem(POST_LOGIN_ONBOARDING_STORAGE_KEY, "true");
-    navigation.replace("Main");
+    if (submitting) return;
+    if (!canNext()) return;
+    if (formLevel === null || selectedSchoolId === null) return;
+
+    setSubmitting(true);
+    setSubmitError(null);
+    try {
+      await completeMobileOnboarding({
+        formLevel,
+        schoolId: selectedSchoolId,
+        subjectCodes: selectedSubjects,
+        teacherIds: followedTeachers,
+      });
+      await AsyncStorage.setItem(POST_LOGIN_ONBOARDING_STORAGE_KEY, "true");
+      navigation.replace("Main");
+    } catch (error) {
+      setSubmitError(error instanceof Error ? error.message : "Failed to save preferences");
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const toggleSubject = (id: string) => {
-    if (id === "bm") return;
+    if (id === CORE_SUBJECT_CODE) return;
     setSelectedSubjects((prev) =>
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
     );
   };
 
-  const toggleFollow = (id: string) => {
+  const toggleFollow = (id: number) => {
     setFollowedTeachers((prev) =>
       prev.includes(id) ? prev.filter((t) => t !== id) : [...prev, id]
     );
@@ -139,32 +201,32 @@ export default function PostLoginOnboardingScreen({ navigation }: { navigation: 
 
       <View style={styles.formRow}>
         <Pressable
-          style={[styles.formCard, formLevel === "Form 4" && styles.formCardSelected]}
-          onPress={() => setFormLevel("Form 4")}
+          style={[styles.formCard, formLevel === 4 && styles.formCardSelected]}
+          onPress={() => setFormLevel(4)}
         >
-          {formLevel === "Form 4" && (
+          {formLevel === 4 && (
             <View style={styles.checkBadge}>
               <Check size={14} color="#FFFFFF" strokeWidth={3} />
             </View>
           )}
-          <GraduationCap size={36} color={formLevel === "Form 4" ? brand : textMuted} />
-          <Text style={[styles.formCardTitle, formLevel === "Form 4" && styles.formCardTitleOn]}>
+          <GraduationCap size={36} color={formLevel === 4 ? brand : textMuted} />
+          <Text style={[styles.formCardTitle, formLevel === 4 && styles.formCardTitleOn]}>
             Form 4
           </Text>
           <Text style={styles.formCardHint}>The Foundation Year</Text>
         </Pressable>
 
         <Pressable
-          style={[styles.formCard, formLevel === "Form 5" && styles.formCardSelected]}
-          onPress={() => setFormLevel("Form 5")}
+          style={[styles.formCard, formLevel === 5 && styles.formCardSelected]}
+          onPress={() => setFormLevel(5)}
         >
-          {formLevel === "Form 5" && (
+          {formLevel === 5 && (
             <View style={styles.checkBadge}>
               <Check size={14} color="#FFFFFF" strokeWidth={3} />
             </View>
           )}
-          <Sparkles size={36} color={formLevel === "Form 5" ? brand : textMuted} />
-          <Text style={[styles.formCardTitle, formLevel === "Form 5" && styles.formCardTitleOn]}>
+          <Sparkles size={36} color={formLevel === 5 ? brand : textMuted} />
+          <Text style={[styles.formCardTitle, formLevel === 5 && styles.formCardTitleOn]}>
             Form 5
           </Text>
           <Text style={styles.formCardHint}>The SPM Sprint</Text>
@@ -196,19 +258,19 @@ export default function PostLoginOnboardingScreen({ navigation }: { navigation: 
         </View>
         <BookOpen size={22} color={brand} />
         <View style={styles.coreCardText}>
-          <Text style={styles.coreTitle}>Bahasa Melayu</Text>
+          <Text style={styles.coreTitle}>{bmSubject?.name ?? "Bahasa Melayu"}</Text>
           <Text style={styles.coreBadge}>Core Requirement</Text>
         </View>
       </View>
 
       <View style={styles.subjectGrid}>
-        {SUBJECT_GRID.map((s) => {
-          const on = selectedSubjects.includes(s.id);
+        {selectableSubjects.map((subject) => {
+          const on = selectedSubjects.includes(subject.code);
           return (
             <Pressable
-              key={s.id}
+              key={subject.code}
               style={[styles.subjectCell, on && styles.subjectCellSelected]}
-              onPress={() => toggleSubject(s.id)}
+              onPress={() => toggleSubject(subject.code)}
             >
               {on && (
                 <View style={[styles.checkBadge, styles.checkBadgeSmall]}>
@@ -216,7 +278,7 @@ export default function PostLoginOnboardingScreen({ navigation }: { navigation: 
                 </View>
               )}
               <BookOpen size={20} color={on ? brand : textMuted} />
-              <Text style={[styles.subjectLabel, on && styles.subjectLabelOn]}>{s.label}</Text>
+              <Text style={[styles.subjectLabel, on && styles.subjectLabelOn]}>{subject.name}</Text>
             </Pressable>
           );
         })}
@@ -254,6 +316,11 @@ export default function PostLoginOnboardingScreen({ navigation }: { navigation: 
       <View style={styles.schoolList}>
         {filteredSchools.map((school) => {
           const sel = selectedSchoolId === school.id;
+          const locationLine = [school.city, school.state]
+            .map((x) => (x ?? "").trim())
+            .filter((x) => x.length > 0)
+            .join(", ");
+          console.log(school)
           return (
             <Pressable
               key={school.id}
@@ -261,11 +328,13 @@ export default function PostLoginOnboardingScreen({ navigation }: { navigation: 
               onPress={() => setSelectedSchoolId(school.id)}
             >
               <View style={styles.schoolLogo}>
-                <Text style={styles.schoolLogoText}>{school.initials}</Text>
+                <Text style={styles.schoolLogoText}>{getInitials(school.name)}</Text>
               </View>
               <View style={styles.schoolInfo}>
                 <Text style={styles.schoolName}>{school.name}</Text>
-                <Text style={styles.schoolCity}>{school.city}</Text>
+                {locationLine.length > 0 ? (
+                  <Text style={styles.schoolCityState}>{locationLine}</Text>
+                ) : null}
               </View>
               <ChevronRight size={20} color={sel ? brand : textMuted} />
             </Pressable>
@@ -279,11 +348,12 @@ export default function PostLoginOnboardingScreen({ navigation }: { navigation: 
     <View style={styles.stepInner}>
       <Text style={styles.stepTitle}>Follow top teachers</Text>
       <Text style={styles.stepSubtitle}>
-        Get practice sets and tips directly in your feed.
+        Get practice sets and tips directly in your feed. Follow at least one teacher to continue.
       </Text>
 
-      {MOCK_TEACHERS.map((t) => {
+      {teachers.map((t) => {
         const following = followedTeachers.includes(t.id);
+        const followerCount = t.followerCount ?? 0;
         return (
           <View key={t.id} style={styles.teacherCard}>
             <View style={styles.teacherAvatar}>
@@ -291,13 +361,9 @@ export default function PostLoginOnboardingScreen({ navigation }: { navigation: 
             </View>
             <View style={styles.teacherBody}>
               <Text style={styles.teacherName}>{t.name}</Text>
-              <Text style={styles.teacherSubject}>{t.subject}</Text>
-              <View style={styles.teacherMeta}>
-                <Star size={14} color="#CA8A04" fill="#EAB308" />
-                <Text style={styles.teacherRating}>
-                  {t.rating} ({t.students} students)
-                </Text>
-              </View>
+              <Text style={styles.teacherFollowerCount}>
+                {followerCount} {followerCount === 1 ? "follower" : "followers"}
+              </Text>
             </View>
             <Pressable
               style={[styles.followBtn, following && styles.followBtnOn]}
@@ -325,7 +391,22 @@ export default function PostLoginOnboardingScreen({ navigation }: { navigation: 
     </View>
   );
 
+  const renderLoadingState = () => (
+    <View style={styles.loadingBlock}>
+      <ActivityIndicator size="large" color={brand} />
+      <Text style={styles.loadingText}>Loading onboarding data...</Text>
+    </View>
+  );
+
+  const renderErrorState = () => (
+    <View style={styles.loadingBlock}>
+      <Text style={styles.errorText}>{loadingError ?? "Failed to load onboarding data."}</Text>
+    </View>
+  );
+
   const renderStep = () => {
+    if (loadingData) return renderLoadingState();
+    if (loadingError) return renderErrorState();
     switch (step) {
       case 0:
         return renderStep0();
@@ -371,6 +452,9 @@ export default function PostLoginOnboardingScreen({ navigation }: { navigation: 
           { paddingBottom: insets.bottom + 16 },
         ]}
       >
+        {step === 3 && submitError ? (
+          <Text style={styles.footerError}>{submitError}</Text>
+        ) : null}
         {step === 0 ? (
           <View style={styles.footerRow0}>
             <Pressable onPress={handleBack} style={styles.iconBackBtn}>
@@ -398,16 +482,27 @@ export default function PostLoginOnboardingScreen({ navigation }: { navigation: 
         ) : step === 3 ? (
           <Pressable
             onPress={handlePrimary}
-            style={({ pressed }) => [pressed && styles.fullBtnPressed]}
+            disabled={submitting || !canNext()}
+            style={({ pressed }) => [
+              pressed && !submitting && canNext() && styles.fullBtnPressed,
+            ]}
           >
             <LinearGradient
-              colors={[brandDeep, brand]}
+              colors={
+                submitting || !canNext() ? ["#C4C4C4", "#B0B0B0"] : [brandDeep, brand]
+              }
               start={{ x: 0, y: 0.5 }}
               end={{ x: 1, y: 0.5 }}
               style={styles.fullBtn}
             >
-              <Text style={styles.fullBtnText}>Complete Setup</Text>
-              <ArrowRight size={20} color="#FFFFFF" />
+              {submitting ? (
+                <ActivityIndicator color="#FFFFFF" />
+              ) : (
+                <>
+                  <Text style={styles.fullBtnText}>Complete Setup</Text>
+                  <ArrowRight size={20} color="#FFFFFF" />
+                </>
+              )}
             </LinearGradient>
           </Pressable>
         ) : (
@@ -501,6 +596,23 @@ const styles = StyleSheet.create({
   },
   stepInner: {
     paddingTop: 8,
+  },
+  loadingBlock: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 64,
+    gap: 12,
+  },
+  loadingText: {
+    fontSize: 14,
+    fontFamily: fonts.medium,
+    color: textMuted,
+  },
+  errorText: {
+    fontSize: 14,
+    fontFamily: fonts.medium,
+    color: "#B91C1C",
+    textAlign: "center",
   },
   stepTitle: {
     fontSize: 24,
@@ -712,11 +824,11 @@ const styles = StyleSheet.create({
     fontFamily: fonts.semiBold,
     color: textMain,
   },
-  schoolCity: {
+  schoolCityState: {
     fontSize: 13,
     fontFamily: fonts.regular,
     color: textMuted,
-    marginTop: 2,
+    marginTop: 4,
   },
   teacherCard: {
     flexDirection: "row",
@@ -745,22 +857,11 @@ const styles = StyleSheet.create({
     fontFamily: fonts.semiBold,
     color: textMain,
   },
-  teacherSubject: {
+  teacherFollowerCount: {
     fontSize: 13,
     fontFamily: fonts.regular,
     color: textMuted,
-    marginTop: 2,
-  },
-  teacherMeta: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    marginTop: 6,
-  },
-  teacherRating: {
-    fontSize: 12,
-    fontFamily: fonts.medium,
-    color: textMain,
+    marginTop: 4,
   },
   followBtn: {
     flexDirection: "row",
@@ -828,6 +929,14 @@ const styles = StyleSheet.create({
         shadowRadius: 8,
       }
     }),
+  },
+  footerError: {
+    fontSize: 13,
+    fontFamily: fonts.medium,
+    color: "#B91C1C",
+    textAlign: "center",
+    marginBottom: 8,
+    paddingHorizontal: 8,
   },
   footerRow0: {
     flexDirection: "row",

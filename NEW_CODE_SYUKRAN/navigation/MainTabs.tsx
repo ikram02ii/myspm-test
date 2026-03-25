@@ -1,5 +1,6 @@
 import React from "react";
 import { Platform, StyleSheet, View } from "react-native";
+import { getFocusedRouteNameFromRoute } from "@react-navigation/native";
 import {
   BottomTabBar,
   BottomTabBarProps,
@@ -35,6 +36,17 @@ export type MainTabParamList = {
 
 const Tab = createBottomTabNavigator<MainTabParamList>();
 
+/** Matches `screenOptions.tabBarStyle` so per-screen overrides don’t drop positioning. */
+const defaultTabBarStyle = {
+  position: "absolute" as const,
+  top: 28,
+  backgroundColor: "transparent",
+  borderTopWidth: 0,
+  elevation: 0,
+  shadowOpacity: 0,
+  height: 0,
+};
+
 function TabBarIcon({
   focused,
   color,
@@ -57,6 +69,15 @@ function TabBarIcon({
 function FloatingTabBar(props: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
   const bottomPad = Math.max(insets.bottom, 12) + 6;
+  const tabRoute = props.state.routes[props.state.index];
+  const onPracticeTab = tabRoute?.name === "Practice";
+  const practiceInner =
+    onPracticeTab && tabRoute != null
+      ? getFocusedRouteNameFromRoute(tabRoute) ?? "PracticeLibrary"
+      : null;
+  if (practiceInner === "PracticeSession") {
+    return null;
+  }
 
   return (
     <View style={styles.floatingRoot} pointerEvents="box-none">
@@ -87,15 +108,7 @@ export default function MainTabs() {
         tabBarActiveTintColor: BRAND,
         tabBarInactiveTintColor: "#94A3B8",
         tabBarItemStyle: styles.tabItem,
-        tabBarStyle: {
-          position: "absolute",
-          top: 28,
-          backgroundColor: "transparent",
-          borderTopWidth: 0,
-          elevation: 0,
-          shadowOpacity: 0,
-          height: 0,
-        },
+        tabBarStyle: defaultTabBarStyle,
       }}
     >
       <Tab.Screen
