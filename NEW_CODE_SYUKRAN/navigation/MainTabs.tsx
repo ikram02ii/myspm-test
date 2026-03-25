@@ -80,7 +80,7 @@ function FloatingTabBar(props: BottomTabBarProps) {
     onCameraTab && tabRoute != null
       ? getFocusedRouteNameFromRoute(tabRoute) ?? "CameraIndex"
       : null;
-  if (practiceInner === "PracticeSession") {
+  if (practiceInner === "PracticeSession" || practiceInner === "PracticeSetDetail") {
     return null;
   }
   if (cameraInner === "CameraCapture" || cameraInner === "CameraPreview") {

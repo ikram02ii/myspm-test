@@ -77,8 +77,11 @@ export default function CameraScreen({ navigation }: Props) {
           },
         ]}
       >
-      <Text style={styles.title}>AI Scan Assistant</Text>
-      <Text style={styles.subtitle}>Scan your work to get instant solution sand explanations.</Text>
+      <View style={styles.titleRow}>
+        <Image source={require("../assets/3d-icons/ai.png")} style={styles.titleIcon} resizeMode="contain" />
+        <Text style={styles.title}>AI Scan Assistant</Text>
+      </View>
+      <Text style={styles.subtitle}>Scan your work to get instant solution and explanations.</Text>
 
       <View style={styles.heroCard}>
         <View style={styles.heroPlaceholder}>
@@ -126,10 +129,10 @@ export default function CameraScreen({ navigation }: Props) {
 
       <View style={styles.quickActions}>
         <Pressable style={styles.quickCard} onPress={handlePickFromGallery}>
-          <View style={[styles.quickIconWrap, { backgroundColor: "#A7F3D0" }]}>
-            <ImagePlus size={20} color="#059669" />
+          <View style={[styles.quickIconWrap]}>
+            <Image source={require("../assets/3d-icons/gallery.png")} style={styles.quickIconImage} resizeMode="contain" />
           </View>
-          <Text style={styles.quickText}>See History Questions </Text>
+          <Text style={styles.quickText}>View Past Questions </Text>
         </Pressable>
       </View>
 
@@ -155,6 +158,16 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.screenBackground, paddingHorizontal: 14 },
   animatedContent: {
     flex: 1,
+  },
+  titleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+  },
+  titleIcon: {
+    width: 32,
+    height: 32,
   },
   title: {
     marginTop: 4,
@@ -317,6 +330,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 12,
+  },
+  quickIconImage: {
+    width: 70,
+    height: 70,
   },
   quickText: {
     fontSize: 15,
