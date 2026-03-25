@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Animated, Easing, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Animated, Easing, Image, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import LottieView from "lottie-react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Camera, ImagePlus, Lightbulb, Scan } from "lucide-react-native";
 import { LinearGradient } from "expo-linear-gradient";
@@ -77,9 +78,13 @@ export default function CameraScreen() {
 
       <View style={styles.heroCard}>
         <View style={styles.heroPlaceholder}>
-          <Camera size={48} color="#94A3B8" strokeWidth={1.5} />
-          <Text style={styles.heroPlaceholderTitle}>Camera preview</Text>
-          <Text style={styles.heroPlaceholderHint}>Live feed will appear here</Text>
+          <LottieView
+              source={require("../assets/3d-icons/search_document_lottie.json")}
+              autoPlay
+              loop
+              style={styles.heroPreviewImage}
+          />
+          
         </View>
         <View style={styles.liveBadge}>
           <View style={styles.liveDot} />
@@ -97,9 +102,10 @@ export default function CameraScreen() {
           </View>
           <View style={styles.detectingTextWrap}>
             <Text style={styles.detectingTitle}>AI Detecting...</Text>
-            <Text style={styles.detectingSub}>Handwriting: Physics Paper 2</Text>
+            <Text style={styles.detectingSub}>Thinking the solution...</Text>
           </View>
         </View>
+        
       </View>
 
       <Pressable style={styles.scanButton} onPress={handleScanQuestion}>
@@ -119,7 +125,7 @@ export default function CameraScreen() {
           <View style={[styles.quickIconWrap, { backgroundColor: "#A7F3D0" }]}>
             <ImagePlus size={20} color="#059669" />
           </View>
-          <Text style={styles.quickText}>Pick from Gallery</Text>
+          <Text style={styles.quickText}>See History Questions </Text>
         </Pressable>
       </View>
 
@@ -164,10 +170,11 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   heroCard: {
+    height: 250,
     borderRadius: 28,
     overflow: "hidden",
-    position: "relative",
-    minHeight: 430,
+    // position: "relative",
+    // minHeight: 100,
     backgroundColor: "#D1D5DB",
     borderWidth: 1,
     borderColor: "#E5E7EB",
@@ -175,10 +182,16 @@ const styles = StyleSheet.create({
   heroPlaceholder: {
     width: "100%",
     height: 430,
-    backgroundColor: "#E2E8F0",
+    backgroundColor: "#FFFFFF",
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: 24,
+  },
+  heroPreviewImage: {
+    width: "120%",
+    height: "100%",
+    position: "absolute",
+    top: -100
   },
   heroPlaceholderTitle: {
     marginTop: 14,

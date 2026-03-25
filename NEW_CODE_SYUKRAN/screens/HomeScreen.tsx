@@ -38,9 +38,9 @@ const BRAND = theme.brand;
 const BRAND_DEEP = theme.brandDeep;
 
 const MOCK_MASTERY_ROWS = [
-  { name: "Mathematics", pct: 82 },
-  { name: "Physics", pct: 68 },
-  { name: "Biology", pct: 91 },
+  { name: "Mathematics", pct: 10 },
+  { name: "Physics", pct: 5},
+  { name: "Biology", pct: 2 },
 ];
 
 type Props = NativeStackScreenProps<HomeStackParamList, "HomeIndex">;
