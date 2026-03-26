@@ -66,7 +66,8 @@ export default function CameraCaptureScreen({ navigation }: Props) {
       }
       const uploaded = await uploadScanImage(photo.uri);
       navigation.replace("CameraPreview", { photoUri: uploaded.url });
-    } catch {
+    } catch (error) {
+      console.error("uploadScanImage error", error);
       setUploadError("Upload failed. Please try again.");
       setIsCapturing(false);
     }

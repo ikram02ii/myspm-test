@@ -140,8 +140,9 @@ const styles = StyleSheet.create({
   },
   heroCard: {
     width: "100%",
+    height: 250,
     maxWidth: 340,
-    aspectRatio: 1,
+    // aspectRatio: 1,
     borderRadius: 32,
     overflow: "hidden",
     backgroundColor: colors.lightGray,

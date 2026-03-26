@@ -1,4 +1,5 @@
-import { MOBILE_API_BASE_URL } from "../constants/api";
+import { networkLoggerFinish, networkLoggerStart } from "./networkLogger";
+import { getMobileApiBaseUrl } from "./mobileApiBaseUrl";
 
 export type MobileAuthUser = {
   id: number;
@@ -54,12 +55,15 @@ async function postJson(endpoint: string, requestBody: ApiJson): Promise<{
   ok: boolean;
   data: unknown;
 }> {
-  const url = `${MOBILE_API_BASE_URL}${endpoint}`;
+  const baseUrl = await getMobileApiBaseUrl();
+  const url = `${baseUrl}${endpoint}`;
   console.log("[Mobile API][Request]", {
     method: "POST",
     url,
     body: requestBody,
   });
+  const t0 = Date.now();
+  const logId = networkLoggerStart({ method: "POST", url, requestBody: requestBody as unknown });
 
   try {
     const response = await fetch(url, {
@@ -78,6 +82,12 @@ async function postJson(endpoint: string, requestBody: ApiJson): Promise<{
       ok: response.ok,
       body: data,
     });
+    networkLoggerFinish(logId, {
+      status: response.status,
+      ok: response.ok,
+      durationMs: Date.now() - t0,
+      responseBody: data as unknown,
+    });
 
     return {
       status: response.status,
@@ -89,6 +99,10 @@ async function postJson(endpoint: string, requestBody: ApiJson): Promise<{
       method: "POST",
       url,
       body: requestBody,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    networkLoggerFinish(logId, {
+      durationMs: Date.now() - t0,
       error: error instanceof Error ? error.message : String(error),
     });
     throw error;

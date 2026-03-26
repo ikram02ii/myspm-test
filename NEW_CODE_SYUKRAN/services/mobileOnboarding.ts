@@ -1,7 +1,8 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-import { MOBILE_API_BASE_URL } from "../constants/api";
 import { AUTH_TOKEN_STORAGE_KEY } from "../constants/storageKeys";
+import { networkLoggerFinish, networkLoggerStart } from "./networkLogger";
+import { getMobileApiBaseUrl } from "./mobileApiBaseUrl";
 
 export type OnboardingSubject = {
   code: string;
@@ -47,8 +48,11 @@ async function getJson<T>(endpoint: string): Promise<T> {
   if (!token) {
     throw new Error("Not signed in");
   }
-  const url = `${MOBILE_API_BASE_URL}${endpoint}`;
+  const baseUrl = await getMobileApiBaseUrl();
+  const url = `${baseUrl}${endpoint}`;
   console.log("[Mobile API][Request]", { method: "GET", url });
+  const t0 = Date.now();
+  const logId = networkLoggerStart({ method: "GET", url });
   const response = await fetch(url, {
     cache: "no-store",
     headers: {
@@ -62,6 +66,12 @@ async function getJson<T>(endpoint: string): Promise<T> {
     status: response.status,
     ok: response.ok,
     body: data,
+  });
+  networkLoggerFinish(logId, {
+    status: response.status,
+    ok: response.ok,
+    durationMs: Date.now() - t0,
+    responseBody: data as unknown,
   });
   if (!response.ok) {
     throw new Error(data.error ?? "Failed to load onboarding data");
@@ -106,8 +116,11 @@ export async function completeMobileOnboarding(payload: CompleteOnboardingPayloa
   if (!token) {
     throw new Error("Not signed in");
   }
-  const url = `${MOBILE_API_BASE_URL}/onboarding/complete`;
+  const baseUrl = await getMobileApiBaseUrl();
+  const url = `${baseUrl}/onboarding/complete`;
   console.log("[Mobile API][Request]", { method: "POST", url, body: payload });
+  const t0 = Date.now();
+  const logId = networkLoggerStart({ method: "POST", url, requestBody: payload as unknown });
   const response = await fetch(url, {
     method: "POST",
     headers: {
@@ -123,6 +136,12 @@ export async function completeMobileOnboarding(payload: CompleteOnboardingPayloa
     status: response.status,
     ok: response.ok,
     body: data,
+  });
+  networkLoggerFinish(logId, {
+    status: response.status,
+    ok: response.ok,
+    durationMs: Date.now() - t0,
+    responseBody: data as unknown,
   });
   if (!response.ok) {
     throw new Error(data.error ?? "Failed to save onboarding");
