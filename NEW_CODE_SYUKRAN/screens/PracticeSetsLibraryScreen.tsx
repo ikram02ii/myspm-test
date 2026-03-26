@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Animated,
+  Easing,
   Modal,
   Platform,
   Pressable,
@@ -13,7 +15,9 @@ import {
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { useFocusEffect } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { BookOpen, ChevronRight, Plus } from "lucide-react-native";
+import { BookOpen, ChevronRight, Sparkles, Plus } from "lucide-react-native";
+import * as Notifications from "expo-notifications";
+import { LinearGradient } from "expo-linear-gradient";
 
 import { ToastMessage } from "../components/ui/ToastMessage";
 import {
@@ -40,6 +44,7 @@ import {
 
 const BRAND = theme.brand;
 const BRAND_SOFT = theme.brandSoftSage;
+const AnimatedLinearGradient = Animated.createAnimatedComponent(LinearGradient);
 
 type Props = NativeStackScreenProps<PracticeStackParamList, "PracticeLibrary">;
 
@@ -61,6 +66,9 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
   const [addBusy, setAddBusy] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const borderGlow = useRef(new Animated.Value(0)).current;
+  const borderPulse = useRef(new Animated.Value(0)).current;
+  const borderShine = useRef(new Animated.Value(0)).current;
 
   const showToast = (message: string) => {
     setToastMessage(message);
@@ -72,13 +80,76 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
     }, 2500);
   };
 
+  const showComingSoonWithSound = () => {
+    const msg = "Stay tuned for this feature";
+    showToast(msg);
+    void Notifications.scheduleNotificationAsync({
+      content: {
+        title: "MySPM",
+        body: msg,
+        sound: "default",
+      },
+      trigger: null,
+    });
+  };
+
   useEffect(() => {
+    const glowLoop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(borderGlow, {
+          toValue: 1,
+          duration: 900,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+        }),
+        Animated.timing(borderGlow, {
+          toValue: 0,
+          duration: 900,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+
+    const pulseLoop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(borderPulse, {
+          toValue: 1,
+          duration: 900,
+          easing: Easing.inOut(Easing.cubic),
+          useNativeDriver: true,
+        }),
+        Animated.timing(borderPulse, {
+          toValue: 0,
+          duration: 900,
+          easing: Easing.inOut(Easing.cubic),
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+
+    const shineLoop = Animated.loop(
+      Animated.timing(borderShine, {
+        toValue: 1,
+        duration: 1600,
+        easing: Easing.inOut(Easing.quad),
+        useNativeDriver: true,
+      }),
+    );
+
+    glowLoop.start();
+    pulseLoop.start();
+    shineLoop.start();
+
     return () => {
+      glowLoop.stop();
+      pulseLoop.stop();
+      shineLoop.stop();
       if (toastTimeoutRef.current) {
         clearTimeout(toastTimeoutRef.current);
       }
     };
-  }, []);
+  }, [borderGlow, borderPulse, borderShine]);
 
   const load = useCallback(async () => {
     setError(null);
@@ -282,12 +353,72 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
         ))}
 
         {!loading ? (
-          <Pressable
-            style={({ pressed }) => [styles.aiPlaceholderButton, pressed && styles.aiPlaceholderButtonPressed]}
-            onPress={() => showToast("Stay Tuned for this Features")}
+          <AnimatedLinearGradient
+            colors={[
+              "#FF2D55",
+              "#FF9500",
+              "#FFD60A",
+              "#34C759",
+              "#00C7BE",
+              "#0A84FF",
+              "#5E5CE6",
+              "#FF2D55",
+            ]}
+            start={{ x: 0, y: 0.5 }}
+            end={{ x: 1, y: 0.5 }}
+            style={[
+              styles.aiBorder,
+              {
+                opacity: borderGlow.interpolate({ inputRange: [0, 1], outputRange: [0.72, 1] }),
+                transform: [
+                  {
+                    scale: borderPulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.015] }),
+                  },
+                ],
+              },
+            ]}
           >
-            <Text style={styles.aiPlaceholderButtonText}>Generate Set Question via AI</Text>
-          </Pressable>
+            <Animated.View
+              pointerEvents="none"
+              style={[
+                styles.aiShine,
+                {
+                  transform: [
+                    {
+                      translateX: borderShine.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [-220, 220],
+                      }),
+                    },
+                  ],
+                },
+              ]}
+            >
+              <LinearGradient
+                colors={["rgba(255,255,255,0)", "rgba(255,255,255,0.55)", "rgba(255,255,255,0)"]}
+                start={{ x: 0, y: 0.5 }}
+                end={{ x: 1, y: 0.5 }}
+                style={styles.aiShineGrad}
+              />
+            </Animated.View>
+
+            <Pressable
+              style={({ pressed }) => [styles.aiButton, pressed && styles.aiButtonPressed]}
+              onPress={showComingSoonWithSound}
+            >
+              <LinearGradient
+                colors={["#F15A29", "#5B2EFF"]}
+                start={{ x: 0, y: 0.5 }}
+                end={{ x: 1, y: 0.5 }}
+                style={styles.aiButtonGrad}
+              >
+                <View style={styles.aiButtonInner}>
+                  <Sparkles size={18} color="#FFFFFF" />
+                  <Text style={styles.aiButtonText}>Generate questions via AI</Text>
+                </View>
+              </LinearGradient>
+            </Pressable>
+          </AnimatedLinearGradient>
         ) : null}
       </ScrollView>
 
@@ -440,23 +571,51 @@ const styles = StyleSheet.create({
     color: BRAND,
     marginTop: 6,
   },
-  aiPlaceholderButton: {
-    marginTop: 8,
-    paddingVertical: 16,
-    paddingHorizontal: 18,
-    borderRadius: 16,
-    borderWidth: 2,
-    borderStyle: "dashed",
-    borderColor: "rgba(15, 23, 42, 0.2)",
-    backgroundColor: "rgba(255, 255, 255, 0.85)",
-    alignItems: "center",
+  aiButton: {
+    borderRadius: 14,
+    overflow: "hidden",
   },
-  aiPlaceholderButtonPressed: { opacity: 0.88 },
-  aiPlaceholderButtonText: {
+  aiButtonPressed: { opacity: 0.92 },
+  aiButtonGrad: {
+    paddingVertical: 14,
+    paddingHorizontal: 18,
+    borderRadius: 14,
+  },
+  aiButtonInner: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+  },
+  aiButtonText: {
     fontSize: 15,
     fontFamily: fonts.semiBold,
-    color: colors.textSecondary,
+    color: "#FFFFFF",
     textAlign: "center",
+  },
+  aiBorder: {
+    marginTop: 8,
+    borderRadius: 16,
+    padding: 2,
+    overflow: "hidden",
+    shadowColor: "#0F172A",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.14,
+    shadowRadius: 18,
+    elevation: 5,
+  },
+  aiShine: {
+    position: "absolute",
+    top: -6,
+    bottom: -6,
+    width: 90,
+    left: 0,
+    opacity: 0.9,
+    transform: [{ skewX: "-20deg" }],
+  },
+  aiShineGrad: {
+    flex: 1,
+    borderRadius: 12,
   },
   modalBackdrop: {
     flex: 1,
@@ -511,5 +670,24 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontFamily: fonts.semiBold,
     color: BRAND,
+  },
+  genBtn: {
+    marginTop: 12,
+    borderRadius: 14,
+    overflow: "hidden",
+  },
+  genBtnGrad: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 14,
+  },
+  genBtnText: {
+    fontSize: 14,
+    fontFamily: fonts.bold,
+    color: "#FFFFFF",
   },
 });

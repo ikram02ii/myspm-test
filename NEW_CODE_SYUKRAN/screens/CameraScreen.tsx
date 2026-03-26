@@ -5,6 +5,7 @@ import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Camera, ImagePlus, Lightbulb, Scan } from "lucide-react-native";
 import { LinearGradient } from "expo-linear-gradient";
+import * as Notifications from "expo-notifications";
 
 import { ToastMessage } from "../components/ui/ToastMessage";
 import { colors } from "../constants/colors";
@@ -24,7 +25,16 @@ export default function CameraScreen({ navigation }: Props) {
   const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const showComingSoonToast = () => {
-    setToastMessage("Stay Tuned for this Features");
+    const msg = "Stay tuned for this feature";
+    setToastMessage(msg);
+    void Notifications.scheduleNotificationAsync({
+      content: {
+        title: "MySPM",
+        body: msg,
+        sound: "default",
+      },
+      trigger: null,
+    });
     if (toastTimeoutRef.current) {
       clearTimeout(toastTimeoutRef.current);
     }
