@@ -8,15 +8,30 @@ let configured = false;
 
 export function configureGoogleSignIn(): void {
   if (configured) return;
-  GoogleSignin.configure({
-    webClientId: GOOGLE_WEB_CLIENT_ID || undefined,
-    iosClientId: GOOGLE_IOS_CLIENT_ID || undefined,
-    scopes: ["profile", "email"],
-  });
-  configured = true;
+  try {
+    // Expo Go on iOS may not include the native Google Sign-In module
+    // (@react-native-google-signin/google-signin). If the native module
+    // isn't available, avoid crashing so the rest of the app (Scan POC) works.
+    GoogleSignin.configure({
+      webClientId: GOOGLE_WEB_CLIENT_ID || undefined,
+      iosClientId: GOOGLE_IOS_CLIENT_ID || undefined,
+      scopes: ["profile", "email"],
+    });
+    configured = true;
+  } catch (e) {
+    configured = false;
+    console.warn("[GoogleSignIn] Native module missing; skipping configure.", e);
+  }
 }
 
 export async function getGoogleIdToken(): Promise<string> {
+  if (!configured) {
+    configureGoogleSignIn();
+  }
+  if (!configured) {
+    throw new Error("Google Sign-In is not available in this build (Expo Go on iOS).");
+  }
+
   await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
   // Clear previous local Google session so account picker is shown again.
   await GoogleSignin.signOut().catch(() => undefined);

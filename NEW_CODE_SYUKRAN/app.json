@@ -16,7 +16,7 @@
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#E6F4FE"
       },
       "package": "com.syukrandevamast.myspm"
     },
@@ -27,6 +27,11 @@
       "expo-font",
       "expo-secure-store",
       "@react-native-google-signin/google-signin"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "5062e2e9-b189-49ba-8dae-8309998d8ec3"
+      }
+    }
   }
 }

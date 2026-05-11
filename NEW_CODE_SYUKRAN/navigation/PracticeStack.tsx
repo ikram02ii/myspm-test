@@ -6,6 +6,7 @@ import { theme } from "../constants/palette";
 import PracticeSetsLibraryScreen from "../screens/PracticeSetsLibraryScreen";
 import PracticeSetDetailScreen from "../screens/PracticeSetDetailScreen";
 import PracticeSessionScreen from "../screens/PracticeSessionScreen";
+import type { PracticeSetQuestion } from "../services/mobilePracticeSets";
 
 export type PracticeStackParamList = {
   PracticeLibrary: undefined;
@@ -16,7 +17,9 @@ export type PracticeStackParamList = {
     formLevel: string;
     questionCount: number;
   };
-  PracticeSession: { setId: number; title: string };
+  PracticeSession:
+    | { setId: number; title: string; subject?: string; formLevel?: string }
+    | { title: string; questions: PracticeSetQuestion[]; subject?: string; formLevel?: string };
 };
 
 const Stack = createNativeStackNavigator<PracticeStackParamList>();

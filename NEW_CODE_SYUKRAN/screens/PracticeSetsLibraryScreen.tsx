@@ -10,6 +10,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from "react-native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
@@ -41,6 +42,8 @@ import {
   fetchPracticeSetList,
   type PracticeSetSummary,
 } from "../services/mobilePracticeSets";
+import { ragApiPost } from "../services/ragApi";
+import { parseAiGeneratedMcqAnswer, parseAiGeneratedOpenEnded } from "../utils/parseAiMcq";
 
 const BRAND = theme.brand;
 const BRAND_SOFT = theme.brandSoftSage;
@@ -50,6 +53,12 @@ type Props = NativeStackScreenProps<PracticeStackParamList, "PracticeLibrary">;
 
 function favouriteKey(f: MobileSubjectFavourite): string {
   return f.code.trim().toUpperCase();
+}
+
+function withBiologyTile(items: MobileSubjectFavourite[]): MobileSubjectFavourite[] {
+  const hasBiology = items.some((item) => favouriteKey(item) === "BIOLOGY");
+  if (hasBiology) return items;
+  return [...items, { code: "biology", name: "Biology" }];
 }
 
 export default function PracticeSetsLibraryScreen({ navigation }: Props) {
@@ -69,6 +78,29 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
   const borderGlow = useRef(new Animated.Value(0)).current;
   const borderPulse = useRef(new Animated.Value(0)).current;
   const borderShine = useRef(new Animated.Value(0)).current;
+  const [aiGenerating, setAiGenerating] = useState(false);
+  const [metaFormLevel, setMetaFormLevel] = useState<string>("Form 4");
+  const [aiModalOpen, setAiModalOpen] = useState(false);
+  const [aiMode, setAiMode] = useState<"general" | "topic">("general");
+  const [aiTopic, setAiTopic] = useState("");
+  const [aiQuestionType, setAiQuestionType] = useState<"mcq" | "subjective">("mcq");
+  const [aiQuestionCount, setAiQuestionCount] = useState<number>(5);
+
+  function backendSubjectFromPracticeCode(code: string | null): string | null {
+    if (!code) return null;
+    const c = code.trim().toLowerCase();
+    const map: Record<string, string> = {
+      biology: "Biology",
+      physics: "Physics",
+      chemistry: "Chemistry",
+      english: "English",
+      bm: "BM",
+      history: "Sejarah",
+      math: "Math",
+      addmath: "Additional Math",
+    };
+    return map[c] ?? null;
+  }
 
   const showToast = (message: string) => {
     setToastMessage(message);
@@ -160,6 +192,11 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
       ]);
       setFavourites(profileData.subjectFavourites);
       setSets(list);
+      setMetaFormLevel(
+        typeof profileData.formLevel === "number" && Number.isFinite(profileData.formLevel)
+          ? `Form ${profileData.formLevel}`
+          : "Form 4",
+      );
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load");
       setSets([]);
@@ -203,30 +240,32 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
     return sets.filter((item) => favourites.some((f) => practiceSetSubjectMatchesFavourite(item.subject, f)));
   }, [sets, favourites]);
 
+  const favouriteTiles = useMemo(() => withBiologyTile(favourites), [favourites]);
+
   /** Selected subject for filtering: tap a tile to show only that subject; default first favourite when any exist. */
   const selectedSubjectKey = useMemo(() => {
-    if (favourites.length === 0) {
+    if (favouriteTiles.length === 0) {
       return null;
     }
     if (
       activeSubjectCode != null &&
-      favourites.some((f) => favouriteKey(f) === activeSubjectCode)
+      favouriteTiles.some((f) => favouriteKey(f) === activeSubjectCode)
     ) {
       return activeSubjectCode;
     }
-    return favouriteKey(favourites[0]);
-  }, [favourites, activeSubjectCode]);
+    return favouriteKey(favouriteTiles[0]);
+  }, [favouriteTiles, activeSubjectCode]);
 
   const visibleSets = useMemo(() => {
-    if (favourites.length === 0) {
+    if (favouriteTiles.length === 0) {
       return setsInFavourites;
     }
-    const fav = favourites.find((f) => favouriteKey(f) === selectedSubjectKey);
+    const fav = favouriteTiles.find((f) => favouriteKey(f) === selectedSubjectKey);
     if (!fav) {
       return [];
     }
     return setsInFavourites.filter((item) => practiceSetSubjectMatchesFavourite(item.subject, fav));
-  }, [setsInFavourites, favourites, selectedSubjectKey]);
+  }, [setsInFavourites, favouriteTiles, selectedSubjectKey]);
 
   const onTilePress = (f: MobileSubjectFavourite) => {
     setActiveSubjectCode(favouriteKey(f));
@@ -243,6 +282,85 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
       setError(e instanceof Error ? e.message : "Could not add subject");
     } finally {
       setAddBusy(false);
+    }
+  };
+
+  const openAiGenerateModal = () => {
+    setAiModalOpen(true);
+  };
+
+  const questionTypeLabel = aiQuestionType === "mcq" ? "MCQ (A-D)" : "subjective";
+
+  const buildAiQuery = (subject: string): string => {
+    const topicPart =
+      aiMode === "topic" && aiTopic.trim().length > 0
+        ? ` focused on topic: ${aiTopic.trim()}`
+        : "";
+
+    if (aiQuestionType === "mcq") {
+      return `Generate ${aiQuestionCount} SPM ${subject} ${questionTypeLabel} questions${topicPart}. Include A-D options, Jawapan and Penjelasan.`;
+    }
+
+    return `Generate ${aiQuestionCount} SPM ${subject} subjective questions${topicPart}. For each question, include a concise model answer and marking points.`;
+  };
+
+  const runAiGenerate = async () => {
+    if (aiGenerating) return;
+    const practiceCode = selectedSubjectKey;
+    const backendSubject = backendSubjectFromPracticeCode(practiceCode);
+    if (!backendSubject) {
+      showComingSoonWithSound();
+      return;
+    }
+    if (aiMode === "topic" && aiTopic.trim().length === 0) {
+      showToast("Please enter a topic.");
+      return;
+    }
+
+    setAiGenerating(true);
+    try {
+      const result = await ragApiPost<{ answer: string; sources?: unknown }>(
+        "/rag/generate",
+        {
+          query: buildAiQuery(backendSubject),
+          subject: backendSubject,
+          topK: 8,
+        },
+      );
+
+      if (aiQuestionType === "mcq") {
+        const parsed = parseAiGeneratedMcqAnswer(result.answer);
+        if (parsed.length === 0) {
+          showToast("AI did not return parseable MCQ questions. Try again.");
+          return;
+        }
+        setAiModalOpen(false);
+        (navigation as any).navigate("PracticeSession", {
+          title: "AI Practice",
+          questions: parsed,
+          subject: backendSubject,
+          formLevel: metaFormLevel,
+        });
+        return;
+      }
+
+      const parsedOpen = parseAiGeneratedOpenEnded(result.answer, "short");
+      if (parsedOpen.length === 0) {
+        showToast("AI did not return parseable questions. Try again.");
+        return;
+      }
+
+      setAiModalOpen(false);
+      (navigation as any).navigate("PracticeSession", {
+        title: "AI Practice",
+        questions: parsedOpen,
+        subject: backendSubject,
+        formLevel: metaFormLevel,
+      });
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Failed to generate questions.");
+    } finally {
+      setAiGenerating(false);
     }
   };
 
@@ -272,7 +390,7 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
           </Text>
         </View>
 
-        {!loading || favourites.length > 0 ? (
+        {!loading || favouriteTiles.length > 0 ? (
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
@@ -280,7 +398,7 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
             style={styles.tileRowScroll}
             nestedScrollEnabled
           >
-            {favourites.map((f, index) => {
+            {favouriteTiles.map((f, index) => {
               const key = favouriteKey(f);
               const active = selectedSubjectKey === key;
               return (
@@ -404,7 +522,7 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
 
             <Pressable
               style={({ pressed }) => [styles.aiButton, pressed && styles.aiButtonPressed]}
-              onPress={showComingSoonWithSound}
+              onPress={openAiGenerateModal}
             >
               <LinearGradient
                 colors={["#F15A29", "#5B2EFF"]}
@@ -414,7 +532,9 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
               >
                 <View style={styles.aiButtonInner}>
                   <Sparkles size={18} color="#FFFFFF" />
-                  <Text style={styles.aiButtonText}>Generate questions via AI</Text>
+                  <Text style={styles.aiButtonText}>
+                    Generate questions via AI
+                  </Text>
                 </View>
               </LinearGradient>
             </Pressable>
@@ -447,6 +567,109 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
               </ScrollView>
             )}
             <Pressable style={styles.modalClose} onPress={() => !addBusy && setAddOpen(false)}>
+              <Text style={styles.modalCloseText}>Close</Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      <Modal transparent visible={aiModalOpen} animationType="fade" onRequestClose={() => setAiModalOpen(false)}>
+        <Pressable style={styles.modalBackdrop} onPress={() => !aiGenerating && setAiModalOpen(false)}>
+          <Pressable
+            style={[styles.modalCard, { paddingBottom: insets.bottom + 16 }]}
+            onPress={(e) => e.stopPropagation()}
+          >
+            <Text style={styles.modalTitle}>Generate AI questions</Text>
+            <Text style={styles.modalHint}>Choose mode, question type, and how many questions.</Text>
+
+            <Text style={styles.fieldLabel}>Mode</Text>
+            <View style={styles.choiceRow}>
+              <Pressable
+                style={[styles.choiceChip, aiMode === "general" && styles.choiceChipActive]}
+                onPress={() => setAiMode("general")}
+              >
+                <Text style={[styles.choiceChipText, aiMode === "general" && styles.choiceChipTextActive]}>
+                  General
+                </Text>
+              </Pressable>
+              <Pressable
+                style={[styles.choiceChip, aiMode === "topic" && styles.choiceChipActive]}
+                onPress={() => setAiMode("topic")}
+              >
+                <Text style={[styles.choiceChipText, aiMode === "topic" && styles.choiceChipTextActive]}>
+                  Topic-specific
+                </Text>
+              </Pressable>
+            </View>
+
+            {aiMode === "topic" ? (
+              <>
+                <Text style={styles.fieldLabel}>Topic</Text>
+                <TextInput
+                  value={aiTopic}
+                  onChangeText={setAiTopic}
+                  placeholder="e.g., Cell respiration"
+                  placeholderTextColor="#94A3B8"
+                  style={styles.topicInput}
+                />
+              </>
+            ) : null}
+
+            <Text style={styles.fieldLabel}>Question type</Text>
+            <View style={styles.choiceRow}>
+              {(["mcq", "subjective"] as const).map((type) => (
+                <Pressable
+                  key={type}
+                  style={[styles.choiceChip, aiQuestionType === type && styles.choiceChipActive]}
+                  onPress={() => setAiQuestionType(type)}
+                >
+                  <Text
+                    style={[styles.choiceChipText, aiQuestionType === type && styles.choiceChipTextActive]}
+                  >
+                    {type === "mcq" ? "MCQ" : "Subjective"}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+
+            <Text style={styles.fieldLabel}>Number of questions</Text>
+            <View style={styles.choiceRow}>
+              {[5, 10, 15, 20].map((count) => (
+                <Pressable
+                  key={count}
+                  style={[styles.choiceChip, aiQuestionCount === count && styles.choiceChipActive]}
+                  onPress={() => setAiQuestionCount(count)}
+                >
+                  <Text
+                    style={[
+                      styles.choiceChipText,
+                      aiQuestionCount === count && styles.choiceChipTextActive,
+                    ]}
+                  >
+                    {count}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+
+            <Pressable
+              style={({ pressed }) => [styles.generateActionBtn, pressed && styles.generateActionBtnPressed]}
+              onPress={() => void runAiGenerate()}
+              disabled={aiGenerating}
+            >
+              <LinearGradient
+                colors={["#F15A29", "#5B2EFF"]}
+                start={{ x: 0, y: 0.5 }}
+                end={{ x: 1, y: 0.5 }}
+                style={styles.generateActionBtnGrad}
+              >
+                <Text style={styles.generateActionBtnText}>
+                  {aiGenerating ? "Generating..." : "Generate"}
+                </Text>
+              </LinearGradient>
+            </Pressable>
+
+            <Pressable style={styles.modalClose} onPress={() => !aiGenerating && setAiModalOpen(false)}>
               <Text style={styles.modalCloseText}>Close</Text>
             </Pressable>
           </Pressable>
@@ -687,6 +910,66 @@ const styles = StyleSheet.create({
   },
   genBtnText: {
     fontSize: 14,
+    fontFamily: fonts.bold,
+    color: "#FFFFFF",
+  },
+  fieldLabel: {
+    fontSize: 13,
+    fontFamily: fonts.semiBold,
+    color: colors.textSecondary,
+    marginTop: 10,
+    marginBottom: 8,
+  },
+  choiceRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  choiceChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "rgba(15, 23, 42, 0.18)",
+    backgroundColor: "#FFFFFF",
+  },
+  choiceChipActive: {
+    borderColor: BRAND,
+    backgroundColor: BRAND,
+  },
+  choiceChipText: {
+    fontSize: 13,
+    fontFamily: fonts.semiBold,
+    color: colors.text,
+  },
+  choiceChipTextActive: {
+    color: "#FFFFFF",
+  },
+  topicInput: {
+    borderWidth: 1,
+    borderColor: "rgba(15, 23, 42, 0.16)",
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 14,
+    fontFamily: fonts.regular,
+    color: colors.text,
+    backgroundColor: "#FFFFFF",
+  },
+  generateActionBtn: {
+    marginTop: 14,
+    borderRadius: 12,
+    overflow: "hidden",
+  },
+  generateActionBtnPressed: { opacity: 0.92 },
+  generateActionBtnGrad: {
+    paddingVertical: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 12,
+  },
+  generateActionBtnText: {
+    fontSize: 15,
     fontFamily: fonts.bold,
     color: "#FFFFFF",
   },

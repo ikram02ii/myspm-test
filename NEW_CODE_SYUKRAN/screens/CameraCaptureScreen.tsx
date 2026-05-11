@@ -1,56 +1,25 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useRef, useState } from "react";
 import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
-import {
-  Camera as ExpoCamera,
-  CameraType,
-  getCameraPermissionsAsync,
-  requestCameraPermissionsAsync,
-} from "expo-camera";
-import type { PermissionStatus } from "expo-modules-core";
+import { CameraView, useCameraPermissions } from "expo-camera";
 import { LinearGradient } from "expo-linear-gradient";
-import { Camera, RefreshCw, Scan } from "lucide-react-native";
+import * as ImagePicker from "expo-image-picker";
+import { Camera, ImagePlus, RefreshCw, Scan } from "lucide-react-native";
 
 import { colors } from "../constants/colors";
 import { fonts } from "../constants/fonts";
 import { theme } from "../constants/palette";
 import type { CameraStackParamList } from "../navigation/CameraStack";
-import { uploadScanImage } from "../services/mobileScan";
 
 type Props = NativeStackScreenProps<CameraStackParamList, "CameraCapture">;
 
 const BRAND = theme.brand;
 
 export default function CameraCaptureScreen({ navigation }: Props) {
-  const cameraRef = useRef<ExpoCamera | null>(null);
-  const [permissionStatus, setPermissionStatus] = useState<PermissionStatus | null>(null);
+  const cameraRef = useRef<CameraView | null>(null);
+  const [permission, requestPermission] = useCameraPermissions();
   const [isCapturing, setIsCapturing] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
-
-  useEffect(() => {
-    const init = async () => {
-      try {
-        const current = await getCameraPermissionsAsync();
-        setPermissionStatus(current.status);
-        if (!current.granted && current.canAskAgain) {
-          const next = await requestCameraPermissionsAsync();
-          setPermissionStatus(next.status);
-        }
-      } catch {
-        setPermissionStatus(null);
-      }
-    };
-    void init();
-  }, []);
-
-  const requestPermission = async () => {
-    try {
-      const next = await requestCameraPermissionsAsync();
-      setPermissionStatus(next.status);
-    } catch {
-      setPermissionStatus(null);
-    }
-  };
 
   const takePhoto = async () => {
     if (isCapturing) return;
@@ -60,15 +29,33 @@ export default function CameraCaptureScreen({ navigation }: Props) {
       const photo = await cameraRef.current?.takePictureAsync({
         quality: 0.85,
       });
-      if (!photo?.uri) {
-        setIsCapturing(false);
-        return;
-      }
-      const uploaded = await uploadScanImage(photo.uri);
-      navigation.replace("CameraPreview", { photoUri: uploaded.url });
+      if (!photo?.uri) return;
+      navigation.replace("CameraPreview", { photoUri: photo.uri });
     } catch (error) {
-      console.error("uploadScanImage error", error);
-      setUploadError("Upload failed. Please try again.");
+      console.error("takePhoto error", error);
+      setUploadError("Could not capture photo. Please try again.");
+    } finally {
+      setIsCapturing(false);
+    }
+  };
+
+  // Gallery upload path: selects a local image and reuses the same Preview/OCR flow as camera capture.
+  const pickFromGallery = async () => {
+    if (isCapturing) return;
+    setIsCapturing(true);
+    setUploadError(null);
+    try {
+      const picked = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ["images"],
+        allowsEditing: false,
+        quality: 0.85,
+      });
+      if (picked.canceled || !picked.assets?.[0]?.uri) return;
+      navigation.replace("CameraPreview", { photoUri: picked.assets[0].uri });
+    } catch (error) {
+      console.error("pickFromGallery error", error);
+      setUploadError("Could not open gallery. Please try again.");
+    } finally {
       setIsCapturing(false);
     }
   };
@@ -82,12 +69,20 @@ export default function CameraCaptureScreen({ navigation }: Props) {
     );
   }
 
-  if (permissionStatus !== "granted") {
+  if (!permission) {
+    return (
+      <View style={styles.center}>
+        <Text style={styles.title}>Checking camera access…</Text>
+      </View>
+    );
+  }
+
+  if (!permission.granted) {
     return (
       <View style={styles.center}>
         <Text style={styles.title}>Camera permission required</Text>
         <Text style={styles.sub}>Enable camera access to scan questions.</Text>
-        <Pressable style={styles.permissionBtn} onPress={requestPermission}>
+        <Pressable style={styles.permissionBtn} onPress={() => void requestPermission()}>
           <Text style={styles.permissionBtnText}>Grant Permission</Text>
         </Pressable>
       </View>
@@ -97,10 +92,12 @@ export default function CameraCaptureScreen({ navigation }: Props) {
   return (
     <View style={styles.root}>
       <View style={styles.cameraWrap}>
-        <ExpoCamera
-          ref={(r) => (cameraRef.current = r)}
+        <CameraView
+          ref={(r) => {
+            cameraRef.current = r;
+          }}
           style={StyleSheet.absoluteFill}
-          type={CameraType.back}
+          facing="back"
           ratio="16:9"
         />
 
@@ -133,6 +130,11 @@ export default function CameraCaptureScreen({ navigation }: Props) {
           <Text style={styles.secondaryText}>Cancel</Text>
         </Pressable>
 
+        <Pressable style={styles.secondaryBtn} onPress={pickFromGallery} disabled={isCapturing}>
+          <ImagePlus size={18} color={colors.text} />
+          <Text style={styles.secondaryText}>Upload</Text>
+        </Pressable>
+
         <Pressable style={styles.captureOuter} onPress={takePhoto} disabled={isCapturing}>
           <LinearGradient
             colors={[...theme.gradientHero]}
@@ -141,7 +143,7 @@ export default function CameraCaptureScreen({ navigation }: Props) {
             style={styles.captureInner}
           >
             <Camera size={22} color="#FFFFFF" />
-            <Text style={styles.captureText}>{isCapturing ? "Capturing…" : "Capture"}</Text>
+            <Text style={styles.captureText}>{isCapturing ? "Processing…" : "Capture"}</Text>
           </LinearGradient>
         </Pressable>
       </View>

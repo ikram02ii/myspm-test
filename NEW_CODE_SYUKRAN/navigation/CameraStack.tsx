@@ -7,12 +7,13 @@ import CameraScreen from "../screens/CameraScreen";
 import CameraCaptureScreen from "../screens/CameraCaptureScreen";
 import CameraHistoryScreen from "../screens/CameraHistoryScreen";
 import CameraPreviewScreen from "../screens/CameraPreviewScreen";
+import type { AiScanOcrResult } from "../services/mobileScan";
 
 export type CameraStackParamList = {
   CameraIndex: undefined;
   CameraCapture: undefined;
   CameraHistory: undefined;
-  CameraPreview: { photoUri: string };
+  CameraPreview: { photoUri: string; aiResult?: AiScanOcrResult };
 };
 
 const Stack = createNativeStackNavigator<CameraStackParamList>();

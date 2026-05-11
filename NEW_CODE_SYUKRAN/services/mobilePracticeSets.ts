@@ -18,6 +18,8 @@ export type PracticeSetQuestion = {
   options: string[];
   correctAnswer: string;
   explanation: string | null;
+  /** Optional: include full question text (e.g., with A-D options) for /api/rag/grade. */
+  questionForGrade?: string;
 };
 
 function optionsArrayFromParsed(parsed: unknown): string[] | null {

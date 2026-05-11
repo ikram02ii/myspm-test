@@ -1,0 +1,55 @@
+{
+  "name": "@workspace/backend",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "cross-env NODE_ENV=development tsx ./src/index.ts",
+    "build": "npm run typecheck && tsx ./build.ts",
+    "start": "node ./dist/index.mjs",
+    "ingest:textbook": "tsx ./scripts/ingestTextbook.ts",
+    "ingest:past-paper": "tsx ./scripts/ingestPastPaper.ts",
+    "ingest:past-paper-qa": "tsx ./scripts/ingestPastPaperQa.ts",
+    "extract:pdf-text": "tsx ./scripts/extractPastPaperPdfText.ts",
+    "typecheck:libs": "tsc -b tsconfig.workspace.json",
+    "typecheck": "npm run typecheck:libs && tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@workspace/api-zod": "workspace:*",
+    "@workspace/db": "workspace:*",
+    "ali-oss": "^6.23.0",
+    "bcrypt": "^5.1.1",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2",
+    "dotenv": "^17.3.1",
+    "drizzle-orm": "^0.45.1",
+    "express": "^5",
+    "google-auth-library": "^10.6.2",
+    "jsonwebtoken": "^9.0.3",
+    "multer": "^2.1.1",
+    "pdf-parse": "^2.4.5",
+    "pg": "^8.20.0"
+  },
+  "devDependencies": {
+    "@types/ali-oss": "^6.23.3",
+    "@types/bcrypt": "^5.0.2",
+    "@types/cookie-parser": "^1.4.10",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/jsonwebtoken": "^9.0.5",
+    "@types/multer": "^2.1.0",
+    "@types/node": "^25.3.3",
+    "@types/pg": "^8.18.0",
+    "cross-env": "^7.0.3",
+    "esbuild": "^0.27.3",
+    "prettier": "^3.8.1",
+    "tsx": "^4.21.0",
+    "typescript": "~5.9.2"
+  },
+  "overrides": {
+    "@esbuild-kit/esm-loader": "npm:tsx@^4.21.0"
+  }
+}
