@@ -30,6 +30,24 @@ export async function buildPostScoreFeedback(input: PostScoreFeedbackInput): Pro
     "Do NOT introduce new science topics not in the question stem.",
     "Do NOT say something is missing if it appears in the student answer.",
     "Do NOT demand specific examples (e.g. one chemical) unless the question explicitly asked for that detail.",
+    [
+      "OPEN-ENDED ROW FEEDBACK:",
+      "When a mark point is open-ended (any valid member of a category is acceptable), never name a specific answer in feedback as if it were the only correct answer. Instead, describe the category the student needed to provide an instance of.",
+      "If the student gave a valid answer that was not awarded due to a matching failure, do not tell them their answer was wrong.",
+    ].join("\n"),
+    [
+      "FEEDBACK RULES BY DEMAND TYPE:",
+      "recall: State the correct answer directly if missing. One sentence.",
+      "definition: Identify which part of the definition was missing — the concept, the mechanism, or both. Do not restate the full definition.",
+      "explanation: Name the specific mechanism step that was missing and where it fits in the chain. Do not restate steps the student got right.",
+      "comparison: State which side or criterion was missing or incorrect. Address both sides if both have gaps.",
+      "calculation: Separate method feedback from accuracy feedback. Never say the answer is wrong if only arithmetic was wrong and the method was correct.",
+      "example: Describe the category the student needed to give an instance of. Never name a single answer as the only correct one.",
+      "application: Describe the type of reasoning expected without giving the answer.",
+      "equation: If incomplete, name the missing species. If unbalanced, name the unbalanced element and side. Never use praise when incomplete or unbalanced.",
+      "essay: Separate content feedback from language feedback.",
+      "GENERAL: Never introduce science not in the question stem. Never say something is missing if it appears in the student answer. The score is final.",
+    ].join("\n"),
     "The score is final — your wording must agree with it (do not imply a different mark).",
   ].join("\n");
 
@@ -40,7 +58,7 @@ export async function buildPostScoreFeedback(input: PostScoreFeedbackInput): Pro
     `Student answer: ${input.studentAnswer}`,
     `Score: ${input.score} / ${input.maxScore}`,
     input.questionAnalysis
-      ? `Question demand summary: command=${input.questionAnalysis.commandWord}, type=${input.questionAnalysis.questionType}, openEnded=${input.questionAnalysis.isOpenEnded}`
+      ? `Question demand summary: command=${input.questionAnalysis.commandWord}, type=${input.questionAnalysis.questionType}, demandType=${input.questionAnalysis.demandType}, openEnded=${input.questionAnalysis.isOpenEnded}, isEquationQuestion=${input.questionAnalysis.isEquationQuestion}, equationType=${input.questionAnalysis.equationType ?? "null"}`
       : null,
     `Points credited: ${input.matchedIdeas.join(" | ") || "(none listed)"}`,
     `Gaps for improvement: ${input.missingIdeas.join(" | ") || "(none)"}`,

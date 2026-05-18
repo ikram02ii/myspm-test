@@ -1,6 +1,10 @@
-import type { RubricIdea } from "./types";
+import type { QuestionAnalysis, RubricIdea } from "./types";
 import type { RubricStructureContext } from "./rubricStructureHints";
-import { normalizeAnswerText, rubricIdeaRequiresRouteDetail } from "./gradingFairnessMatch";
+import {
+  enrichRubricRowFromSynonymClusters,
+  normalizeAnswerText,
+  rubricIdeaRequiresRouteDetail,
+} from "./gradingFairnessMatch";
 
 function significantTokens(text: string): string[] {
   return normalizeAnswerText(text)
@@ -105,9 +109,15 @@ export function dedupeAndPruneRubricIdeas(ideas: RubricIdea[]): RubricIdea[] {
 
 const TRANSPORT_VERB = /\b(transport|transports|carry|carries|move|moves|translocat|distribut|distributes|flow|flows)\b/i;
 
+function fragmentTooShortToSplit(text: string): boolean {
+  const words = significantTokens(text);
+  return words.length < 4;
+}
+
 function splitMergedTransportRow(idea: RubricIdea): RubricIdea[] | null {
   const text = idea.idea.trim();
   if (!TRANSPORT_VERB.test(text) || !rubricIdeaRequiresRouteDetail(text)) return null;
+  if (fragmentTooShortToSplit(text)) return null;
 
   const fromIdx = text.search(/\bfrom\b/i);
   const whatPart = (fromIdx > 0 ? text.slice(0, fromIdx) : text).replace(/\s+/g, " ").trim();
@@ -119,8 +129,9 @@ function splitMergedTransportRow(idea: RubricIdea): RubricIdea[] | null {
       : "States what is transported or the main substance/role carried";
   const routeIdea =
     routePart.length >= 8 ? routePart : "States the route or direction (source to destination)";
+  if (fragmentTooShortToSplit(whatIdea) || fragmentTooShortToSplit(routeIdea)) return null;
 
-  return [
+  const splitRows: RubricIdea[] = [
     {
       ...idea,
       id: "i1",
@@ -136,6 +147,83 @@ function splitMergedTransportRow(idea: RubricIdea): RubricIdea[] | null {
       kind: idea.kind === "function" ? "function" : "point",
     },
   ];
+  return splitRows.map((row) => enrichRubricRowFromSynonymClusters(row));
+}
+
+const STOP_BACKFILL = new Set([
+  "the", "and", "for", "are", "was", "with", "from", "that", "this", "when", "than", "then", "will", "have", "has",
+  "had", "not", "but", "its", "one", "two", "may", "can", "use", "also", "only", "very", "such", "more", "most", "less",
+  "like", "just", "even", "other", "onto", "upon", "over", "under", "both", "some", "any", "all", "per", "via", "your",
+  "explain", "describe", "state", "name", "give", "list", "any", "valid", "example", "correct",
+]);
+
+function keywordsFromIdeaText(idea: string): string[] {
+  return [
+    ...new Set(
+      normalizeAnswerText(idea)
+        .split(/\s+/)
+        .filter((w) => w.length > 3 && !STOP_BACKFILL.has(w)),
+    ),
+  ].slice(0, 5);
+}
+
+function inferKindFromIdea(idea: RubricIdea): RubricIdea["kind"] {
+  if (idea.kind) return idea.kind;
+  if (idea.openEnded === true) return "example";
+  const n = normalizeAnswerText(idea.idea);
+  if (/\b(equation|balanced|reactant|product|coefficient|persamaan)\b/i.test(n)) return "equation";
+  if (/\b(method|formula|substitut|working)\b/i.test(n)) return "method";
+  if (/\b(accuracy|final\s+value|answer\s+with\s+unit)\b/i.test(n)) return "accuracy";
+  if (/\b(application|suggest|predict|reasoning)\b/i.test(n)) return "application";
+  return "point";
+}
+
+/** D1: deterministic metadata repair for DB rows and fresh LLM rubrics. */
+export function backfillRubricRowMetadata(ideas: RubricIdea[], analysis: QuestionAnalysis): RubricIdea[] {
+  const demand = analysis.demandType;
+  let rows = ideas.map((row) => {
+    const kind = inferKindFromIdea(row);
+    const openEnded =
+      row.openEnded ??
+      (kind === "example" || kind === "application" || demand === "example" || demand === "application");
+    const next: RubricIdea = {
+      ...row,
+      kind,
+      openEnded,
+      demandType: row.demandType ?? demand,
+    };
+    if (analysis.isEquationQuestion && kind === "equation") {
+      next.equationType = row.equationType ?? analysis.equationType ?? "symbol";
+    }
+    if (!next.keywords || next.keywords.length === 0) {
+      next.keywords = openEnded ? [] : keywordsFromIdeaText(next.idea);
+    }
+    return next;
+  });
+
+  for (let i = 0; i < rows.length; i += 1) {
+    const row = rows[i];
+    if (row.kind === "accuracy" && !row.dependsOnRowId) {
+      for (let j = i - 1; j >= 0; j -= 1) {
+        if (rows[j].kind === "method") {
+          rows[i] = { ...row, dependsOnRowId: rows[j].id };
+          break;
+        }
+      }
+    }
+  }
+
+  rows = rows.map((row) => {
+    if (!rubricIdeaRequiresRouteDetail(row.idea)) return row;
+    const n = normalizeAnswerText(row.idea);
+    if (/\broots\b|\bakar\b/.test(n)) return row;
+    return {
+      ...row,
+      idea: `${row.idea} (source to destination, e.g. leaves to roots or other parts)`.slice(0, 220),
+    };
+  });
+
+  return rows;
 }
 
 /** Split any row that bundles transport/carry + route into separate mark points (all subjects). */
@@ -196,11 +284,13 @@ export function refineRubricIdeas(
   _question: string,
   maxScore: number,
   _structureContext?: RubricStructureContext | null,
+  _analysis?: QuestionAnalysis | null,
 ): RubricIdea[] {
   const expanded = splitBundledTransportRows(ideas, maxScore);
   const companions = dropOverlappingTransportCompanionRows(expanded);
   const pruned = dedupeAndPruneRubricIdeas(companions);
   const capped = capRubricRows(pruned, maxScore);
   const sanitized = sanitizeRequiresCausalLink(capped);
-  return sanitized.length > 0 ? sanitized : ideas;
+  const enriched = (sanitized.length > 0 ? sanitized : ideas).map((row) => enrichRubricRowFromSynonymClusters(row));
+  return enriched;
 }

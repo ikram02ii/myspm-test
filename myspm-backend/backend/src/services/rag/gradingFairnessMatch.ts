@@ -3,7 +3,7 @@
  * in the student answer (paraphrase / synonym), for post-processing grader output.
  */
 
-import type { MarkBreakdownItem } from "./types";
+import type { MarkBreakdownItem, RubricIdea } from "./types";
 
 export const EQUIVALENT_PHRASE_GROUPS: readonly string[][] = [
   ["pollen tube", "grow a pollen tube", "form a pollen tube", "develop a pollen tube", "grows a pollen tube", "pollen tube growth"],
@@ -59,6 +59,25 @@ export const EQUIVALENT_PHRASE_GROUPS: readonly string[][] = [
     "collide more often",
     "more collisions between particles",
   ],
+  ["xylem", "xilem", "tissue xylem", "saluran xilem", "vessel xylem"],
+  ["phloem", "floem", "tissue phloem", "saluran floem", "sieve tube", "tiub tapis"],
+  ["transpiration", "transpirasi", "water loss", "kehilangan air"],
+  ["osmosis", "osmosis", "pergerakan air", "water potential", "potensi air"],
+  ["diffusion", "resapan", "penyebaran", "concentration gradient", "kecerunan kepekatan"],
+  ["active transport", "pengangkutan aktif", "against concentration gradient", "menentang kecerunan"],
+  ["photosynthesis", "fotosintesis", "glucose", "glukosa", "oxygen", "oksigen"],
+  ["respiration", "respirasi", "anaerobic", "anaerobik", "aerobic", "aerobik"],
+  ["enzyme", "enzim", "denatured", "denaturasi", "optimum temperature", "suhu optimum"],
+  ["activation energy", "tenaga pengaktifan", "effective collision", "perlanggaran berkesan"],
+  ["composite material", "bahan komposit", "reinforced concrete", "konkrit bertetulang"],
+  ["acid", "asid", "base", "bes", "alkali", "alkali", "neutralisation", "penetrutralan"],
+  ["oxidation", "pengoksidaan", "reduction", "penurunan", "redox", "tindak balas redoks"],
+  ["mole", "mol", "concentration", "kepekatan", "molarity", "molariti", "mol dm"],
+  ["add", "tambah", "subtract", "tolak", "multiply", "darab", "divide", "bahagi"],
+  ["empire", "empayar", "colonial", "penjajahan", "independence", "kemerdekaan", "persekutuan"],
+  ["cell", "sel", "tissue", "tisu", "organ", "organ", "system", "sistem", "organism", "organisma"],
+  ["cell tissue organ", "cell → tissue → organ", "sel tisu organ"],
+  ["sultan", "raja", "british", "inggeris", "japanese", "jepun", "malayan union", "kesatuan malaya"],
 ];
 
 export function ideasShareSynonymGroup(a: string, b: string): boolean {
@@ -79,6 +98,50 @@ export function normalizeAnswerText(s: string): string {
     .replace(/[^a-z0-9\s]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+export function normalizeFormulaText(s: string): string {
+  return (s || "")
+    .toLowerCase()
+    .replace(/\s+/g, "")
+    .replace(/[→←=]/g, "");
+}
+
+export function studentAnswerContainsSpecies(studentAnswer: string, speciesKeyword: string): boolean {
+  const key = (speciesKeyword || "").trim();
+  if (key.length < 2) return true;
+  const normKey = normalizeFormulaText(key);
+  const normAns = normalizeFormulaText(studentAnswer);
+  if (normAns.includes(normKey)) return true;
+  return studentAnswerCoversIdea(studentAnswer, key);
+}
+
+export function allEquationSpeciesPresent(studentAnswer: string, keywords: string[] | undefined): boolean {
+  const species = (keywords ?? []).map((k) => k.trim()).filter((k) => k.length >= 2);
+  if (species.length === 0) return true;
+  return species.every((s) => studentAnswerContainsSpecies(studentAnswer, s));
+}
+
+/** Post-split / backfill: add cluster phrases that match the row idea text. */
+export function enrichRubricRowFromSynonymClusters(row: RubricIdea): RubricIdea {
+  const ideaNorm = normalizeAnswerText(row.idea);
+  const kw = new Set((row.keywords ?? []).map((k) => k.trim()).filter(Boolean));
+  const acc = new Set((row.acceptedConcepts ?? []).map((k) => k.trim()).filter(Boolean));
+  for (const group of EQUIVALENT_PHRASE_GROUPS) {
+    const groupHit = group.some((g) => {
+      const ng = normalizeAnswerText(g);
+      return ideaNorm.includes(ng) || [...kw, ...acc].some((p) => normalizeAnswerText(p).includes(ng));
+    });
+    if (!groupHit) continue;
+    for (const phrase of group.slice(0, 6)) {
+      if (row.openEnded) kw.add(phrase);
+      else acc.add(phrase);
+    }
+  }
+  const next: RubricIdea = { ...row };
+  if (kw.size > 0) next.keywords = [...new Set([...(row.keywords ?? []), ...kw])].slice(0, 12);
+  if (acc.size > 0) next.acceptedConcepts = [...new Set([...(row.acceptedConcepts ?? []), ...acc])].slice(0, 8);
+  return next;
 }
 
 /** Rubric row needs source/destination or tissue route (e.g. leaves → roots), not just "transports food". */
@@ -144,7 +207,7 @@ export function studentAnswerCoversIdea(studentAnswer: string, idea: string): bo
 
   if (tokens.length === 0) return false;
   const hitRatio = tokens.filter((t) => ans.includes(t)).length / tokens.length;
-  if (hitRatio >= 0.66) return true;
+  if (hitRatio >= 0.5) return true;
 
   for (const group of EQUIVALENT_PHRASE_GROUPS) {
     const ideaHit = group.some((g) => id.includes(normalizeAnswerText(g)));
@@ -154,6 +217,25 @@ export function studentAnswerCoversIdea(studentAnswer: string, idea: string): bo
 
   if (ideasShareSynonymGroup(studentAnswer, idea)) return true;
 
+  return false;
+}
+
+/** True when the answer (or a line) matches the rubric row via idea text, keywords, or accepted concepts. */
+export function studentExpressesRubricMeaning(
+  studentText: string,
+  rubric: RubricIdea,
+  fullAnswer?: string,
+): boolean {
+  const text = (studentText || "").trim();
+  const answer = fullAnswer ?? studentText;
+  if (!text) return false;
+  if (studentAnswerCoversIdea(answer, rubric.idea) || studentAnswerCoversIdea(text, rubric.idea)) return true;
+  if (ideasShareSynonymGroup(text, rubric.idea)) return true;
+  for (const phrase of [...(rubric.keywords ?? []), ...(rubric.acceptedConcepts ?? [])]) {
+    if (!phrase?.trim()) continue;
+    if (studentAnswerCoversIdea(text, phrase) || studentAnswerCoversIdea(answer, phrase)) return true;
+    if (ideasShareSynonymGroup(text, phrase)) return true;
+  }
   return false;
 }
 
@@ -174,6 +256,7 @@ export function fixMissingIdeasAgainstStudentAnswer(params: {
   missingIdeas: string[];
   matchedIdeas: string[];
   markBreakdown?: MarkBreakdownItem[];
+  rubricIdeas?: RubricIdea[];
   score: number;
   maxScore: number;
 }): ContradictionFixResult {
@@ -185,7 +268,11 @@ export function fixMissingIdeasAgainstStudentAnswer(params: {
   const falselyMissing: string[] = [];
 
   for (const idea of params.missingIdeas) {
-    if (studentAnswerCoversIdea(studentAnswer, idea) && studentAnswerSatisfiesRubricDetail(studentAnswer, idea)) {
+    const rubricRow = params.rubricIdeas?.find((r) => r.idea === idea);
+    const meaningPresent = rubricRow
+      ? studentExpressesRubricMeaning(studentAnswer, rubricRow, studentAnswer)
+      : studentAnswerCoversIdea(studentAnswer, idea) || ideasShareSynonymGroup(studentAnswer, idea);
+    if (meaningPresent && studentAnswerSatisfiesRubricDetail(studentAnswer, idea)) {
       falselyMissing.push(idea);
     }
   }
@@ -207,11 +294,11 @@ export function fixMissingIdeasAgainstStudentAnswer(params: {
 
   if (breakdown && breakdown.length > 0) {
     for (const row of breakdown) {
-      if (
-        !row.awarded &&
-        studentAnswerCoversIdea(studentAnswer, row.idea) &&
-        studentAnswerSatisfiesRubricDetail(studentAnswer, row.idea)
-      ) {
+      const rubricRow = params.rubricIdeas?.find((r) => r.id === row.rubricId || r.idea === row.idea);
+      const meaningPresent = rubricRow
+        ? studentExpressesRubricMeaning(studentAnswer, rubricRow, studentAnswer)
+        : studentAnswerCoversIdea(studentAnswer, row.idea) || ideasShareSynonymGroup(studentAnswer, row.idea);
+      if (!row.awarded && meaningPresent && studentAnswerSatisfiesRubricDetail(studentAnswer, row.idea)) {
         row.awarded = true;
         row.reason = `${row.reason || ""} (Reconciled: idea appears in student answer.)`.trim();
       }

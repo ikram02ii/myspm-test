@@ -108,6 +108,29 @@ export type QuestionCommandWord =
   | "discuss"
   | "general";
 
+export type DemandType =
+  | "recall"
+  | "definition"
+  | "explanation"
+  | "comparison"
+  | "calculation"
+  | "example"
+  | "application"
+  | "equation"
+  | "diagram_label"
+  | "essay";
+
+export type EquationType = "word" | "symbol" | "ionic" | "half" | null;
+
+export type VerifierMode =
+  | "meaning"
+  | "membership"
+  | "reasoning"
+  | "method"
+  | "paired"
+  | "equation"
+  | "sequence";
+
 /** High-level demand shape for scoring policy. */
 export type QuestionAnalysisQuestionType =
   | "fixed_answer"
@@ -118,6 +141,7 @@ export type QuestionAnalysisQuestionType =
   | "compare_contrast"
   | "calculation"
   | "mcq"
+  | "sequence_order"
   | "general";
 
 export type QuestionAnalysis = {
@@ -125,6 +149,10 @@ export type QuestionAnalysis = {
   topicKeywords: string[];
   commandWord: QuestionCommandWord;
   questionType: QuestionAnalysisQuestionType;
+  demandType: DemandType;
+  compoundDemandTypes?: DemandType[];
+  isEquationQuestion: boolean;
+  equationType: EquationType;
   isOpenEnded: boolean;
   isCompoundQuestion: boolean;
   expectedAnswerStyle: string;
@@ -175,6 +203,10 @@ export type MarkBreakdownItem = {
   matchMethod?: MatchMethod;
   /** Stable id from rubric JSON when present. */
   rubricId?: string;
+  /** Matching strategy used for this row (pipeline v2). */
+  matchStrategy?: string;
+  /** True when marks were awarded for correct science not anticipated by the rubric row (teacher review). */
+  awardedOutsideRubric?: boolean;
 };
 
 export type RubricIdeaKind =
@@ -188,7 +220,11 @@ export type RubricIdeaKind =
   | "example"
   | "use"
   | "calculation"
-  | "definition";
+  | "definition"
+  | "method"
+  | "accuracy"
+  | "equation"
+  | "application";
 
 export type RubricIdea = {
   id: string;
@@ -205,6 +241,10 @@ export type RubricIdea = {
   acceptedConcepts?: string[];
   /** If true, withhold explanation marks unless a causal link appears in the student idea. */
   requiresCausalLink?: boolean;
+  demandType?: DemandType;
+  equationType?: EquationType;
+  /** Accuracy row depends on its method row being awarded first. */
+  dependsOnRowId?: string;
 };
 
 export type RubricSource = "past_paper" | "llm_generated" | "manual";
@@ -333,6 +373,8 @@ export type GradeSubmissionResult = {
   rubricIdeas?: string[];
   acceptedConcepts?: AcceptedConceptBundle[];
   contradictionCheckPassed?: boolean;
+  /** Count of markBreakdown rows with awardedOutsideRubric (for teacher review). */
+  outsideRubricAwardCount?: number;
   /** Human-readable rendering of the diagram context (kept for back-compat). */
   diagramContext?: string;
   /** Structured JSON form of the diagram context (preferred for new consumers). */

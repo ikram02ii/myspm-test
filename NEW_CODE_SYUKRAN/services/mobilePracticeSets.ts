@@ -56,6 +56,40 @@ export function inferQuestionMaxMarks(questionText: string): number | null {
   return null;
 }
 
+const MARKS_AT_END_RE = /\(\s*(\d{1,2})\s*(?:marks?|markah)\s*\)\s*$/i;
+
+export function stemAlreadyHasMarksAtEnd(questionText: string): boolean {
+  return MARKS_AT_END_RE.test((questionText || "").trim());
+}
+
+/** Total marks for display and grading (API field, stem, or sensible default). */
+export function resolveQuestionMarks(
+  q: PracticeSetQuestion,
+  questionForGrade?: string,
+): number {
+  if (typeof q.maxMarks === "number" && Number.isFinite(q.maxMarks)) {
+    const n = Math.floor(q.maxMarks);
+    if (n >= 1 && n <= 20) return n;
+  }
+  const inferred =
+    inferQuestionMaxMarks(questionForGrade ?? q.questionText) ??
+    inferQuestionMaxMarks(q.questionText);
+  if (inferred !== null) return inferred;
+  const isMcq =
+    (q.options?.length ?? 0) > 0 ||
+    /multiple_choice|mcq|choice/i.test(q.questionType ?? "");
+  return isMcq ? 1 : 5;
+}
+
+/** Show SPM-style mark allocation at the end of the stem when missing. */
+export function formatQuestionWithMarksAtEnd(questionText: string, marks: number): string {
+  const stem = (questionText || "").trim();
+  if (!stem) return "";
+  if (stemAlreadyHasMarksAtEnd(stem)) return stem;
+  const safe = Math.max(1, Math.min(20, Math.floor(marks)));
+  return `${stem} (${safe} mark${safe === 1 ? "" : "s"})`;
+}
+
 function optionsArrayFromParsed(parsed: unknown): string[] | null {
   if (!Array.isArray(parsed)) return null;
   return parsed.map((x) => String(x).trim()).filter((s) => s.length > 0);

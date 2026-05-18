@@ -6,7 +6,7 @@ import type { Rubric, RubricIdea, RubricSource } from "./types";
 import { formatSpmStudentFriendlyRulesBlock } from "./spmStudentLanguage";
 import { pastPaperFormWhereClause } from "./pastPaperFormFilter";
 import { buildCategoryRubricPromptInstructions } from "./gradingCategoryMarking";
-import { refineRubricIdeas } from "./rubricRefinement";
+import { backfillRubricRowMetadata, refineRubricIdeas } from "./rubricRefinement";
 import { analyzeQuestion } from "./questionAnalysisService";
 import { buildRubricStructureHintLines, type RubricStructureContext } from "./rubricStructureHints";
 import type { QuestionAnalysis } from "./types";
@@ -132,9 +132,19 @@ function parseRubricIdeas(text: string): RubricIdea[] {
           kindRaw === "example" ||
           kindRaw === "use" ||
           kindRaw === "calculation" ||
-          kindRaw === "definition"
+          kindRaw === "definition" ||
+          kindRaw === "method" ||
+          kindRaw === "accuracy" ||
+          kindRaw === "equation" ||
+          kindRaw === "application"
             ? (kindRaw as RubricIdea["kind"])
             : "point";
+        const dependsOnRowId =
+          typeof row["dependsOnRowId"] === "string" && row["dependsOnRowId"].trim().length > 0
+            ? row["dependsOnRowId"].trim()
+            : undefined;
+        const demandTypeRaw = typeof row["demandType"] === "string" ? row["demandType"].trim().toLowerCase() : "";
+        const equationTypeRaw = typeof row["equationType"] === "string" ? row["equationType"].trim().toLowerCase() : "";
         const id = typeof row["id"] === "string" && row["id"].trim().length > 0 ? row["id"].trim() : `i${idx + 1}`;
         const linkedToId =
           typeof row["linkedToId"] === "string" && row["linkedToId"].trim().length > 0
@@ -160,9 +170,27 @@ function parseRubricIdeas(text: string): RubricIdea[] {
           kind,
         };
         if (linkedToId) item.linkedToId = linkedToId;
+        if (dependsOnRowId) item.dependsOnRowId = dependsOnRowId;
         if (keywordsRaw.length > 0) item.keywords = [...new Set(keywordsRaw)];
         if (acceptedConcepts.length > 0) item.acceptedConcepts = [...new Set(acceptedConcepts)];
         if (openEnded) item.openEnded = true;
+        if (
+          demandTypeRaw === "recall" ||
+          demandTypeRaw === "definition" ||
+          demandTypeRaw === "explanation" ||
+          demandTypeRaw === "comparison" ||
+          demandTypeRaw === "calculation" ||
+          demandTypeRaw === "example" ||
+          demandTypeRaw === "application" ||
+          demandTypeRaw === "equation" ||
+          demandTypeRaw === "diagram_label" ||
+          demandTypeRaw === "essay"
+        ) {
+          item.demandType = demandTypeRaw;
+        }
+        if (equationTypeRaw === "word" || equationTypeRaw === "symbol" || equationTypeRaw === "ionic" || equationTypeRaw === "half") {
+          item.equationType = equationTypeRaw;
+        }
         // requiresCausalLink is applied only after refineRubricIdeas(); ignore LLM default here.
         return item;
       })
@@ -232,6 +260,9 @@ function structureContextForQuestion(
       commandWord: existing.commandWord,
       isCompoundQuestion: existing.isCompoundQuestion,
       expectedAnswerStyle: existing.expectedAnswerStyle,
+      demandType: existing.demandType,
+      isEquationQuestion: existing.isEquationQuestion,
+      equationType: existing.equationType,
     };
   }
   const a = analyzeQuestion(question, subject);
@@ -240,6 +271,9 @@ function structureContextForQuestion(
     commandWord: a.commandWord,
     isCompoundQuestion: a.isCompoundQuestion,
     expectedAnswerStyle: a.expectedAnswerStyle,
+    demandType: a.demandType,
+    isEquationQuestion: a.isEquationQuestion,
+    equationType: a.equationType,
   };
 }
 
@@ -262,7 +296,17 @@ export function finalizeRubricIdeas(
   subject?: string | null,
 ): RubricIdea[] {
   const ctx = resolveStructureContext(question, subject, structureContext);
-  return normalizeRubricIdeas(refineRubricIdeas(ideas, question, maxScore, ctx), maxScore);
+  const analysis =
+    structureContext && "demandType" in structureContext
+      ? (structureContext as QuestionAnalysis)
+      : analyzeQuestion(question, subject);
+  const backfilled = backfillRubricRowMetadata(ideas, analysis);
+  const refined = refineRubricIdeas(backfilled, question, maxScore, ctx, analysis);
+  const stamped = refined.map((row) => ({
+    ...row,
+    demandType: row.demandType ?? analysis.demandType,
+  }));
+  return normalizeRubricIdeas(stamped, maxScore);
 }
 
 async function qwenBuildRubric(params: {
@@ -293,10 +337,19 @@ async function qwenBuildRubric(params: {
     "For explain/describe/cause-effect questions: split mechanism into atomic marking points; do not merge two different scientific ideas into one row unless the stem clearly asks for a single broad point.",
     "Correct SPM-level paraphrases should be accepted. Do not require exact textbook phrasing or repeated context already stated in the question stem (e.g. 'when temperature increases').",
     "For function/purpose stems: main-purpose wording at SPM level is sufficient. Do NOT require advanced mechanism details unless the stem explicitly asks (e.g. osmosis, water potential, concentration, isotonic/hypertonic/hypotonic).",
-    "For sequence/history/evolution stems (e.g. model development from X to Y), include one markable stage point per key stage/scientist where expected.",
+    "For sequence/order/hierarchy/process stems (list the sequence, levels of organisation, atomic model history, steps in a process): include ONE rubric row per stage/level/step IN ORDER (first row = first stage). Order is compulsory — wrong order must not earn the mark for that position.",
     "Default requiresCausalLink to false for all ideas. Only set requiresCausalLink=true for genuinely ambiguous isolated keywords (e.g. a lone word with no mechanism).",
     "For EVERY idea, set \"keywords\" to an array of 4–8 short synonym or paraphrase phrases Malaysian SPM students might write (same scientific meaning, different wording).",
     ...structureLines,
+    [
+      "EXAMPLE AND INSTANCE ROWS:",
+      "When any part of the question stem uses instruction words that ask the student to produce a member of a category — including \"give an example\", \"state an example\", \"name a\", \"give one\", \"berikan contoh\", \"nyatakan contoh\", \"namakan\" — that mark point MUST be built as:",
+      "  openEnded: true",
+      "  kind: \"example\"",
+      "  keywords: terms that describe the category, not a specific answer",
+      "  acceptedConcepts: 2–3 illustrative members of the category only",
+      "Never set a single specific answer as the only accepted answer for an example row. The marking step will validate category membership, not string match.",
+    ].join("\n"),
     ...categoryLines,
   ].join("\n");
 
@@ -306,11 +359,15 @@ async function qwenBuildRubric(params: {
     `Question type: ${params.questionType}`,
     `Max score: ${params.maxScore}`,
     `Question: ${params.question}`,
-    params.pastPaperContext ? `Past-paper reference context:\n${params.pastPaperContext}` : null,
+    params.pastPaperContext
+      ? params.pastPaperContext.startsWith("[TEXTBOOK CONTEXT")
+        ? `Textbook reference context:\n${params.pastPaperContext}`
+        : `Past-paper reference context:\n${params.pastPaperContext}`
+      : null,
     "Build mark-point ideas an SPM examiner would use, but phrase every idea in simple student-friendly language.",
     structureLines.join("\n"),
     categoryLines.length > 0
-      ? "Follow all CONTEXT-BOUND / OPEN-CATEGORY rubric rules in the system message. Past-paper context is illustrative, not a mandatory answer list unless the stem is explicitly context-bound."
+      ? "Follow all CONTEXT-BOUND / OPEN-CATEGORY rubric rules in the system message. Reference context is illustrative, not a mandatory answer list unless the stem is explicitly context-bound."
       : null,
     params.questionType === "identify" ||
     params.questionType === "name" ||
@@ -529,6 +586,35 @@ async function saveRubric(params: RubricRequest & {
   };
 }
 
+/** Build rubric mark points using optional textbook chunk text as the sole syllabus reference. */
+export async function buildRubricIdeasForQuestion(params: {
+  question: string;
+  subject: string;
+  form: string;
+  maxScore: number;
+  questionType?: QuestionType;
+  textbookContextExcerpt?: string;
+  questionAnalysis?: QuestionAnalysis | null;
+}): Promise<RubricIdea[]> {
+  const subject = params.subject.trim() || "General";
+  const form = params.form.trim() || "General";
+  const questionType = params.questionType ?? "general";
+  const structureCtx = resolveStructureContext(params.question, subject, params.questionAnalysis ?? null);
+  const excerpt = params.textbookContextExcerpt?.trim();
+  const ideas = await qwenBuildRubric({
+    question: params.question,
+    subject,
+    form,
+    maxScore: params.maxScore,
+    questionType,
+    pastPaperContext: excerpt
+      ? `[TEXTBOOK CONTEXT — build rubric only from this excerpt; do not add facts not supported here]\n${excerpt}`
+      : undefined,
+    structureContext: structureCtx,
+  });
+  return finalizeRubricIdeas(ideas, params.question, params.maxScore, structureCtx, subject);
+}
+
 export async function saveGeneratedRubric(params: {
   question: string;
   subject?: string | null;
@@ -577,7 +663,13 @@ export async function getOrCreateRubric(params: RubricRequest): Promise<Rubric> 
     .from(ragRubricsTable)
     .where(eq(ragRubricsTable.questionHash, qHash))
     .limit(1);
-  if (exact.length > 0) return toRubric(exact[0]);
+  if (exact.length > 0) {
+    console.warn(
+      `[gradeService] rubricId not sent but hash match found: ${exact[0].rubricId}. ` +
+        "Always pass rubricId for generated questions to ensure deterministic marking.",
+    );
+    return toRubric(exact[0]);
+  }
 
   if (!params.skipNearestCachedRubric) {
     const nearest = await findNearestCachedRubric(params);

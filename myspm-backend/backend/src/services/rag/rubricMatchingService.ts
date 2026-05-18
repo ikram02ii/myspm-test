@@ -1,18 +1,38 @@
-import type { MarkBreakdownItem, MatchMethod, QuestionAnalysis, RubricIdea, RubricIdeaKind, StudentIdea } from "./types";
+import type {
+  DemandType,
+  MarkBreakdownItem,
+  MatchMethod,
+  QuestionAnalysis,
+  RubricIdea,
+  StudentIdea,
+  VerifierMode,
+} from "./types";
 import { cosineSimilarity, embedTexts } from "./embeddingsService";
 import {
+  allEquationSpeciesPresent,
   ideasShareSynonymGroup,
   normalizeAnswerText,
+  rubricIdeaRequiresRouteDetail,
   studentAnswerCoversIdea,
   studentAnswerSatisfiesRubricDetail,
+  studentExpressesRubricMeaning,
 } from "./gradingFairnessMatch";
 import {
   isExampleAndUseComboQuestion,
   isOpenCategoryMarkingQuestion,
   isStrictContextBindingQuestion,
 } from "./gradingCategoryMarking";
-import { formatSpmStudentFriendlyRulesBlock } from "./spmStudentLanguage";
-import { qwenGradingJson } from "./qwenGradingClient";
+import { verifyBorderlineMeaningMatch } from "./qwenGradingClient";
+import {
+  extractStudentStageOrder,
+  formatExpectedSequenceForPrompt,
+  isSequenceMarkingQuestion,
+  rubricRowExpectsFullOrderedSequence,
+  sequenceQuestionRequiresOrder,
+  sequenceStageAtCorrectPosition,
+  sequenceStageMatchesStudent,
+  studentFullSequenceOrderMatches,
+} from "./sequenceMarkingService";
 
 const CAUSAL_EN =
   /\b(because|so that|in order to|to (?:reduce|increase|maintain|allow|provide|prevent|enable|cause|ensure)|thus|therefore|as a result|hence|leads to|results in)\b/i;
@@ -54,19 +74,6 @@ function conceptGuardAllows(rubricIdea: string, studentIdea: string, question: s
   return true;
 }
 
-function historySequenceConceptMatch(rubricIdea: string, studentIdea: string, question: string): boolean {
-  if (!/\b(evolution|development|history|sequence|from\s+.+\s+to)\b/i.test(question)) return false;
-  const r = normalizeAnswerText(rubricIdea);
-  const s = normalizeAnswerText(studentIdea);
-  if (!r || !s) return false;
-
-  if (/\bdalton|solid sphere|indivisible\b/.test(r)) return /\bdalton|solid sphere|indivisible\b/.test(s);
-  if (/\bthomson|plum pudding|electron\b/.test(r)) return /\bthomson|plum pudding|electron\b/.test(s);
-  if (/\brutherford|nucleus|empty space\b/.test(r)) return /\brutherford|nucleus|empty space\b/.test(s);
-  if (/\bbohr|shell|energy level|orbit\b/.test(r)) return /\bbohr|shell|energy level|orbit\b/.test(s);
-  return false;
-}
-
 function fullAnswerHasCausalLink(answer: string): boolean {
   const text = answer || "";
   return CAUSAL_EN.test(text) || CAUSAL_BM.test(text);
@@ -81,12 +88,8 @@ function questionStemProvidesCauseContext(question: string): boolean {
 function studentIdeaMatchesRubricPoint(studentIdea: string, rubric: RubricIdea, studentAnswer: string): boolean {
   if (!studentIdea?.trim()) return false;
   if (!studentAnswerSatisfiesRubricDetail(studentAnswer, rubric.idea)) return false;
-  if (studentAnswerCoversIdea(studentAnswer, rubric.idea)) return true;
-  if (studentAnswerCoversIdea(studentIdea, rubric.idea)) return true;
-  if (ideasShareSynonymGroup(studentIdea, rubric.idea)) return true;
-  for (const phrase of [...(rubric.keywords ?? []), ...(rubric.acceptedConcepts ?? [])]) {
-    if (studentAnswerCoversIdea(studentIdea, phrase) || studentAnswerCoversIdea(studentAnswer, phrase)) return true;
-  }
+  if (studentExpressesRubricMeaning(studentIdea, rubric, studentAnswer)) return true;
+  if (studentExpressesRubricMeaning(studentAnswer, rubric, studentAnswer)) return true;
   return false;
 }
 
@@ -128,63 +131,68 @@ function causalRequirementSatisfied(params: {
   return false;
 }
 
-async function verifyBorderlineMeaningMatch(params: {
-  question: string;
-  rubricIdea: string;
-  rubricKind: RubricIdeaKind;
-  studentIdea: string;
-  similarity: number;
-  fullStudentAnswer: string;
-  priorAwardedRubricIdeas: string[];
-  strictContextBound: boolean;
-  openCategoryMarking: boolean;
-  exampleUseCombo: boolean;
-}): Promise<{ awarded: boolean; reason: string }> {
-  const system = [
-    "Verify if a student idea matches a rubric marking point at SPM Form 4/5 level.",
-    formatSpmStudentFriendlyRulesBlock(),
-    "Return JSON only: { \"awarded\": boolean, \"reason\": string }.",
-    "The reason must be one short plain sentence.",
-    params.openCategoryMarking || params.strictContextBound
-      ? "For open-category stems, award if scientifically valid at SPM level for the criterion — not only if wording matches one textbook example. For context-bound stems, the idea must fit the named diagram/text/experiment."
-      : null,
-    params.exampleUseCombo
-      ? "When the stem asks for example + use, use rows already matched to infer the student's example when judging a use/function row."
-      : null,
-  ]
-    .filter((line): line is string => Boolean(line))
-    .join("\n");
+function resolveMatchStrategy(
+  rubric: RubricIdea,
+  analysis?: QuestionAnalysis | null,
+  question?: string,
+): string {
+  if (isSequenceMarkingQuestion(question ?? "", analysis)) return "sequenceCheck";
+  const dt: DemandType | undefined = rubric.demandType ?? analysis?.demandType;
+  if (rubric.openEnded === true && rubric.kind === "application") return "reasoningValidation";
+  if (
+    rubric.openEnded === true &&
+    (rubric.kind === "example" || rubric.kind === "point" || /\bany valid\b/i.test(rubric.idea))
+  ) {
+    return "categoryMembership";
+  }
+  if (rubric.kind === "method") return "methodCheck";
+  if (rubric.kind === "accuracy") return "accuracyCheck";
+  if (rubric.kind === "equation" || dt === "equation") return "equationCompleteness";
+  if (dt === "comparison" || rubric.kind === "comparison") return "pairedMatch";
+  if (rubric.kind === "explanation" || dt === "explanation" || dt === "essay") return "conceptMatch";
+  if (
+    rubric.kind === "point" ||
+    rubric.kind === "function" ||
+    rubric.kind === "feature" ||
+    rubric.kind === "knowledge" ||
+    rubric.kind === "definition" ||
+    rubric.kind === "step" ||
+    rubric.kind === "use" ||
+    rubric.kind === "calculation" ||
+    dt === "recall" ||
+    dt === "definition" ||
+    dt === "application"
+  ) {
+    return "conceptMatch";
+  }
+  if (rubric.openEnded === true) return "categoryMembership";
+  return "conceptMatch";
+}
 
-  const userParts = [
-    "Does the student idea express the same marking point as the rubric idea? Answer with awarded true/false only — do NOT choose marks.",
-    "Treat common SPM paraphrases as the same meaning.",
-    "For cause-effect science questions, do not require exact causal words like because/therefore if the student clearly states the correct scientific cause/effect idea.",
-    "Do not require the student to repeat context already given in the question stem (for example 'when temperature increases') in every sentence.",
-    params.openCategoryMarking && !params.strictContextBound
-      ? "OPEN CATEGORY: award true for any correct SPM-level response fitting the rubric row."
-      : null,
-    params.strictContextBound
-      ? "CONTEXT-BOUND: reject if inconsistent with the source named in the question."
-      : null,
-    params.priorAwardedRubricIdeas.length > 0
-      ? `Already-matched rubric ideas (for example→use chaining): ${params.priorAwardedRubricIdeas.join(" | ")}`
-      : null,
-    `Question: ${params.question}`,
-    `Rubric marking point: ${params.rubricIdea}`,
-    `Best student idea line: ${params.studentIdea || "(none)"}`,
-    `Full student answer: ${params.fullStudentAnswer}`,
-    `Embedding similarity (hint only): ${params.similarity.toFixed(3)}`,
-  ].filter((line): line is string => Boolean(line));
+function resolveVerifierMode(strategy: string): VerifierMode {
+  if (strategy === "categoryMembership") return "membership";
+  if (strategy === "reasoningValidation") return "reasoning";
+  if (strategy === "methodCheck") return "method";
+  if (strategy === "pairedMatch") return "paired";
+  if (strategy === "equationCompleteness") return "equation";
+  if (strategy === "sequenceCheck") return "sequence";
+  return "meaning";
+}
 
-  const parsed = await qwenGradingJson(system, userParts.join("\n\n"));
-  const awarded =
-    typeof parsed?.awarded === "boolean"
-      ? parsed.awarded
-      : typeof parsed?.awarded === "string"
-        ? /^(true|yes|1)$/i.test(parsed.awarded)
-        : false;
-  const reason = typeof parsed?.reason === "string" ? parsed.reason.trim() : "";
-  return { awarded, reason };
+function shortAnswerGuardBlocks(
+  rubric: RubricIdea,
+  studentLine: string,
+  question?: string,
+  analysis?: QuestionAnalysis | null,
+): boolean {
+  if (isSequenceMarkingQuestion(question ?? "", analysis)) return false;
+  const tokens = normalizeAnswerText(studentLine).split(/\s+/).filter(Boolean);
+  if (tokens.length >= 3) return false;
+  if (rubric.kind === "example" || rubric.kind === "equation") return false;
+  const dt = rubric.demandType;
+  if (dt === "recall" || dt === "example" || dt === "equation" || dt === "diagram_label") return false;
+  if (rubric.kind === "point" || rubric.kind === "function" || rubric.kind === "feature") return false;
+  return rubric.kind === "explanation" && dt === "definition";
 }
 
 function levelKeywordOrExact(params: {
@@ -244,12 +252,12 @@ function levelKeywordOrExact(params: {
         reason: "Student stated valid protection/safety purpose.",
       };
     }
-    if (historySequenceConceptMatch(rubric.idea, si.idea, question)) {
+    if (isSequenceMarkingQuestion(question, questionAnalysis)) {
       return {
-        hit: true,
+        hit: false,
         evidence: si.idea,
         method: "acceptedConcept",
-        reason: "Brief but valid history/sequence concept mention.",
+        reason: "Sequence questions require correct order; use ordered position check.",
       };
     }
     if (ideasShareSynonymGroup(si.idea, rubric.idea)) {
@@ -351,9 +359,314 @@ export async function matchStudentIdeasToRubric(params: MatchStudentIdeasToRubri
   const matchedRubricPoints: MatchedRubricPointDetail[] = [];
   const missingRubricPoints: MissingRubricPointDetail[] = [];
 
+  const mechanismEvidenceUsed = new Set<string>();
+
+  const applyAwardGuards = (
+    rubric: RubricIdea,
+    awarded: boolean,
+    evidence: string,
+    reason: string,
+  ): { awarded: boolean; reason: string } => {
+    if (!awarded) return { awarded, reason };
+    if (rubricIdeaRequiresRouteDetail(rubric.idea) && !studentAnswerSatisfiesRubricDetail(studentAnswer, rubric.idea)) {
+      return {
+        awarded: false,
+        reason: "Answer states what is transported but not where from/to (or equivalent route).",
+      };
+    }
+    const mechanismRow =
+      rubric.kind === "explanation" ||
+      rubric.demandType === "explanation" ||
+      params.questionAnalysis?.questionType === "cause_effect";
+    if (mechanismRow && evidence.trim()) {
+      const normEvidence = normalizeAnswerText(evidence);
+      const matchedIdea = params.studentIdeas.find((si) => normalizeAnswerText(si.idea) === normEvidence);
+      if (matchedIdea) {
+        if (mechanismEvidenceUsed.has(normEvidence)) {
+          return {
+            awarded: false,
+            reason: "One student point cannot satisfy multiple separate mechanism marks.",
+          };
+        }
+        mechanismEvidenceUsed.add(normEvidence);
+      }
+    }
+    return { awarded, reason };
+  };
+
+  const pushRow = (
+    rubric: RubricIdea,
+    strategy: string,
+    awarded: boolean,
+    reason: string,
+    evidence: string,
+    matchMethod?: MatchMethod,
+  ) => {
+    const guarded = applyAwardGuards(rubric, awarded, evidence, reason);
+    awarded = guarded.awarded;
+    reason = guarded.reason;
+    markBreakdown.push({
+      rubricId: rubric.id,
+      idea: rubric.idea,
+      awarded,
+      marks: rubric.marks,
+      reason,
+      matchMethod: awarded ? matchMethod : undefined,
+      matchStrategy: strategy,
+    });
+    if (awarded) {
+      matchedRubricPoints.push({
+        rubricId: rubric.id,
+        rubricIdea: rubric.idea,
+        marksAwarded: rubric.marks,
+        matchedStudentIdea: evidence || studentAnswer.slice(0, 120),
+        matchMethod: matchMethod ?? "llmVerifier",
+        reason,
+      });
+    } else {
+      missingRubricPoints.push({
+        rubricId: rubric.id,
+        rubricIdea: rubric.idea,
+        marks: rubric.marks,
+        reason: reason || "Not matched.",
+      });
+    }
+  };
+
   for (let i = 0; i < params.rubricIdeas.length; i += 1) {
     const rubric = params.rubricIdeas[i];
     const rv = rubricVec[i];
+    const strategy = resolveMatchStrategy(rubric, params.questionAnalysis, question);
+    const studentLine =
+      params.studentIdeas
+        .map((s) => s.idea)
+        .filter(Boolean)
+        .join(" | ") ||
+      studentAnswer.trim() ||
+      "(none)";
+
+    if (rubric.kind === "accuracy" && rubric.dependsOnRowId) {
+      const methodAwarded = markBreakdown.some((r) => r.rubricId === rubric.dependsOnRowId && r.awarded);
+      if (!methodAwarded) {
+        pushRow(
+          rubric,
+          strategy,
+          false,
+          "Accuracy mark requires the method step to be awarded first.",
+          studentLine,
+        );
+        continue;
+      }
+    }
+
+    if (shortAnswerGuardBlocks(rubric, studentLine, question, params.questionAnalysis)) {
+      pushRow(
+        rubric,
+        strategy,
+        false,
+        "Answer too brief to evaluate this mark point.",
+        studentLine,
+      );
+      continue;
+    }
+
+    if (strategy === "sequenceCheck") {
+      const rubricIndex = i;
+      const requiresOrder = sequenceQuestionRequiresOrder(question, params.questionAnalysis);
+      let hit = false;
+      let evidence = "";
+      let matchMethod: MatchMethod = "acceptedConcept";
+      let reason = "";
+      const studentOrder = extractStudentStageOrder(studentAnswer);
+      const expectedOrder = formatExpectedSequenceForPrompt(params.rubricIdeas);
+
+      if (rubricRowExpectsFullOrderedSequence(rubric.idea)) {
+        if (studentFullSequenceOrderMatches(params.rubricIdeas, studentAnswer)) {
+          hit = true;
+          reason = `Full sequence correct in order (${expectedOrder}).`;
+          evidence = studentAnswer.slice(0, 200);
+        } else {
+          const verified = await verifyBorderlineMeaningMatch({
+            mode: "sequence",
+            question,
+            rubricIdea: rubric.idea,
+            rubricKind: rubric.kind,
+            rubricKeywords: rubric.keywords,
+            studentIdea: studentLine,
+            similarity: 0,
+            fullStudentAnswer: studentAnswer,
+            priorAwardedRubricIdeas: markBreakdown.filter((r) => r.awarded).map((r) => r.idea),
+            strictContextBound: strictCtx,
+            openCategoryMarking: false,
+            exampleUseCombo,
+            sequenceExpectedOrder: expectedOrder,
+            sequenceStudentOrder: studentOrder.join(" → "),
+            sequencePositionIndex: rubricIndex,
+          });
+          hit = verified.awarded;
+          reason =
+            verified.reason ||
+            (hit ? "Correct sequence in order." : "Sequence wrong, incomplete, or out of order.");
+          evidence = studentAnswer.slice(0, 200);
+          matchMethod = "llmVerifier";
+        }
+      } else if (requiresOrder) {
+        const ordered = sequenceStageAtCorrectPosition(
+          rubric,
+          rubricIndex,
+          params.rubricIdeas,
+          studentAnswer,
+          params.studentIdeas,
+        );
+        hit = ordered.hit;
+        evidence = ordered.evidence;
+        reason = ordered.reason;
+        if (!hit && !reason.includes("wrong position")) {
+          const verified = await verifyBorderlineMeaningMatch({
+            mode: "sequence",
+            question,
+            rubricIdea: rubric.idea,
+            rubricKind: rubric.kind,
+            rubricKeywords: rubric.keywords,
+            studentIdea: evidence || studentLine,
+            similarity: 0,
+            fullStudentAnswer: studentAnswer,
+            priorAwardedRubricIdeas: markBreakdown.filter((r) => r.awarded).map((r) => r.idea),
+            strictContextBound: strictCtx,
+            openCategoryMarking: false,
+            exampleUseCombo,
+            sequenceExpectedOrder: expectedOrder,
+            sequenceStudentOrder: studentOrder.join(" → ") || "(none detected)",
+            sequencePositionIndex: rubricIndex,
+          });
+          hit = verified.awarded;
+          reason = verified.reason || reason;
+          matchMethod = "llmVerifier";
+        }
+      } else {
+        hit = sequenceStageMatchesStudent(rubric, studentAnswer, params.studentIdeas);
+        evidence = params.studentIdeas[0]?.idea ?? studentAnswer.slice(0, 200);
+        reason = hit ? "Stage present in answer." : "Stage not found.";
+      }
+
+      pushRow(rubric, strategy, hit, reason, evidence, hit ? matchMethod : undefined);
+      continue;
+    }
+
+    if (strategy === "categoryMembership") {
+      const namedIdea = params.studentIdeas.find(
+        (si) =>
+          sequenceStageMatchesStudent(rubric, studentAnswer, [si]) ||
+          studentIdeaMatchesRubricPoint(si.idea, rubric, studentAnswer) ||
+          ideasShareSynonymGroup(si.idea, rubric.idea),
+      );
+      if (namedIdea) {
+        pushRow(
+          rubric,
+          strategy,
+          true,
+          "Student gave a valid description for this category at SPM level.",
+          namedIdea.idea,
+          "acceptedConcept",
+        );
+        continue;
+      }
+      const lineForVerify =
+        params.studentIdeas.find((si) => studentAnswerCoversIdea(si.idea, rubric.idea))?.idea ?? studentLine;
+      const verified = await verifyBorderlineMeaningMatch({
+        mode: "membership",
+        question,
+        rubricIdea: rubric.idea,
+        rubricKind: rubric.kind,
+        rubricKeywords: rubric.keywords,
+        studentIdea: lineForVerify,
+        similarity: 0,
+        fullStudentAnswer: studentAnswer,
+        priorAwardedRubricIdeas: markBreakdown.filter((r) => r.awarded).map((r) => r.idea),
+        strictContextBound: strictCtx,
+        openCategoryMarking: openCat || true,
+        exampleUseCombo,
+      });
+      const evidence = params.studentIdeas[0]?.idea ?? studentAnswer.slice(0, 200);
+      pushRow(
+        rubric,
+        strategy,
+        verified.awarded,
+        verified.reason ||
+          (verified.awarded ? "Valid member of the category at SPM level." : "Not a valid member of the category."),
+        evidence,
+        "llmVerifier",
+      );
+      continue;
+    }
+
+    if (strategy === "reasoningValidation") {
+      let bestScore = -1;
+      for (let j = 0; j < studentVec.length; j += 1) {
+        const sim = cosineSimilarity(rv, studentVec[j]);
+        if (sim > bestScore) bestScore = sim;
+      }
+      const verified = await verifyBorderlineMeaningMatch({
+        mode: "reasoning",
+        question,
+        rubricIdea: rubric.idea,
+        rubricKind: rubric.kind,
+        rubricKeywords: rubric.keywords,
+        studentIdea: studentLine,
+        similarity: Math.max(0, bestScore),
+        fullStudentAnswer: studentAnswer,
+        priorAwardedRubricIdeas: markBreakdown.filter((r) => r.awarded).map((r) => r.idea),
+        strictContextBound: strictCtx,
+        openCategoryMarking: openCat || true,
+        exampleUseCombo,
+      });
+      pushRow(
+        rubric,
+        strategy,
+        verified.awarded,
+        verified.reason || (verified.awarded ? "Valid scientific reasoning." : "Reasoning not scientifically valid."),
+        params.studentIdeas[0]?.idea ?? studentAnswer.slice(0, 200),
+        "llmVerifier",
+      );
+      continue;
+    }
+
+    if (strategy === "equationCompleteness") {
+      if (!allEquationSpeciesPresent(studentAnswer, rubric.keywords)) {
+        pushRow(
+          rubric,
+          strategy,
+          false,
+          "Equation is incomplete — not all required species are present.",
+          studentAnswer.slice(0, 200),
+        );
+        continue;
+      }
+      const verified = await verifyBorderlineMeaningMatch({
+        mode: "equation",
+        question,
+        rubricIdea: rubric.idea,
+        rubricKind: rubric.kind,
+        rubricKeywords: rubric.keywords,
+        studentIdea: studentLine,
+        similarity: 0,
+        fullStudentAnswer: studentAnswer,
+        priorAwardedRubricIdeas: markBreakdown.filter((r) => r.awarded).map((r) => r.idea),
+        strictContextBound: strictCtx,
+        openCategoryMarking: false,
+        exampleUseCombo,
+      });
+      pushRow(
+        rubric,
+        strategy,
+        verified.awarded,
+        verified.reason ||
+          (verified.awarded ? "Equation complete and balanced." : "Equation incomplete or not balanced."),
+        studentAnswer.slice(0, 200),
+        "llmVerifier",
+      );
+      continue;
+    }
 
     const kw = levelKeywordOrExact({
       rubric,
@@ -407,11 +720,21 @@ export async function matchStudentIdeasToRubric(params: MatchStudentIdeasToRubri
 
       const conceptAllowed = conceptGuardAllows(rubric.idea, evidence, question, params.questionAnalysis);
       const routeDetailOk = studentAnswerSatisfiesRubricDetail(studentAnswer, rubric.idea);
-      if (bestScore >= 0.78 && causalOk && conceptAllowed && routeDetailOk) {
+      const embedAutoAward = 0.68;
+      const embedAutoReject = 0.32;
+      const useSemanticVerifier =
+        strategy !== "equationCompleteness" &&
+        strategy !== "accuracyCheck" &&
+        (ideaClearlyPresent || bestScore > embedAutoReject);
+
+      if (bestScore >= embedAutoAward && causalOk && conceptAllowed && routeDetailOk) {
         awarded = true;
         matchMethod = rubric.openEnded ? "openEndedCategory" : "embedding";
-        reason = `High embedding similarity (${bestScore.toFixed(2)}) with: ${evidence}`;
-      } else if (bestScore <= 0.45 || !causalOk || !conceptAllowed || !routeDetailOk) {
+        reason = `Scientific meaning aligns (similarity ${bestScore.toFixed(2)}): ${evidence}`;
+      } else if (
+        !useSemanticVerifier &&
+        (bestScore <= embedAutoReject || !causalOk || !conceptAllowed || !routeDetailOk)
+      ) {
         awarded = false;
         matchMethod = "embedding";
         reason = !routeDetailOk
@@ -420,25 +743,27 @@ export async function matchStudentIdeasToRubric(params: MatchStudentIdeasToRubri
             ? "Student idea is too generic for this specific causal concept."
             : !causalOk
               ? "Rubric point needs a causal explanation; not clearly shown in the student wording."
-              : `Low embedding similarity (${bestScore.toFixed(2)}).`;
-      } else {
+              : `Scientific meaning not shown (similarity ${bestScore.toFixed(2)}).`;
+      } else if (useSemanticVerifier) {
         const verified = await verifyBorderlineMeaningMatch({
+          mode: resolveVerifierMode(strategy),
           question,
           rubricIdea: rubric.idea,
           rubricKind: rubric.kind,
-          studentIdea: evidence,
-          similarity: bestScore,
+          rubricKeywords: rubric.keywords,
+          studentIdea: evidence || studentAnswer.slice(0, 400),
+          similarity: Math.max(0, bestScore),
           fullStudentAnswer: studentAnswer,
           priorAwardedRubricIdeas: markBreakdown.filter((r) => r.awarded).map((r) => r.idea),
           strictContextBound: strictCtx,
-          openCategoryMarking: openCat || rubric.openEnded === true,
+          openCategoryMarking: openCat || rubric.openEnded === true || strategy === "conceptMatch",
           exampleUseCombo,
         });
         awarded = verified.awarded && causalOk && conceptAllowed && routeDetailOk;
         matchMethod = "llmVerifier";
         reason =
           verified.reason ||
-          `LLM verifier at similarity ${bestScore.toFixed(2)}: ${awarded ? "match" : "no match"}.`;
+          `Semantic check (similarity ${bestScore.toFixed(2)}): ${awarded ? "same scientific meaning" : "meaning not shown"}.`;
         if (!causalOk) {
           awarded = false;
           reason = "Rubric point needs a causal link; student answer did not show one clearly.";
@@ -447,55 +772,69 @@ export async function matchStudentIdeasToRubric(params: MatchStudentIdeasToRubri
     } else if (!awarded && bestIdx < 0) {
       reason =
         params.studentIdeas.length === 0
-          ? "No student idea lines extracted — only direct wording checks applied."
+          ? "No student idea lines extracted — semantic check on full answer next."
           : "No embedding match to extracted ideas.";
     }
 
-    markBreakdown.push({
-      rubricId: rubric.id,
-      idea: rubric.idea,
-      awarded,
-      marks: rubric.marks,
-      reason,
-      matchMethod: awarded ? matchMethod : undefined,
-    });
-
-    if (awarded) {
-      matchedRubricPoints.push({
-        rubricId: rubric.id,
-        rubricIdea: rubric.idea,
-        marksAwarded: rubric.marks,
-        matchedStudentIdea: evidence || studentAnswer.slice(0, 120),
-        matchMethod,
-        reason,
-      });
-    } else {
-      missingRubricPoints.push({
-        rubricId: rubric.id,
-        rubricIdea: rubric.idea,
-        marks: rubric.marks,
-        reason: reason || "Not matched.",
-      });
+    if (
+      !awarded &&
+      strategy !== "equationCompleteness" &&
+      strategy !== "accuracyCheck" &&
+      studentAnswer.trim().length > 0
+    ) {
+      const rescueLine =
+        evidence ||
+        params.studentIdeas.map((s) => s.idea).find((line) => studentExpressesRubricMeaning(line, rubric, studentAnswer)) ||
+        studentAnswer.slice(0, 400);
+      const routeDetailOk = studentAnswerSatisfiesRubricDetail(studentAnswer, rubric.idea);
+      const causalOk =
+        !rubric.requiresCausalLink ||
+        fullAnswerHasCausalLink(studentAnswer) ||
+        studentExpressesRubricMeaning(rescueLine, rubric, studentAnswer);
+      if (routeDetailOk && causalOk && conceptGuardAllows(rubric.idea, rescueLine, question, params.questionAnalysis)) {
+        const rescued = await verifyBorderlineMeaningMatch({
+          mode: resolveVerifierMode(strategy),
+          question,
+          rubricIdea: rubric.idea,
+          rubricKind: rubric.kind,
+          rubricKeywords: rubric.keywords,
+          studentIdea: rescueLine,
+          similarity: 0,
+          fullStudentAnswer: studentAnswer,
+          priorAwardedRubricIdeas: markBreakdown.filter((r) => r.awarded).map((r) => r.idea),
+          strictContextBound: strictCtx,
+          openCategoryMarking: !strictCtx,
+          exampleUseCombo,
+        });
+        if (rescued.awarded) {
+          awarded = true;
+          evidence = rescueLine;
+          matchMethod = "llmVerifier";
+          reason = rescued.reason || "Scientific meaning matches this mark point (semantic rescue).";
+        }
+      }
     }
+
+    pushRow(rubric, strategy, awarded, reason, evidence, awarded ? matchMethod : undefined);
   }
 
   let totalScore = markBreakdown.reduce((sum, row) => sum + (row.awarded ? row.marks : 0), 0);
 
-  // General guard for exercise oxygen-debt explanations:
-  // if student gives only a generic oxygen need idea, ensure deeper causal concepts remain explicitly missing.
+  // Oxygen-debt style stems: keep at most one mechanism mark when the answer only states generic oxygen need.
   if (
     isCauseEffectQuestion(question, params.questionAnalysis) &&
     /\b(sprinter|race|running|run|breathes rapidly|breathing rapidly|selepas berlari)\b/i.test(question)
   ) {
-    const answerHasLactic = /\blactic acid|asid laktik\b/i.test(studentAnswer);
+    const answerHasLactic = /\blactic acid|asid laktik|oxygen debt|hutang oksigen\b/i.test(studentAnswer);
     const missingHasLactic = markBreakdown.some((r) => !r.awarded && /\blactic acid|asid laktik\b/i.test(r.idea));
     if (!answerHasLactic && !missingHasLactic) {
       markBreakdown.push({
         rubricId: "synthetic-lactic-acid",
-        idea: "Lactic acid builds up after anaerobic respiration and needs to be removed.",
+        idea: "Lactic acid builds up and oxygen debt must be repaid after anaerobic respiration.",
         awarded: false,
         marks: 0,
         reason: "Specific causal concept missing from answer.",
+        matchStrategy: "postProcess",
       });
       missingRubricPoints.push({
         rubricId: "synthetic-lactic-acid",
@@ -503,6 +842,27 @@ export async function matchStudentIdeasToRubric(params: MatchStudentIdeasToRubri
         marks: 0,
         reason: "Specific causal concept missing from answer.",
       });
+    }
+    if (!answerHasLactic && totalScore > 1) {
+      let kept = 0;
+      for (const row of markBreakdown) {
+        if (!row.awarded || row.marks <= 0) continue;
+        if (kept >= 1) {
+          row.awarded = false;
+          row.reason = "Partial answer — only one mechanism point credited for this brief response.";
+          const idx = matchedRubricPoints.findIndex((m) => m.rubricId === row.rubricId);
+          if (idx >= 0) matchedRubricPoints.splice(idx, 1);
+          missingRubricPoints.push({
+            rubricId: row.rubricId ?? "unknown",
+            rubricIdea: row.idea,
+            marks: row.marks,
+            reason: row.reason,
+          });
+        } else {
+          kept += 1;
+        }
+      }
+      totalScore = markBreakdown.reduce((sum, row) => sum + (row.awarded ? row.marks : 0), 0);
     }
   }
 

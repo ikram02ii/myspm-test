@@ -1727,6 +1727,7 @@ export async function gradeSubmission(input: GradeSubmissionInput): Promise<Grad
       rubricIdeas: gradedV2.rubricIdeas,
       acceptedConcepts: gradedV2.acceptedConcepts,
       contradictionCheckPassed: v2Reconciled.contradictionCheckPassed,
+      outsideRubricAwardCount: gradedV2.outsideRubricAwardCount,
       topicConsistencyPassed: topicV2.topicConsistencyPassed,
       topicConsistencyWarning: topicV2.topicConsistencyWarning,
       questionAnalysis,

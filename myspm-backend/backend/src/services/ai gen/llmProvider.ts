@@ -8,6 +8,8 @@ type ChatMessage = {
 type ChatOpts = {
   subject?: string | null;
   query?: string;
+  maxTokens?: number;
+  temperature?: number;
 };
 
 export type LlmProvider = "auto" | "dashscope" | "gemini";
@@ -63,7 +65,8 @@ export async function chatCompletion(
     body: JSON.stringify({
       model,
       messages,
-      temperature: 0.55,
+      temperature: opts?.temperature ?? 0.55,
+      ...(opts?.maxTokens != null ? { max_tokens: opts.maxTokens } : {}),
     }),
   });
 

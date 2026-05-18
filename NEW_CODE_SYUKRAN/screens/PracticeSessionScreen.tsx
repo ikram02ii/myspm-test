@@ -22,7 +22,8 @@ import { theme } from "../constants/palette";
 import type { PracticeStackParamList } from "../navigation/PracticeStack";
 import {
   fetchPracticeSetDetail,
-  inferQuestionMaxMarks,
+  formatQuestionWithMarksAtEnd,
+  resolveQuestionMarks,
   type PracticeSetQuestion,
 } from "../services/mobilePracticeSets";
 import { ragApiPost } from "../services/ragApi";
@@ -94,18 +95,15 @@ function isSelectionCorrect(selected: Set<number>, correct: Set<number>): boolea
   return true;
 }
 
-/** maxScore for /rag/grade (open-ended): question.maxMarks from API, else "(N marks)" in stem, else 5. */
+/** maxScore for /rag/grade (open-ended). */
 function resolveOpenEndedMaxScore(q: PracticeSetQuestion, questionForGrade: string): number {
-  const fromApi = q.maxMarks;
-  if (typeof fromApi === "number" && Number.isFinite(fromApi)) {
-    const n = Math.floor(fromApi);
-    if (n >= 1 && n <= 20) return n;
-  }
-  const inferred =
-    inferQuestionMaxMarks(questionForGrade) ?? inferQuestionMaxMarks(q.questionText.trim());
-  if (inferred !== null) return inferred;
-  return 5;
+  return resolveQuestionMarks(q, questionForGrade);
 }
+
+type QuestionMarkResult = {
+  earned: number;
+  max: number;
+};
 
 function questionAllowsMultiSelect(q: PracticeSetQuestion, correct: Set<number>): boolean {
   const type = (q.questionType || "").toLowerCase();
@@ -134,7 +132,7 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
   const [index, setIndex] = useState(0);
   const [selected, setSelected] = useState<Set<number>>(() => new Set());
   const [showFeedback, setShowFeedback] = useState(false);
-  const [score, setScore] = useState(0);
+  const [questionResults, setQuestionResults] = useState<Record<number, QuestionMarkResult>>({});
   const [finished, setFinished] = useState(false);
   const [aiDrawerOpen, setAiDrawerOpen] = useState(false);
   const [aiBusy, setAiBusy] = useState(false);
@@ -161,7 +159,7 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
       setIndex(0);
       setSelected(new Set());
       setShowFeedback(false);
-      setScore(0);
+      setQuestionResults({});
       setFinished(false);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load questions");
@@ -256,9 +254,11 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
 
   const correctIndices = q && isMcq ? parseCorrectIndices(q.correctAnswer, q.options.length) : new Set<number>();
   const multiSelect = q && isMcq ? questionAllowsMultiSelect(q, correctIndices) : false;
-  const openEndedMaxMarks =
-    q && !isMcq ? resolveOpenEndedMaxScore(q, (q.questionForGrade ?? q.questionText).trim()) : null;
-
+  const questionForGradeStem = q ? (q.questionForGrade ?? q.questionText).trim() : "";
+  const questionMarks = q ? resolveQuestionMarks(q, questionForGradeStem) : 1;
+  const displayQuestionText = q
+    ? formatQuestionWithMarksAtEnd(q.questionText, questionMarks)
+    : "";
   const onToggleOption = (i: number) => {
     if (!q || !isMcq) return;
     if (multiSelect) {
@@ -285,7 +285,12 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
     setAiBusy(false);
     setAiFeedbackText(null);
     const ok = isSelectionCorrect(selected, correctIndices);
-    if (ok) setScore((s) => s + 1);
+    const maxMarks = resolveQuestionMarks(q, q.questionForGrade ?? q.questionText);
+    const earned = ok ? maxMarks : 0;
+    setQuestionResults((prev) => ({
+      ...prev,
+      [q.id]: { earned, max: maxMarks },
+    }));
     setShowFeedback(true);
   };
 
@@ -313,14 +318,19 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
         form,
         topK: 8,
         maxScore: requestedMaxScore,
-        rubricId: q.rubricId,
+        rubricId: q.rubricId ?? undefined,
       });
-      const score = Number(result?.score);
-      const resultMaxScore = Number(result?.maxScore);
-      const scorePrefix =
-        Number.isFinite(score) && Number.isFinite(resultMaxScore)
-          ? `Score: ${score}/${resultMaxScore}\n\n`
-          : "";
+      const earnedRaw = Number(result?.score);
+      const maxRaw = Number(result?.maxScore);
+      const earned = Number.isFinite(earnedRaw) ? Math.max(0, Math.round(earnedRaw)) : 0;
+      const maxMarks = Number.isFinite(maxRaw)
+        ? Math.max(1, Math.round(maxRaw))
+        : requestedMaxScore;
+      setQuestionResults((prev) => ({
+        ...prev,
+        [q.id]: { earned: Math.min(earned, maxMarks), max: maxMarks },
+      }));
+      const scorePrefix = `Score: ${Math.min(earned, maxMarks)}/${maxMarks}\n\n`;
       const feedback = result?.feedback ?? result?.modelAnswer ?? "No feedback returned.";
       setAiFeedbackText(`${scorePrefix}${feedback}`);
       setShowFeedback(true);
@@ -446,6 +456,15 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
   }
 
   if (finished) {
+    const totalEarned = questions.reduce((sum, item) => {
+      const r = questionResults[item.id];
+      return sum + (r?.earned ?? 0);
+    }, 0);
+    const totalMax = questions.reduce(
+      (sum, item) => sum + resolveQuestionMarks(item, item.questionForGrade ?? item.questionText),
+      0,
+    );
+
     return (
       <ScrollView
         style={styles.root}
@@ -457,9 +476,41 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
       >
         <Text style={styles.doneTitle}>Set complete</Text>
         <View style={styles.summaryRow}>
-          <Text style={styles.summaryCorrect}>Correct: {score}</Text>
-          <Text style={styles.summaryWrong}>Wrong: {total - score}</Text>
+          <Text style={styles.summaryTotal}>
+            Total: {totalEarned}/{totalMax} marks
+          </Text>
         </View>
+        <Text style={styles.reviewSectionTitle}>Your marks per question</Text>
+        {questions.map((item, i) => {
+          const maxMarks = resolveQuestionMarks(item, item.questionForGrade ?? item.questionText);
+          const result = questionResults[item.id];
+          const earned = result?.earned;
+          const max = result?.max ?? maxMarks;
+          const scoreLabel =
+            earned === undefined ? `—/${maxMarks}` : `${earned}/${max}`;
+          const fullMarks = earned !== undefined && earned >= max;
+          const partialMarks = earned !== undefined && earned > 0 && earned < max;
+          return (
+            <View key={`${item.id}-${i}`} style={styles.reviewRow}>
+              <Text style={styles.reviewIndex}>{i + 1}</Text>
+              <View style={styles.reviewBody}>
+                <Text style={styles.reviewQuestion}>
+                  {formatQuestionWithMarksAtEnd(item.questionText, maxMarks)}
+                </Text>
+              </View>
+              <Text
+                style={[
+                  styles.reviewScore,
+                  fullMarks && styles.reviewScoreFull,
+                  partialMarks && styles.reviewScorePartial,
+                  earned === 0 && styles.reviewScoreZero,
+                ]}
+              >
+                {scoreLabel}
+              </Text>
+            </View>
+          );
+        })}
         <Pressable
           style={styles.secondaryBtn}
           onPress={() => navigation.popToTop()}
@@ -474,7 +525,14 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
   }
 
   const pickedRight = isSelectionCorrect(selected, correctIndices);
-  const feedbackTitle = isMcq ? (pickedRight ? "Correct" : "Incorrect") : "Marked by AI";
+  const currentMarkResult = q ? questionResults[q.id] : undefined;
+  const feedbackTitle = isMcq
+    ? pickedRight
+      ? `Correct · ${currentMarkResult ? `${currentMarkResult.earned}/${currentMarkResult.max}` : "1/1"}`
+      : `Incorrect · ${currentMarkResult ? `${currentMarkResult.earned}/${currentMarkResult.max}` : "0/1"}`
+    : currentMarkResult
+      ? `Marked · ${currentMarkResult.earned}/${currentMarkResult.max} marks`
+      : "Marked by AI";
 
   return (
     <>
@@ -567,13 +625,6 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
         <Text style={styles.unsupported}>No answer choices were loaded for this question.</Text>
       ) : (
         <View style={styles.openEndedWrap}>
-          {openEndedMaxMarks ? (
-            <View style={styles.markValuePill}>
-              <Text style={styles.markValueText}>
-                {openEndedMaxMarks} mark{openEndedMaxMarks === 1 ? "" : "s"}
-              </Text>
-            </View>
-          ) : null}
           <Text style={styles.openEndedLabel}>Your answer</Text>
           <TextInput
             value={openEndedAnswer}
@@ -788,21 +839,6 @@ const styles = StyleSheet.create({
   openEndedWrap: {
     marginBottom: 8,
   },
-  markValuePill: {
-    alignSelf: "flex-start",
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 999,
-    backgroundColor: theme.brandSoftSage,
-    borderWidth: 1,
-    borderColor: "rgba(22, 163, 74, 0.22)",
-    marginBottom: 10,
-  },
-  markValueText: {
-    fontSize: 12,
-    fontFamily: fonts.bold,
-    color: BRAND,
-  },
   openEndedLabel: {
     fontSize: 13,
     fontFamily: fonts.semiBold,
@@ -927,15 +963,59 @@ const styles = StyleSheet.create({
     color: colors.text,
     marginBottom: 20,
   },
-  summaryRow: { gap: 12, marginBottom: 28 },
-  summaryCorrect: {
-    fontSize: 20,
+  summaryRow: { marginBottom: 20 },
+  summaryTotal: {
+    fontSize: 22,
     fontFamily: fonts.bold,
+    color: BRAND,
+  },
+  reviewSectionTitle: {
+    fontSize: 14,
+    fontFamily: fonts.bold,
+    color: BRAND,
+    marginBottom: 12,
+    letterSpacing: 0.2,
+  },
+  reviewRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(15, 23, 42, 0.06)",
+  },
+  reviewIndex: {
+    width: 22,
+    fontSize: 14,
+    fontFamily: fonts.bold,
+    color: BRAND,
+    marginTop: 2,
+  },
+  reviewBody: {
+    flex: 1,
+    minWidth: 0,
+  },
+  reviewQuestion: {
+    fontSize: 14,
+    fontFamily: fonts.regular,
+    color: colors.text,
+    lineHeight: 20,
+  },
+  reviewScore: {
+    fontSize: 15,
+    fontFamily: fonts.bold,
+    color: colors.textSecondary,
+    marginTop: 2,
+    minWidth: 44,
+    textAlign: "right",
+  },
+  reviewScoreFull: {
     color: "#166534",
   },
-  summaryWrong: {
-    fontSize: 20,
-    fontFamily: fonts.bold,
+  reviewScorePartial: {
+    color: "#B45309",
+  },
+  reviewScoreZero: {
     color: "#B91C1C",
   },
   multiHint: {

@@ -14,6 +14,8 @@ export const SPM_STUDENT_FRIENDLY_RULES_LINES = [
   "- English: simple school English (because, so, helps, wrong, correct). Do not sound like an academic paper.",
   "- Tone: calm and helpful, like a supportive teacher. No condescension, no showing off vocabulary.",
   "- In JSON, every learner-facing string (feedback, modelAnswer, strengths, improvements, markBreakdown[].reason) must follow these rules.",
+  "- MARKING FAIRNESS (applies at every stage): A student answer in Bahasa Malaysia, in chemical formula notation, by common name, by trade name, or in mixed BM/English must be treated as equivalent to the standard English textbook term for the same concept. Never penalize for language choice, notation style, or brevity when the scientific meaning or category membership is correct.",
+  "- RUBRIC AS GUIDE: Rubric rows list representative mark points, not the only acceptable answers. Award marks when the student shows the intended scientific meaning, including valid SPM-level alternatives not written in the rubric. Do not require exact textbook phrasing.",
 ] as const;
 
 export function formatSpmStudentFriendlyRulesBlock(): string {

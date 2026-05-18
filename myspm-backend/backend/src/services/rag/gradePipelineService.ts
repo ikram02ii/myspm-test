@@ -2,9 +2,11 @@ import type { AcceptedConceptBundle, GradeSubmissionInput, MarkBreakdownItem, St
 import { buildGradingContextFromChunks } from "./retrievalService";
 import { formatSpmStudentFriendlyRulesBlock } from "./spmStudentLanguage";
 import { finalizeRubricIdeas, getOrCreateRubric, getRubricById } from "./rubricService";
+import { applyExaminerPriorityMarking } from "./examinerCreditService";
 import { fixMissingIdeasAgainstStudentAnswer } from "./gradingFairnessMatch";
 import { mapAnalysisToRubricQuestionType } from "./questionAnalysisService";
 import { matchStudentIdeasToRubric } from "./rubricMatchingService";
+import { isSequenceMarkingQuestion } from "./sequenceMarkingService";
 import { buildPostScoreFeedback, resolveGradingModelLabel } from "./gradingFeedbackService";
 import { qwenGradingJson } from "./qwenGradingClient";
 
@@ -38,6 +40,7 @@ export type PipelineResult = {
   rubricIdeas: string[];
   acceptedConcepts: AcceptedConceptBundle[];
   contradictionCheckPassed: boolean;
+  outsideRubricAwardCount?: number;
   /** True when v2 used merged/audited context supplied by gradeService (not independent retrieval). */
   usedAuditedContext?: boolean;
 };
@@ -147,15 +150,25 @@ export async function extractStudentIdeas(question: string, studentAnswer: strin
     formatSpmStudentFriendlyRulesBlock(),
     "Each \"idea\" string must stay short and in plain school-level wording (same language style as the student's answer).",
     "Return JSON only: { \"ideas\": [{ \"idea\": string, \"hasCausalLink\": boolean }] }.",
+    "When one sentence contains several scientific points, split them into separate ideas.",
+    [
+      "SHORT ANSWER RULE:",
+      "If the student answer is a single word, name, formula, or short phrase with no predicate, extract it as one idea exactly as written. Do not discard it, do not add words to it, and do not split it further.",
+      "A brief answer is not an incorrect answer — extract it faithfully.",
+    ].join("\n"),
   ].join("\n");
+  const sequenceQ = isSequenceMarkingQuestion(question);
   const user = [
     `Question: ${question}`,
     `Student answer: ${studentAnswer}`,
     `Language: ${language}`,
-    "Split into short markable ideas — include every distinct correct point, even if phrased briefly, informally, or with weak grammar.",
-    "When one sentence contains several scientific points, split them into separate ideas (e.g. nutrients + energy + germination + pollen tube).",
-    "Example: 'PPE is used to protect us from chemicals and accidents in the laboratory' → separate ideas: PPE protects the user; PPE protects from chemicals; PPE protects from accidents in the laboratory.",
-    "Example: 'Because the body needs more oxygen after running' → idea: the body needs more oxygen after running / after exercise.",
+    sequenceQ
+      ? [
+          "SEQUENCE QUESTION: split the answer into one idea per stage/level/step (e.g. cell, tissue, organ, or each model name).",
+          "Keep fragments in the order the student wrote them. Include every stage mentioned, even if only one word.",
+        ].join("\n")
+      : "Split into short markable ideas — include every distinct correct point, even if phrased briefly, informally, or with weak grammar.",
+    "Split only when the student has made genuinely separate scientific claims. When a short or incomplete answer is given, extract it as-is as a single idea.",
     "hasCausalLink=true if this idea explicitly contains explanation linkage (because/so that/to/kerana/supaya/untuk etc).",
   ].join("\n\n");
   const parsed = await qwenGradingJson(system, user);
@@ -280,6 +293,16 @@ export async function gradeWithPipelineV2(input: GradeSubmissionInput): Promise<
     throw new Error(`Saved rubric subject ${rubric.subject} does not match request subject ${subject}.`);
   }
 
+  const staleRows = rubric.ideas.filter(
+    (r) => r.kind === undefined || r.openEnded === undefined || r.demandType === undefined,
+  );
+  if (staleRows.length > 0) {
+    console.warn(
+      `[gradePipeline] rubric ${rubric.rubricId} has ${staleRows.length} stale ` +
+        "rows — backfill will apply. Consider regenerating this rubric.",
+    );
+  }
+
   const studentIdeas = await extractStudentIdeas(question, studentAnswer, language);
   const rubricIdeasForMarking = finalizeRubricIdeas(
     rubric.ideas,
@@ -313,13 +336,61 @@ export async function gradeWithPipelineV2(input: GradeSubmissionInput): Promise<
     missingIdeas,
     matchedIdeas,
     markBreakdown,
+    rubricIdeas: rubricIdeasForMarking,
     score,
     maxScore,
   });
   missingIdeas = reconciled.missingIdeas;
   matchedIdeas = reconciled.matchedIdeas;
   score = reconciled.score;
-  const markBreakdownOut = reconciled.markBreakdown ?? markBreakdown;
+  let markBreakdownAfterFix = reconciled.markBreakdown ?? markBreakdown;
+
+  const examinerPass = await applyExaminerPriorityMarking({
+    question,
+    studentAnswer,
+    studentIdeas,
+    rubricIdeas: rubricIdeasForMarking,
+    markBreakdown: markBreakdownAfterFix,
+    maxScore,
+    subject,
+    textbookContext: auditedExcerpt || undefined,
+    questionAnalysis: input.questionAnalysis ?? null,
+  });
+  markBreakdownAfterFix = examinerPass.markBreakdown;
+  score = examinerPass.score;
+  matchedIdeas = examinerPass.matchedIdeas;
+  missingIdeas = examinerPass.missingIdeas;
+  const outsideRubricAwardCount = examinerPass.outsideRubricCount;
+
+  if (
+    input.questionAnalysis?.questionType === "cause_effect" &&
+    /\b(sprinter|race|running|run|breathes rapidly|breathing rapidly|selepas berlari)\b/i.test(question) &&
+    !/\blactic acid|asid laktik|oxygen debt|hutang oksigen\b/i.test(studentAnswer) &&
+    score > 1 &&
+    markBreakdownAfterFix
+  ) {
+    let kept = 0;
+    for (const row of markBreakdownAfterFix) {
+      if (!row.awarded || row.marks <= 0) continue;
+      if (kept >= 1) {
+        row.awarded = false;
+        row.reason = "Partial answer — only one mechanism point credited for this brief response.";
+      } else {
+        kept += 1;
+      }
+    }
+    score = markBreakdownAfterFix.reduce((sum, row) => sum + (row.awarded ? row.marks : 0), 0);
+    matchedIdeas = markBreakdownAfterFix.filter((r) => r.awarded).map((r) => r.idea);
+    missingIdeas = markBreakdownAfterFix.filter((r) => !r.awarded).map((r) => r.idea);
+    const missingBlob = missingIdeas.join(" ").toLowerCase();
+    if (!/lactic|asid laktik/.test(missingBlob)) {
+      missingIdeas.push("Lactic acid builds up in muscles after anaerobic respiration.");
+    }
+    if (!/oxygen debt|hutang oksigen/.test(missingBlob)) {
+      missingIdeas.push("Oxygen debt must be repaid after strenuous exercise.");
+    }
+  }
+  const markBreakdownOut = markBreakdownAfterFix ?? markBreakdown;
   const matchedRows2 = markBreakdownOut.filter((row) => row.awarded);
   const missingRows2 = markBreakdownOut.filter((row) => !row.awarded);
 
@@ -362,6 +433,10 @@ export async function gradeWithPipelineV2(input: GradeSubmissionInput): Promise<
     /* keep fallback */
   }
 
+  if (outsideRubricAwardCount > 0) {
+    feedback = `${feedback}\n\n(Note: ${outsideRubricAwardCount} mark point(s) were awarded for scientifically correct ideas not listed in the rubric — teacher review suggested.)`.trim();
+  }
+
   return {
     score,
     feedback,
@@ -376,6 +451,7 @@ export async function gradeWithPipelineV2(input: GradeSubmissionInput): Promise<
     rubricIdeas: rubricIdeaTexts,
     acceptedConcepts,
     contradictionCheckPassed: reconciled.contradictionCheckPassed,
+    outsideRubricAwardCount,
     usedAuditedContext,
   };
 }

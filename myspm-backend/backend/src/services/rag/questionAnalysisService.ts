@@ -5,7 +5,7 @@
 
 import { hasCompoundAndDemand } from "./gradingMaxScoreInference";
 import { hasTwoDistinctDemandsJoinedByAnd } from "./gradingCategoryMarking";
-import type { QuestionAnalysis } from "./types";
+import type { DemandType, EquationType, QuestionAnalysis } from "./types";
 
 const STOP = new Set([
   "the", "and", "for", "are", "was", "with", "from", "that", "this", "into", "each", "their", "they", "them",
@@ -92,6 +92,68 @@ function requiresCausalLinkFromStem(q: string, commandWord: CommandWord): boolea
   return false;
 }
 
+const DEMAND_DETECTORS: { type: DemandType; re: RegExp }[] = [
+  {
+    type: "equation",
+    re: /\b(write\s+the\s+equation|write\s+a\s+balanced\s+equation|complete\s+the\s+equation|write\s+the\s+chemical\s+equation|tuliskan\s+persamaan|persamaan\s+kimia|persamaan\s+seimbang)\b/i,
+  },
+  {
+    type: "diagram_label",
+    re: /\b(label|draw\s+the\s+diagram|complete\s+the\s+diagram|mark\s+on|labelkan|lukiskan|tandakan)\b/i,
+  },
+  {
+    type: "essay",
+    re: /\b(discuss|elaborate|write\s+an\s+essay|explain\s+in\s+detail|bincangkan|huraikan\s+dengan\s+terperinci)\b/i,
+  },
+  {
+    type: "comparison",
+    re: /\b(compare|difference\s+between|similarities|bandingkan|perbezaan|persamaan|differentiate|distinguish|bezakan)\b/i,
+  },
+  {
+    type: "calculation",
+    re: /\b(calculate|find\s+the|determine|compute|work\s+out|kira|cari|tentukan|hitungkan)\b/i,
+  },
+  {
+    type: "example",
+    re: /\b(give\s+an\s+example|state\s+one\s+example|state\s+an\s+example|name\s+one|give\s+one|berikan\s+contoh|nyatakan\s+satu\s+contoh|namakan\s+satu)\b/i,
+  },
+  {
+    type: "application",
+    re: /\b(suggest|predict|what\s+would\s+happen|cadangkan|ramalkan|apakah\s+yang\s+akan\s+berlaku)\b/i,
+  },
+  {
+    type: "definition",
+    re: /\b(define|what\s+is\s+meant\s+by|takrifkan|apakah\s+yang\s+dimaksudkan)\b/i,
+  },
+  {
+    type: "explanation",
+    re: /\b(explain|describe|how|why|account\s+for|terangkan|huraikan|bagaimana|mengapa)\b/i,
+  },
+  {
+    type: "recall",
+    re: /\b(state|name|identify|list|give|what\s+is|nyatakan|namakan|kenalpasti|senaraikan)\b/i,
+  },
+];
+
+function detectDemandTypes(q: string): { demandType: DemandType; compoundDemandTypes: DemandType[] } {
+  const s = norm(q);
+  const found: DemandType[] = [];
+  for (const { type, re } of DEMAND_DETECTORS) {
+    if (re.test(s)) found.push(type);
+  }
+  if (found.length === 0) return { demandType: "recall", compoundDemandTypes: ["recall"] };
+  return { demandType: found[0], compoundDemandTypes: [...new Set(found)] };
+}
+
+function detectEquationMeta(q: string, demandType: DemandType): { isEquationQuestion: boolean; equationType: EquationType } {
+  if (demandType !== "equation") return { isEquationQuestion: false, equationType: null };
+  const s = norm(q);
+  if (/\b(word\s+equation|persamaan\s+perkataan)\b/i.test(s)) return { isEquationQuestion: true, equationType: "word" };
+  if (/\b(ionic\s+equation|persamaan\s+ion)\b/i.test(s)) return { isEquationQuestion: true, equationType: "ionic" };
+  if (/\b(half\s+equation|setengah\s+persamaan)\b/i.test(s)) return { isEquationQuestion: true, equationType: "half" };
+  return { isEquationQuestion: true, equationType: "symbol" };
+}
+
 function classifyQuestionType(q: string, commandWord: CommandWord): QuestionAnalysis["questionType"] {
   const s = norm(q);
   if (detectMcqLike(q)) return "mcq";
@@ -114,6 +176,14 @@ function classifyQuestionType(q: string, commandWord: CommandWord): QuestionAnal
     return "function_purpose";
   }
   if (commandWord === "describe" && !requiresFeatureFunctionFromStem(q, commandWord)) return "structure_description";
+  if (
+    /\b(sequence|urutan|order of|correct order|in order|stages?\s+of|steps?\s+in|organisation|organization|hierarchy|levels?\s+of|peringkat|development of|evolution of|history of)\b/i.test(
+      s,
+    ) &&
+    /\b(list|state|arrange|describe|explain|outline|nyatakan|senaraikan|huraikan|terangkan)\b/i.test(s)
+  ) {
+    return "sequence_order";
+  }
   if (/\b(explain|why|because|kerana|effect|cause)\b/i.test(s) || commandWord === "explain") return "cause_effect";
   if (/\b(state|name|list|give|identify|define)\b/i.test(s) || ["state", "name", "list", "give", "identify", "define"].includes(commandWord)) {
     return "fixed_answer";
@@ -178,6 +248,8 @@ export function mapAnalysisToRubricQuestionType(a: QuestionAnalysis): string {
       return "general";
     case "open_ended_example":
       return "general";
+    case "sequence_order":
+      return "list";
     case "fixed_answer":
       if (a.commandWord === "define") return "define";
       if (a.commandWord === "identify") return "identify";
@@ -195,6 +267,8 @@ export function analyzeQuestion(question: string, subject?: string | null): Ques
   const q = (question || "").trim();
   const s = norm(q);
   const commandWord = detectCommandWord(q);
+  const { demandType, compoundDemandTypes } = detectDemandTypes(q);
+  const { isEquationQuestion, equationType } = detectEquationMeta(q, demandType);
   const questionType = classifyQuestionType(q, commandWord);
   const isCompoundQuestion = hasCompoundAndDemand(q) || hasTwoDistinctDemandsJoinedByAnd(q);
   const isOpenEnded =
@@ -215,12 +289,20 @@ export function analyzeQuestion(question: string, subject?: string | null): Ques
   if (questionType === "cause_effect") expectedAnswerStyle = "Linked explanation (because / so that / to …) with science ideas.";
   if (questionType === "open_ended_example") expectedAnswerStyle = "Valid category example plus matching use/function where asked.";
   if (questionType === "compare_contrast") expectedAnswerStyle = "Paired similarities and differences.";
+  if (questionType === "sequence_order") {
+    expectedAnswerStyle =
+      "Stages or levels in the correct order only (e.g. cell → tissue → organ → system → organism). Wrong order = wrong even if all names are present.";
+  }
 
   return {
     subject: subject?.trim() || "General",
     topicKeywords: extractTopicKeywords(q),
     commandWord,
     questionType,
+    demandType,
+    compoundDemandTypes,
+    isEquationQuestion,
+    equationType,
     isOpenEnded,
     isCompoundQuestion,
     expectedAnswerStyle,

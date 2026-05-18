@@ -7,6 +7,7 @@ import { buildGradingContextPayload, retrieveChunks } from "../services/rag/retr
 import { listTextbooks, registerTextbook } from "../services/rag/textbookService";
 import { generateWithRag } from "../services/ai gen/generateFromRag";
 import { listTextbookChaptersForSubjectForm } from "../services/rag/textbookChaptersService";
+import { createRubricsFromTextbookChunks } from "../services/rag/rubricFromTextbookChunksService";
 
 const router: IRouter = Router();
 const disableRagAuth = process.env["DISABLE_RAG_AUTH"] === "true";
@@ -236,6 +237,56 @@ router.post("/generate", async (req, res) => {
     const message = error instanceof Error ? error.message : "Failed to generate questions";
     console.error("[rag] generate failed", error);
     return res.status(500).json({ error: message });
+  }
+});
+
+router.post("/rubrics/from-textbook-chunks", async (req, res) => {
+  try {
+    const textbookId = typeof req.body?.textbookId === "string" ? req.body.textbookId.trim() : "";
+    const subject = typeof req.body?.subject === "string" ? req.body.subject.trim() : "";
+    const form = typeof req.body?.form === "string" ? req.body.form.trim() : "";
+    if (!textbookId && (!subject || !form)) {
+      return res.status(400).json({
+        error: 'Provide "textbookId" or both "subject" and "form".',
+      });
+    }
+
+    const maxChunks =
+      typeof req.body?.maxChunks === "number" && Number.isFinite(req.body.maxChunks)
+        ? req.body.maxChunks
+        : undefined;
+    const offset =
+      typeof req.body?.offset === "number" && Number.isFinite(req.body.offset) ? req.body.offset : undefined;
+    const maxMarks =
+      typeof req.body?.maxMarks === "number" && Number.isFinite(req.body.maxMarks)
+        ? req.body.maxMarks
+        : undefined;
+    const concurrency =
+      typeof req.body?.concurrency === "number" && Number.isFinite(req.body.concurrency)
+        ? req.body.concurrency
+        : undefined;
+    const chapterFilter =
+      typeof req.body?.chapterFilter === "string" ? req.body.chapterFilter.trim() : undefined;
+
+    const result = await createRubricsFromTextbookChunks({
+      textbookId: textbookId || undefined,
+      subject: subject || undefined,
+      form: form || undefined,
+      chapterFilter: chapterFilter || undefined,
+      maxChunks,
+      offset,
+      maxMarks,
+      concurrency,
+      skipExisting: req.body?.skipExisting !== false,
+    });
+
+    return res.status(201).json(result);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to create rubrics from textbook chunks";
+    const statusCode =
+      message.includes("not found") || message.includes("Provide textbookId") ? 400 : 500;
+    console.error("[rag] rubrics from textbook chunks failed", error);
+    return res.status(statusCode).json({ error: message });
   }
 });
 
