@@ -26,9 +26,12 @@ export function resolveLlmProvider(): Exclude<LlmProvider, "auto"> {
 }
 
 export function requireLlmKey(): string {
-  const key = process.env["QWEN_GRADING_API_KEY"]?.trim() || process.env["QWEN_OCR_API_KEY"]?.trim();
+  const key =
+    process.env["QWEN_GRADING_API_KEY"]?.trim() ||
+    process.env["QWEN_OCR_API_KEY"]?.trim() ||
+    process.env["ALIBABA_LLM_API_KEY"]?.trim();
   if (!key) {
-    throw new Error("Set QWEN_GRADING_API_KEY (or QWEN_OCR_API_KEY) in backend/.env");
+    throw new Error("Set ALIBABA_LLM_API_KEY, QWEN_GRADING_API_KEY, or QWEN_OCR_API_KEY in backend/.env");
   }
   return key;
 }
@@ -45,13 +48,13 @@ export async function chatCompletion(
   const baseUrl = (
     process.env["QWEN_GRADING_BASE_URL"]?.trim() ||
     process.env["QWEN_OCR_BASE_URL"]?.trim() ||
+    process.env["ALIBABA_LLM_API_BASE_URL"]?.trim() ||
     ""
   ).replace(/\/+$/, "");
-  const model =
-    process.env["QWEN_GRADING_MODEL"]?.trim() || process.env["QWEN_MODEL"]?.trim() || "qwen-plus";
+  const model = resolveChatModel(opts);
 
   if (!baseUrl) {
-    throw new Error("Set QWEN_GRADING_BASE_URL (or QWEN_OCR_BASE_URL) in backend/.env");
+    throw new Error("Set ALIBABA_LLM_API_BASE_URL, QWEN_GRADING_BASE_URL, or QWEN_OCR_BASE_URL in backend/.env");
   }
 
   const response = await fetch(`${baseUrl}/chat/completions`, {
@@ -63,7 +66,7 @@ export async function chatCompletion(
     body: JSON.stringify({
       model,
       messages,
-      temperature: 0.55,
+      temperature: 0.7,
     }),
   });
 
@@ -86,6 +89,38 @@ export async function chatCompletion(
     throw new Error("Qwen chat: missing message content");
   }
   return content;
+}
+
+function resolveChatModel(opts?: ChatOpts): string {
+  const explicitModel =
+    process.env["QWEN_GRADING_MODEL"]?.trim() ||
+    process.env["QWEN_MODEL"]?.trim() ||
+    process.env["ALIBABA_LLM_API_MODEL"]?.trim();
+
+  const subject = opts?.subject?.trim().toLowerCase() ?? "";
+  const query = opts?.query?.trim().toLowerCase() ?? "";
+  const mathScienceSubjects = new Set([
+    "math",
+    "mathematics",
+    "additional math",
+    "addmath",
+    "physics",
+    "biology",
+    "chemistry",
+    "science",
+  ]);
+  const languageSubjects = new Set(["bm", "bahasa melayu", "english", "chinese"]);
+  const wantsKbat = /\bkbat\b|essay|karangan|subjective|open[- ]ended/.test(query);
+
+  if (mathScienceSubjects.has(subject)) {
+    return process.env["RAG_MODEL_MATH_SCIENCE"]?.trim() || explicitModel || "qwen-plus";
+  }
+
+  if (languageSubjects.has(subject) || wantsKbat) {
+    return process.env["RAG_MODEL_LANGUAGE_KBAT"]?.trim() || explicitModel || "qwen-plus";
+  }
+
+  return process.env["RAG_MODEL_GENERAL"]?.trim() || explicitModel || "qwen-plus";
 }
 
 export async function generateImage(prompt: string): Promise<string[]> {

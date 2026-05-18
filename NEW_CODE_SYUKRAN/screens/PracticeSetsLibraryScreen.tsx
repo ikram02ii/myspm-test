@@ -10,13 +10,12 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from "react-native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { useFocusEffect } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { BookOpen, ChevronRight, Sparkles, Plus } from "lucide-react-native";
+import { BookOpen, ChevronDown, ChevronRight, Sparkles, Plus } from "lucide-react-native";
 import * as Notifications from "expo-notifications";
 import { LinearGradient } from "expo-linear-gradient";
 
@@ -40,6 +39,8 @@ import {
 } from "../services/mobileOnboarding";
 import {
   fetchPracticeSetList,
+  type MathLineDiagram,
+  type PracticeSetQuestion,
   type PracticeSetSummary,
 } from "../services/mobilePracticeSets";
 import { ragApiPost } from "../services/ragApi";
@@ -51,14 +52,210 @@ const AnimatedLinearGradient = Animated.createAnimatedComponent(LinearGradient);
 
 type Props = NativeStackScreenProps<PracticeStackParamList, "PracticeLibrary">;
 
+const AI_TOPIC_OPTIONS_BY_SUBJECT: Record<string, string[]> = {
+  math: [
+    "Chapter 1: Quadratic Functions and Equations in One Variable",
+    "Chapter 2: Number Bases",
+    "Chapter 3: Logical Reasoning",
+    "Chapter 4: Operations on Sets",
+    "Chapter 5: Network in Graph Theory",
+    "Chapter 6: Linear Inequalities in Two Variables",
+    "Chapter 7: Graphs of Motion",
+    "Chapter 8: Measures of Dispersion for Ungrouped Data",
+    "Chapter 9: Probability of Combined Events",
+    "Chapter 10: Consumer Mathematics: Financial Management",
+  ],
+  addmath: [
+    "Chapter 1: Functions",
+    "Chapter 2: Quadratic Functions",
+    "Chapter 3: Systems of Equations",
+    "Chapter 4: Indices, Surds and Logarithms",
+    "Chapter 5: Progressions",
+    "Chapter 6: Linear Law",
+    "Chapter 7: Coordinate Geometry",
+    "Chapter 8: Vectors",
+    "Chapter 9: Solution of Triangles",
+    "Chapter 10: Index Numbers",
+  ],
+  biology: [
+    "Chapter 1: Introduction to Biology and Laboratory Rules",
+    "Chapter 2: Cell Biology and Organization",
+    "Chapter 3: Movement of Substances Across a Plasma Membrane",
+    "Chapter 4: Chemical Composition in a Cell",
+    "Chapter 5: Metabolism and Enzymes",
+    "Chapter 6: Cell Division",
+    "Chapter 7: Cellular Respiration",
+    "Chapter 8: Respiratory Systems in Humans and Animals",
+    "Chapter 9: Nutrition and the Human Digestive System",
+    "Chapter 10: Transport in Humans and Animals",
+    "Chapter 11: Immunity in Humans",
+    "Chapter 12: Coordination and Response in Humans",
+    "Chapter 13: Homeostasis and the Human Urinary System",
+    "Chapter 14: Support and Movement in Humans and Animals",
+    "Chapter 15: Sexual Reproduction, Development, and Growth in Humans and Animals",
+  ],
+  physics: [
+    "Chapter 1: Measurement",
+    "Chapter 2: Force and Motion I",
+    "Chapter 3: Gravitation",
+    "Chapter 4: Heat",
+    "Chapter 5: Waves",
+    "Chapter 6: Light and Optics",
+  ],
+  chemistry: [
+    "Chapter 1: Introduction to Chemistry",
+    "Chapter 2: Matter and the Atomic Structure",
+    "Chapter 3: The Mole Concept, Chemical Formula and Equations",
+    "Chapter 4: The Periodic Table of Elements",
+    "Chapter 5: Chemical Bond",
+    "Chapter 6: Acid, Base and Salt",
+    "Chapter 7: Rate of Reaction",
+    "Chapter 8: Manufactured Substances in Industry",
+  ],
+  science: [
+    "Chapter 1: Safety Measures in Laboratory",
+    "Chapter 2: Emergency Help",
+    "Chapter 3: Techniques of Measuring the Parameters of Body Health",
+    "Chapter 4: Green Technology for Environmental Sustainability",
+    "Chapter 5: Genetics",
+    "Chapter 6: Support, Movement and Growth",
+    "Chapter 7: Body Coordination",
+    "Chapter 8: Elements and Substances",
+    "Chapter 9: Chemicals in Industry",
+    "Chapter 10: Chemicals in Medicine and Health",
+    "Chapter 11: Force and Motion",
+    "Chapter 12: Nuclear Energy",
+  ],
+  history: [
+    "Bab 1: Warisan Negara Bangsa",
+    "Bab 2: Kebangkitan Nasionalisme",
+    "Bab 3: Konflik Dunia dan Pendudukan Jepun di Negara Kita",
+    "Bab 4: Era Peralihan Kuasa British di Negara Kita",
+    "Bab 5: Persekutuan Tanah Melayu 1948",
+    "Bab 6: Ancaman Komunis dan Perisytiharan Darurat",
+    "Bab 7: Usaha ke Arah Kemerdekaan",
+    "Bab 8: Pilihan Raya",
+    "Bab 9: Perlembagaan Persekutuan Tanah Melayu 1957",
+    "Bab 10: Pemasyhuran Kemerdekaan",
+  ],
+  bm: [
+    "Karangan",
+    "Rumusan",
+    "Pemahaman",
+    "Tatabahasa",
+    "Novel",
+  ],
+  english: [
+    "Reading comprehension",
+    "Essay writing",
+    "Grammar",
+    "Summary writing",
+    "Literature",
+  ],
+};
+
+function normalizeAiTopicSubjectKey(input: string | null | undefined): string | null {
+  const raw = input?.trim().toLowerCase();
+  if (!raw) return null;
+  const compact = raw.replace(/[\s_-]+/g, "");
+
+  if (compact === "math" || compact === "mathematics") return "math";
+  if (compact === "addmath" || compact === "addmaths" || compact === "additionalmath" || compact === "additionalmathematics") {
+    return "addmath";
+  }
+  if (compact === "bio" || compact === "biology") return "biology";
+  if (compact === "science") return "science";
+  if (compact === "phy" || compact === "physics") return "physics";
+  if (compact === "chem" || compact === "chemistry") return "chemistry";
+  if (compact === "history" || compact === "sejarah") return "history";
+  if (compact === "bm" || compact === "bahasamelayu" || compact === "malay") return "bm";
+  if (compact === "english" || compact === "eng") return "english";
+
+  return AI_TOPIC_OPTIONS_BY_SUBJECT[compact] ? compact : null;
+}
+
+type RagGenerateResponse = {
+  answer: string;
+  sources?: unknown;
+  diagram?: MathLineDiagram;
+  diagrams?: MathLineDiagram[];
+};
+
+function hasRenderableDiagram(diagram: MathLineDiagram | undefined): diagram is MathLineDiagram {
+  return diagram?.type === "line-chart" && Array.isArray(diagram.points) && diagram.points.length >= 2;
+}
+
+function attachDiagramsToQuestions(
+  questions: PracticeSetQuestion[],
+  diagrams: MathLineDiagram[] | undefined,
+): PracticeSetQuestion[] {
+  const renderableDiagrams = (diagrams ?? []).filter(hasRenderableDiagram);
+  if (renderableDiagrams.length === 0 || questions.length === 0) return questions;
+
+  const diagramsByQuestion = new Map<number, MathLineDiagram>();
+  renderableDiagrams.forEach((diagram, index) => {
+    const questionIndex =
+      typeof diagram.questionIndex === "number" && Number.isInteger(diagram.questionIndex)
+        ? diagram.questionIndex
+        : index + 1;
+    diagramsByQuestion.set(questionIndex, diagram);
+  });
+
+  return questions.map((question, index) => {
+    const diagram = diagramsByQuestion.get(index + 1);
+    return diagram ? { ...question, diagram } : question;
+  });
+}
+
+function questionHistoryKey(subject: string, topic: string, questionType: string): string {
+  return [subject, topic || "general", questionType]
+    .map((part) => part.trim().toLowerCase().replace(/\s+/g, " "))
+    .join("|");
+}
+
+function summarizeQuestionStems(questions: PracticeSetQuestion[]): string[] {
+  return questions
+    .map((question) => question.questionText.replace(/\s+/g, " ").trim())
+    .filter(Boolean)
+    .slice(0, 12);
+}
+
 function favouriteKey(f: MobileSubjectFavourite): string {
   return f.code.trim().toUpperCase();
 }
 
-function withBiologyTile(items: MobileSubjectFavourite[]): MobileSubjectFavourite[] {
-  const hasBiology = items.some((item) => favouriteKey(item) === "BIOLOGY");
-  if (hasBiology) return items;
-  return [...items, { code: "biology", name: "Biology" }];
+type SubjectTile = MobileSubjectFavourite & {
+  topicKey?: keyof typeof AI_TOPIC_OPTIONS_BY_SUBJECT;
+};
+
+const CHAPTER_SUBJECT_TILES: SubjectTile[] = [
+  { code: "math", name: "Mathematics", topicKey: "math" },
+  { code: "addmath", name: "Additional Math", topicKey: "addmath" },
+  { code: "science", name: "Science", topicKey: "science" },
+  { code: "biology", name: "Biology", topicKey: "biology" },
+  { code: "physics", name: "Physics", topicKey: "physics" },
+  { code: "chemistry", name: "Chemistry", topicKey: "chemistry" },
+  { code: "history", name: "Sejarah", topicKey: "history" },
+];
+
+function getSubjectTileTopicKey(tile: SubjectTile | undefined): keyof typeof AI_TOPIC_OPTIONS_BY_SUBJECT | null {
+  if (!tile) return null;
+  if (tile.topicKey) return tile.topicKey;
+  const key = normalizeAiTopicSubjectKey(tile.code) ?? normalizeAiTopicSubjectKey(tile.name);
+  return key && AI_TOPIC_OPTIONS_BY_SUBJECT[key] ? key : null;
+}
+
+function withChapterSubjectTiles(items: MobileSubjectFavourite[]): SubjectTile[] {
+  const chapterKeys = new Set(
+    CHAPTER_SUBJECT_TILES.map((tile) => tile.topicKey).filter(Boolean),
+  );
+
+  const extraTiles = items.filter((item) => {
+    const key = normalizeAiTopicSubjectKey(item.code) ?? normalizeAiTopicSubjectKey(item.name);
+    return !key || !chapterKeys.has(key);
+  });
+
+  return [...CHAPTER_SUBJECT_TILES, ...extraTiles];
 }
 
 export default function PracticeSetsLibraryScreen({ navigation }: Props) {
@@ -78,11 +275,13 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
   const borderGlow = useRef(new Animated.Value(0)).current;
   const borderPulse = useRef(new Animated.Value(0)).current;
   const borderShine = useRef(new Animated.Value(0)).current;
+  const aiQuestionHistoryRef = useRef<Map<string, string[]>>(new Map());
   const [aiGenerating, setAiGenerating] = useState(false);
   const [metaFormLevel, setMetaFormLevel] = useState<string>("Form 4");
   const [aiModalOpen, setAiModalOpen] = useState(false);
   const [aiMode, setAiMode] = useState<"general" | "topic">("general");
   const [aiTopic, setAiTopic] = useState("");
+  const [aiTopicDropdownOpen, setAiTopicDropdownOpen] = useState(false);
   const [aiQuestionType, setAiQuestionType] = useState<"mcq" | "subjective">("mcq");
   const [aiQuestionCount, setAiQuestionCount] = useState<number>(5);
 
@@ -91,13 +290,18 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
     const c = code.trim().toLowerCase();
     const map: Record<string, string> = {
       biology: "Biology",
+      science: "Science",
       physics: "Physics",
       chemistry: "Chemistry",
       english: "English",
       bm: "BM",
       history: "Sejarah",
+      sejarah: "Sejarah",
       math: "Math",
       addmath: "Additional Math",
+      addmaths: "Additional Math",
+      additionalmath: "Additional Math",
+      additionalmathematics: "Additional Math",
     };
     return map[c] ?? null;
   }
@@ -115,6 +319,8 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
   const showComingSoonWithSound = () => {
     const msg = "Stay tuned for this feature";
     showToast(msg);
+    if (Platform.OS === "web") return;
+
     void Notifications.scheduleNotificationAsync({
       content: {
         title: "MySPM",
@@ -240,7 +446,7 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
     return sets.filter((item) => favourites.some((f) => practiceSetSubjectMatchesFavourite(item.subject, f)));
   }, [sets, favourites]);
 
-  const favouriteTiles = useMemo(() => withBiologyTile(favourites), [favourites]);
+  const favouriteTiles = useMemo(() => withChapterSubjectTiles(favourites), [favourites]);
 
   /** Selected subject for filtering: tap a tile to show only that subject; default first favourite when any exist. */
   const selectedSubjectKey = useMemo(() => {
@@ -255,6 +461,45 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
     }
     return favouriteKey(favouriteTiles[0]);
   }, [favouriteTiles, activeSubjectCode]);
+
+  const aiTopicOptions = useMemo(() => {
+    const activeFavourite = favouriteTiles.find((f) => favouriteKey(f) === selectedSubjectKey);
+    const explicitTopicKey = getSubjectTileTopicKey(activeFavourite);
+    if (explicitTopicKey) {
+      return AI_TOPIC_OPTIONS_BY_SUBJECT[explicitTopicKey];
+    }
+
+    const candidates = [
+      selectedSubjectKey,
+      activeFavourite?.code,
+      activeFavourite?.name,
+      backendSubjectFromPracticeCode(selectedSubjectKey),
+    ];
+
+    for (const candidate of candidates) {
+      const key = normalizeAiTopicSubjectKey(candidate);
+      if (key && AI_TOPIC_OPTIONS_BY_SUBJECT[key]) {
+        return AI_TOPIC_OPTIONS_BY_SUBJECT[key];
+      }
+    }
+
+    return [];
+  }, [favouriteTiles, selectedSubjectKey]);
+
+  useEffect(() => {
+    if (aiMode !== "topic") return;
+
+    const firstTopic = aiTopicOptions[0];
+    if (!firstTopic) {
+      setAiTopic("");
+      return;
+    }
+
+    if (!aiTopicOptions.includes(aiTopic)) {
+      setAiTopic(firstTopic);
+      setAiTopicDropdownOpen(false);
+    }
+  }, [aiMode, aiTopic, aiTopicOptions]);
 
   const visibleSets = useMemo(() => {
     if (favouriteTiles.length === 0) {
@@ -286,22 +531,47 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
   };
 
   const openAiGenerateModal = () => {
+    setAiTopicDropdownOpen(false);
     setAiModalOpen(true);
   };
 
   const questionTypeLabel = aiQuestionType === "mcq" ? "MCQ (A-D)" : "subjective";
 
   const buildAiQuery = (subject: string): string => {
+    const selectedTopic = aiMode === "topic" ? aiTopic.trim() : "";
     const topicPart =
-      aiMode === "topic" && aiTopic.trim().length > 0
-        ? ` focused on topic: ${aiTopic.trim()}`
+      selectedTopic.length > 0
+        ? ` focused on topic: ${selectedTopic}`
         : "";
+    const historyKey = questionHistoryKey(subject, selectedTopic, aiQuestionType);
+    const recentQuestions = aiQuestionHistoryRef.current.get(historyKey) ?? [];
+    const avoidInstructions =
+      recentQuestions.length > 0
+        ? `Do not repeat or closely paraphrase these recently generated question stems: ${recentQuestions.map((q, i) => `${i + 1}. ${q}`).join(" ")} `
+        : "";
+    const variationSeed = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const variationInstructions =
+      `Use a different set of question angles each time. ` +
+      `Cover varied subtopics or skills within the selected chapter. ` +
+      `Mix recall, understanding, application, and KBAT/HOTS where suitable. ` +
+      `Avoid repeating common wording or previously generated question patterns. ` +
+      avoidInstructions +
+      `Variation seed: ${variationSeed}.`;
+    const isMathSubject = /^(math|additional math)$/i.test(subject.trim());
+    const graphInstructions = isMathSubject
+      ? `For every generated question, decide whether a line graph, coordinate graph, function graph, or motion graph would help. If yes, append DIAGRAM_JSON after all questions. Use a diagrams array and include one diagram object per graph-based question. Set questionIndex to the matching Soalan number, for example questionIndex 1 for Soalan 1 and questionIndex 4 for Soalan 4. Graph-related chapters may include diagrams for multiple Soalan, not only the first one. `
+      : "";
+
+    const bilingualStemRule =
+      /^(sejarah|bm)$/i.test(subject.trim())
+        ? ""
+        : `Each question stem must be bilingual on two separate lines: first line "EN: ...", second line "BM: ..." (BM must start on a new line, not the same line as EN). `;
 
     if (aiQuestionType === "mcq") {
-      return `Generate ${aiQuestionCount} SPM ${subject} ${questionTypeLabel} questions${topicPart}. Include A-D options, Jawapan and Penjelasan.`;
+      return `Generate ${aiQuestionCount} SPM ${subject} ${questionTypeLabel} questions${topicPart}. ${variationInstructions} ${graphInstructions}${bilingualStemRule}Include A-D options, Jawapan and Penjelasan.`;
     }
 
-    return `Generate ${aiQuestionCount} SPM ${subject} subjective questions${topicPart}. For each question, include a concise model answer and marking points.`;
+    return `Generate ${aiQuestionCount} SPM ${subject} subjective questions${topicPart}. ${variationInstructions} ${graphInstructions}${bilingualStemRule}Use this exact format for every item: Soalan 1, then the question stem on the next line, then Jawapan: with a concise model answer, then Marking points: with brief marking points. Repeat as Soalan 2, Soalan 3, and so on.`;
   };
 
   const runAiGenerate = async () => {
@@ -313,13 +583,15 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
       return;
     }
     if (aiMode === "topic" && aiTopic.trim().length === 0) {
-      showToast("Please enter a topic.");
+      showToast("Please select a topic.");
       return;
     }
+    const selectedTopic = aiMode === "topic" ? aiTopic.trim() : "";
+    const historyKey = questionHistoryKey(backendSubject, selectedTopic, aiQuestionType);
 
     setAiGenerating(true);
     try {
-      const result = await ragApiPost<{ answer: string; sources?: unknown }>(
+      const result = await ragApiPost<RagGenerateResponse>(
         "/rag/generate",
         {
           query: buildAiQuery(backendSubject),
@@ -329,11 +601,15 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
       );
 
       if (aiQuestionType === "mcq") {
-        const parsed = parseAiGeneratedMcqAnswer(result.answer);
+        const parsed = attachDiagramsToQuestions(
+          parseAiGeneratedMcqAnswer(result.answer),
+          result.diagrams ?? (result.diagram ? [result.diagram] : []),
+        );
         if (parsed.length === 0) {
           showToast("AI did not return parseable MCQ questions. Try again.");
           return;
         }
+        aiQuestionHistoryRef.current.set(historyKey, summarizeQuestionStems(parsed));
         setAiModalOpen(false);
         (navigation as any).navigate("PracticeSession", {
           title: "AI Practice",
@@ -344,11 +620,15 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
         return;
       }
 
-      const parsedOpen = parseAiGeneratedOpenEnded(result.answer, "short");
+      const parsedOpen = attachDiagramsToQuestions(
+        parseAiGeneratedOpenEnded(result.answer, "short"),
+        result.diagrams ?? (result.diagram ? [result.diagram] : []),
+      );
       if (parsedOpen.length === 0) {
         showToast("AI did not return parseable questions. Try again.");
         return;
       }
+      aiQuestionHistoryRef.current.set(historyKey, summarizeQuestionStems(parsedOpen));
 
       setAiModalOpen(false);
       (navigation as any).navigate("PracticeSession", {
@@ -605,13 +885,54 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
             {aiMode === "topic" ? (
               <>
                 <Text style={styles.fieldLabel}>Topic</Text>
-                <TextInput
-                  value={aiTopic}
-                  onChangeText={setAiTopic}
-                  placeholder="e.g., Cell respiration"
-                  placeholderTextColor="#94A3B8"
-                  style={styles.topicInput}
-                />
+                <Pressable
+                  style={styles.topicDropdownButton}
+                  onPress={() => setAiTopicDropdownOpen((open) => !open)}
+                  disabled={aiGenerating}
+                >
+                  <Text
+                    style={[
+                      styles.topicDropdownText,
+                      aiTopic.trim().length === 0 && styles.topicDropdownPlaceholder,
+                    ]}
+                  >
+                    {aiTopic.trim().length > 0 ? aiTopic : "Select a topic"}
+                  </Text>
+                  <ChevronDown
+                    size={18}
+                    color={colors.textSecondary}
+                    style={aiTopicDropdownOpen ? styles.topicDropdownIconOpen : undefined}
+                  />
+                </Pressable>
+
+                {aiTopicDropdownOpen ? (
+                  <View style={styles.topicDropdownMenu}>
+                    <ScrollView nestedScrollEnabled style={styles.topicDropdownScroll}>
+                      {aiTopicOptions.map((topic) => (
+                        <Pressable
+                          key={topic}
+                          style={[
+                            styles.topicDropdownItem,
+                            aiTopic === topic && styles.topicDropdownItemActive,
+                          ]}
+                          onPress={() => {
+                            setAiTopic(topic);
+                            setAiTopicDropdownOpen(false);
+                          }}
+                        >
+                          <Text
+                            style={[
+                              styles.topicDropdownItemText,
+                              aiTopic === topic && styles.topicDropdownItemTextActive,
+                            ]}
+                          >
+                            {topic}
+                          </Text>
+                        </Pressable>
+                      ))}
+                    </ScrollView>
+                  </View>
+                ) : null}
               </>
             ) : null}
 
@@ -945,16 +1266,59 @@ const styles = StyleSheet.create({
   choiceChipTextActive: {
     color: "#FFFFFF",
   },
-  topicInput: {
+  topicDropdownButton: {
+    minHeight: 48,
     borderWidth: 1,
     borderColor: "rgba(15, 23, 42, 0.16)",
     borderRadius: 12,
     paddingHorizontal: 12,
     paddingVertical: 10,
-    fontSize: 14,
-    fontFamily: fonts.regular,
-    color: colors.text,
     backgroundColor: "#FFFFFF",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+  topicDropdownText: {
+    flex: 1,
+    fontSize: 14,
+    fontFamily: fonts.medium,
+    color: colors.text,
+  },
+  topicDropdownPlaceholder: {
+    color: "#94A3B8",
+  },
+  topicDropdownIconOpen: {
+    transform: [{ rotate: "180deg" }],
+  },
+  topicDropdownMenu: {
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: "rgba(15, 23, 42, 0.12)",
+    borderRadius: 12,
+    backgroundColor: "#FFFFFF",
+    overflow: "hidden",
+  },
+  topicDropdownScroll: {
+    maxHeight: 176,
+  },
+  topicDropdownItem: {
+    paddingHorizontal: 12,
+    paddingVertical: 11,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(15, 23, 42, 0.06)",
+  },
+  topicDropdownItemActive: {
+    backgroundColor: theme.brandSoft,
+  },
+  topicDropdownItemText: {
+    fontSize: 14,
+    fontFamily: fonts.medium,
+    color: colors.text,
+  },
+  topicDropdownItemTextActive: {
+    color: BRAND,
+    fontFamily: fonts.bold,
   },
   generateActionBtn: {
     marginTop: 14,

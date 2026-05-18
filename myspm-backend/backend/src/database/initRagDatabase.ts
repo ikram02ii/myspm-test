@@ -111,6 +111,15 @@ export async function ensureRagSchema(): Promise<void> {
   `);
 
   await ragPool.query(`
+    ALTER TABLE rag_past_paper_chunks
+      ADD COLUMN IF NOT EXISTS page_start INTEGER,
+      ADD COLUMN IF NOT EXISTS page_end INTEGER,
+      ADD COLUMN IF NOT EXISTS source_image_url TEXT,
+      ADD COLUMN IF NOT EXISTS embedding TEXT,
+      ADD COLUMN IF NOT EXISTS chunk_kind VARCHAR(32);
+  `);
+
+  await ragPool.query(`
     CREATE INDEX IF NOT EXISTS idx_rag_past_papers_subject_form
       ON rag_past_papers (subject, form);
   `);

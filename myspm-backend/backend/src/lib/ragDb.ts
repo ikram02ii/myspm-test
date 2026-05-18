@@ -16,6 +16,11 @@ function buildRagDatabaseUrl(): string {
   const directUrl = process.env["RAG_DATABASE_URL"];
   if (directUrl) return directUrl;
 
+  const developmentDatabaseUrl = process.env["DATABASE_URL"];
+  if (process.env["NODE_ENV"] === "development" && developmentDatabaseUrl) {
+    return developmentDatabaseUrl;
+  }
+
   const host = process.env["RAG_DB_HOST"] ?? "localhost";
   const port = process.env["RAG_DB_PORT"] ?? "5432";
   const dbName = process.env["RAG_DB_NAME"] ?? "myspm_rag";

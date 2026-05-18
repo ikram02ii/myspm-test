@@ -63,6 +63,15 @@ export const ragPastPaperChunksTable = pgTable("rag_past_paper_chunks", {
   conceptSummary: text("concept_summary"),
   keywords: text("keywords"),
   maxMarks: integer("max_marks"),
+  /** Source PDF page range (1-based), when known */
+  pageStart: integer("page_start"),
+  pageEnd: integer("page_end"),
+  /** OSS (or other) URL for rendered page / diagram image linked to this chunk */
+  sourceImageUrl: text("source_image_url"),
+  /** Embedding vector as JSON number[] (same pattern as rag_rubrics.embedding) */
+  embedding: text("embedding"),
+  /** e.g. question | mark_scheme | diagram_transcript | mixed */
+  chunkKind: varchar("chunk_kind", { length: 32 }),
   content: text("content").notNull(),
 });
 

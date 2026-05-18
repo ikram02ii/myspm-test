@@ -442,6 +442,11 @@ export async function ingestPastPaperPdfToRagDb(
       conceptSummary: chunk.conceptSummary,
       keywords: chunk.keywords.join(", "),
       maxMarks: null,
+      pageStart: chunk.pageStart ?? null,
+      pageEnd: chunk.pageEnd ?? null,
+      sourceImageUrl: null,
+      embedding: null,
+      chunkKind: "ingested_pdf",
       content: chunk.chunkText,
     })),
   );

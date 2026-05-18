@@ -19,6 +19,7 @@ import * as ImagePicker from "expo-image-picker";
 import { colors } from "../constants/colors";
 import { fonts } from "../constants/fonts";
 import { theme } from "../constants/palette";
+import { MathLineChart } from "../components/math/MathLineChart";
 import type { PracticeStackParamList } from "../navigation/PracticeStack";
 import {
   fetchPracticeSetDetail,
@@ -109,7 +110,9 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
   const hasQuestions = "questions" in routeParams && Array.isArray(routeParams.questions);
   const initialQuestions = hasQuestions ? routeParams.questions : [];
 
-  const setId = hasQuestions ? undefined : routeParams.setId;
+  const setId = hasQuestions
+    ? undefined
+    : (routeParams as { setId: number; title: string; subject?: string; formLevel?: string }).setId;
   const { title } = routeParams;
   const routeSubject = routeParams.subject;
   const routeFormLevel = routeParams.formLevel;
@@ -500,6 +503,18 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
         >
           <Text style={styles.diffChip}>{q.difficulty}</Text>
           <Text style={styles.questionText}>{q.questionText}</Text>
+          {q.diagram?.type === "line-chart" ? (
+            <View style={styles.diagramWrap}>
+              <MathLineChart
+                title={q.diagram.title ?? "Math Diagram"}
+                subtitle={q.diagram.subtitle ?? "Generated for this question"}
+                equationLabel={q.diagram.equationLabel ?? "Graph"}
+                xAxisLabel={q.diagram.xAxisLabel ?? "x"}
+                yAxisLabel={q.diagram.yAxisLabel ?? "y"}
+                points={q.diagram.points}
+              />
+            </View>
+          ) : null}
 
       {isMcq && multiSelect ? (
         <Text style={styles.multiHint}>Select all answers that apply.</Text>
@@ -729,6 +744,9 @@ const styles = StyleSheet.create({
     fontFamily: fonts.bold,
     color: colors.text,
     lineHeight: 26,
+    marginBottom: 16,
+  },
+  diagramWrap: {
     marginBottom: 16,
   },
   optionsGrid: {

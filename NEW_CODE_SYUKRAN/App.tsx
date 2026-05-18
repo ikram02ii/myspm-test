@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { Text, TextInput, View } from "react-native";
+import { Platform, Text, TextInput, View } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
@@ -65,9 +65,13 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (Platform.OS === "web") return;
+
     Notifications.setNotificationHandler({
       handleNotification: async () => ({
         shouldShowAlert: false,
+        shouldShowBanner: false,
+        shouldShowList: false,
         shouldPlaySound: true,
         shouldSetBadge: false,
       }),

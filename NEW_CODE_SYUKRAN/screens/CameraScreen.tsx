@@ -27,14 +27,16 @@ export default function CameraScreen({ navigation }: Props) {
   const showComingSoonToast = () => {
     const msg = "Stay tuned for this feature";
     setToastMessage(msg);
-    void Notifications.scheduleNotificationAsync({
-      content: {
-        title: "MySPM",
-        body: msg,
-        sound: "default",
-      },
-      trigger: null,
-    });
+    if (Platform.OS !== "web") {
+      void Notifications.scheduleNotificationAsync({
+        content: {
+          title: "MySPM",
+          body: msg,
+          sound: "default",
+        },
+        trigger: null,
+      });
+    }
     if (toastTimeoutRef.current) {
       clearTimeout(toastTimeoutRef.current);
     }
