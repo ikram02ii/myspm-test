@@ -22,6 +22,7 @@ import { theme } from "../constants/palette";
 import type { PracticeStackParamList } from "../navigation/PracticeStack";
 import {
   fetchPracticeSetDetail,
+  inferQuestionMaxMarks,
   type PracticeSetQuestion,
 } from "../services/mobilePracticeSets";
 import { ragApiPost } from "../services/ragApi";
@@ -93,6 +94,19 @@ function isSelectionCorrect(selected: Set<number>, correct: Set<number>): boolea
   return true;
 }
 
+/** maxScore for /rag/grade (open-ended): question.maxMarks from API, else "(N marks)" in stem, else 5. */
+function resolveOpenEndedMaxScore(q: PracticeSetQuestion, questionForGrade: string): number {
+  const fromApi = q.maxMarks;
+  if (typeof fromApi === "number" && Number.isFinite(fromApi)) {
+    const n = Math.floor(fromApi);
+    if (n >= 1 && n <= 20) return n;
+  }
+  const inferred =
+    inferQuestionMaxMarks(questionForGrade) ?? inferQuestionMaxMarks(q.questionText.trim());
+  if (inferred !== null) return inferred;
+  return 5;
+}
+
 function questionAllowsMultiSelect(q: PracticeSetQuestion, correct: Set<number>): boolean {
   const type = (q.questionType || "").toLowerCase();
   if (type.includes("multiple_answer") || type.includes("multiple_select") || type.includes("multi_select")) {
@@ -109,7 +123,7 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
   const hasQuestions = "questions" in routeParams && Array.isArray(routeParams.questions);
   const initialQuestions = hasQuestions ? routeParams.questions : [];
 
-  const setId = hasQuestions ? undefined : routeParams.setId;
+  const setId = "setId" in routeParams ? routeParams.setId : undefined;
   const { title } = routeParams;
   const routeSubject = routeParams.subject;
   const routeFormLevel = routeParams.formLevel;
@@ -242,6 +256,8 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
 
   const correctIndices = q && isMcq ? parseCorrectIndices(q.correctAnswer, q.options.length) : new Set<number>();
   const multiSelect = q && isMcq ? questionAllowsMultiSelect(q, correctIndices) : false;
+  const openEndedMaxMarks =
+    q && !isMcq ? resolveOpenEndedMaxScore(q, (q.questionForGrade ?? q.questionText).trim()) : null;
 
   const onToggleOption = (i: number) => {
     if (!q || !isMcq) return;
@@ -285,6 +301,7 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
     const subject = routeSubject ?? "Biology";
     const form = routeFormLevel ?? "Form 4";
     const questionForGrade = (q.questionForGrade ?? q.questionText).trim();
+    const requestedMaxScore = resolveOpenEndedMaxScore(q, questionForGrade);
 
     try {
       setOpenEndedMarkingBusy(true);
@@ -295,13 +312,14 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
         subject,
         form,
         topK: 8,
-        maxScore: 5,
+        maxScore: requestedMaxScore,
+        rubricId: q.rubricId,
       });
       const score = Number(result?.score);
-      const maxScore = Number(result?.maxScore);
+      const resultMaxScore = Number(result?.maxScore);
       const scorePrefix =
-        Number.isFinite(score) && Number.isFinite(maxScore)
-          ? `Score: ${score}/${maxScore}\n\n`
+        Number.isFinite(score) && Number.isFinite(resultMaxScore)
+          ? `Score: ${score}/${resultMaxScore}\n\n`
           : "";
       const feedback = result?.feedback ?? result?.modelAnswer ?? "No feedback returned.";
       setAiFeedbackText(`${scorePrefix}${feedback}`);
@@ -549,6 +567,13 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
         <Text style={styles.unsupported}>No answer choices were loaded for this question.</Text>
       ) : (
         <View style={styles.openEndedWrap}>
+          {openEndedMaxMarks ? (
+            <View style={styles.markValuePill}>
+              <Text style={styles.markValueText}>
+                {openEndedMaxMarks} mark{openEndedMaxMarks === 1 ? "" : "s"}
+              </Text>
+            </View>
+          ) : null}
           <Text style={styles.openEndedLabel}>Your answer</Text>
           <TextInput
             value={openEndedAnswer}
@@ -762,6 +787,21 @@ const styles = StyleSheet.create({
   },
   openEndedWrap: {
     marginBottom: 8,
+  },
+  markValuePill: {
+    alignSelf: "flex-start",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: theme.brandSoftSage,
+    borderWidth: 1,
+    borderColor: "rgba(22, 163, 74, 0.22)",
+    marginBottom: 10,
+  },
+  markValueText: {
+    fontSize: 12,
+    fontFamily: fonts.bold,
+    color: BRAND,
   },
   openEndedLabel: {
     fontSize: 13,

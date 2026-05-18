@@ -1,11 +1,12 @@
 import { Router, type IRouter, type Request, type RequestHandler, type Response } from "express";
 import multer from "multer";
 import { authMiddleware, type AuthRequest } from "../middlewares/auth";
-import { extractTextFromPdfBuffer } from "../services/rag/pdfService";
+import { extractTextFromPdfBuffer } from "../services/rag/pdfTextExtract";
 import { gradeSubmission } from "../services/rag/gradeService";
 import { buildGradingContextPayload, retrieveChunks } from "../services/rag/retrievalService";
 import { listTextbooks, registerTextbook } from "../services/rag/textbookService";
 import { generateWithRag } from "../services/ai gen/generateFromRag";
+import { listTextbookChaptersForSubjectForm } from "../services/rag/textbookChaptersService";
 
 const router: IRouter = Router();
 const disableRagAuth = process.env["DISABLE_RAG_AUTH"] === "true";
@@ -61,6 +62,12 @@ async function handleRegisterTextbook(req: Request, res: Response) {
     console.error("[rag] create textbook failed", error);
     return res.status(statusCode).json({ error: message });
   }
+}
+
+function queryParamString(value: unknown): string {
+  if (typeof value === "string") return value.trim();
+  if (Array.isArray(value) && typeof value[0] === "string") return value[0].trim();
+  return "";
 }
 
 router.post("/textbooks", handleRegisterTextbook);
@@ -133,6 +140,22 @@ router.get("/textbooks", async (_req, res) => {
   }
 });
 
+/** Distinct chunk `chapter` strings for a subject+form (matches DB ingest labels). */
+router.get("/textbook-chapters", async (req, res) => {
+  try {
+    const subject = queryParamString(req.query.subject);
+    const form = queryParamString(req.query.form);
+    if (!subject || !form) {
+      return res.status(400).json({ error: "Query parameters \"subject\" and \"form\" are required." });
+    }
+    const chapters = await listTextbookChaptersForSubjectForm(subject, form);
+    return res.json({ chapters });
+  } catch (error) {
+    console.error("[rag] textbook chapters list failed", error);
+    return res.status(500).json({ error: "Failed to list textbook chapters" });
+  }
+});
+
 router.post("/retrieve", async (req, res) => {
   try {
     const result = await retrieveChunks({
@@ -190,12 +213,22 @@ router.post("/generate", async (req, res) => {
     const imagePrompt =
       typeof req.body?.imagePrompt === "string" ? req.body.imagePrompt : null;
 
+    const chapterFilterRaw =
+      typeof req.body?.chapterFilter === "string" ? req.body.chapterFilter.trim() : "";
+    const chapterHintRaw =
+      typeof req.body?.chapterHint === "string" ? req.body.chapterHint.trim() : "";
+    const formRaw = typeof req.body?.form === "string" ? req.body.form.trim() : "";
+
     const result = await generateWithRag({
       query,
       subject,
+      form: formRaw || null,
       topK,
       generateImage,
       imagePrompt,
+      chapterFilter: chapterFilterRaw || null,
+      chapterHint: chapterHintRaw || null,
+      createOpenEndedRubrics: req.body?.createOpenEndedRubrics === true,
     });
 
     return res.json(result);
@@ -222,6 +255,7 @@ router.post("/grade", gradeUpload.single("diagramImage"), async (req, res) => {
       form: typeof req.body?.form === "string" ? req.body.form : undefined,
       topK: Number(req.body?.topK),
       maxScore: Number(req.body?.maxScore),
+      rubricId: typeof req.body?.rubricId === "string" ? req.body.rubricId : undefined,
       rubricVersion: typeof req.body?.rubricVersion === "string" ? req.body.rubricVersion : undefined,
       diagramImageUrl: typeof req.body?.diagramImageUrl === "string" ? req.body.diagramImageUrl : undefined,
       diagramImageBase64: diagramImageBase64FromFile

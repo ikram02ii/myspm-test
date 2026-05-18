@@ -40,14 +40,21 @@ import {
 } from "../services/mobileOnboarding";
 import {
   fetchPracticeSetList,
+  type PracticeSetQuestion,
   type PracticeSetSummary,
 } from "../services/mobilePracticeSets";
-import { ragApiPost } from "../services/ragApi";
+import { ragApiGet, ragApiPost } from "../services/ragApi";
 import { parseAiGeneratedMcqAnswer, parseAiGeneratedOpenEnded } from "../utils/parseAiMcq";
 
 const BRAND = theme.brand;
 const BRAND_SOFT = theme.brandSoftSage;
 const AnimatedLinearGradient = Animated.createAnimatedComponent(LinearGradient);
+
+type RagGenerateResponse = {
+  answer: string;
+  sources?: unknown;
+  openEndedQuestions?: PracticeSetQuestion[];
+};
 
 type Props = NativeStackScreenProps<PracticeStackParamList, "PracticeLibrary">;
 
@@ -59,6 +66,56 @@ function withBiologyTile(items: MobileSubjectFavourite[]): MobileSubjectFavourit
   const hasBiology = items.some((item) => favouriteKey(item) === "BIOLOGY");
   if (hasBiology) return items;
   return [...items, { code: "biology", name: "Biology" }];
+}
+
+function withChemistryTile(items: MobileSubjectFavourite[]): MobileSubjectFavourite[] {
+  const hasChemistry = items.some((item) => favouriteKey(item) === "CHEMISTRY");
+  if (hasChemistry) return items;
+  return [...items, { code: "chemistry", name: "Chemistry" }];
+}
+
+function withMathTile(items: MobileSubjectFavourite[]): MobileSubjectFavourite[] {
+  const hasMath = items.some((item) => {
+    const k = favouriteKey(item);
+    return k === "MATH" || k === "MATHEMATICS" || item.name.trim().toLowerCase() === "mathematics";
+  });
+  if (hasMath) return items;
+  return [...items, { code: "math", name: "Mathematics" }];
+}
+
+function withAdditionalMathTile(items: MobileSubjectFavourite[]): MobileSubjectFavourite[] {
+  const hasAddMath = items.some((item) => {
+    const k = favouriteKey(item);
+    if (k === "ADDMATH" || k === "ADDMATHS") return true;
+    const n = item.name.trim().toLowerCase();
+    return (
+      n.includes("additional mathematics") ||
+      n.includes("additional math") ||
+      n.includes("add maths") ||
+      n === "add math"
+    );
+  });
+  if (hasAddMath) return items;
+  return [...items, { code: "addmath", name: "Additional Math" }];
+}
+
+/** Practice screen: do not surface Science or Sejarah/History tiles or filters. */
+function stripScienceAndHistory(items: MobileSubjectFavourite[]): MobileSubjectFavourite[] {
+  return items.filter((f) => {
+    const k = favouriteKey(f);
+    const n = f.name.trim().toLowerCase();
+    if (k === "SCIENCE" || n === "science") return false;
+    if (k === "SEJARAH" || k === "HISTORY" || n === "sejarah" || n === "history") return false;
+    return true;
+  });
+}
+
+function isExcludedOnboardingSubject(s: OnboardingSubject): boolean {
+  const k = s.code.trim().toUpperCase();
+  const n = s.name.trim().toLowerCase();
+  if (k === "SCIENCE" || n === "science") return true;
+  if (k === "SEJARAH" || k === "HISTORY" || n === "sejarah" || n === "history") return true;
+  return false;
 }
 
 export default function PracticeSetsLibraryScreen({ navigation }: Props) {
@@ -83,6 +140,10 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
   const [aiModalOpen, setAiModalOpen] = useState(false);
   const [aiMode, setAiMode] = useState<"general" | "topic">("general");
   const [aiTopic, setAiTopic] = useState("");
+  /** Exact `rag_textbook_chunks.chapter` string from DB when user picks topic-specific mode. */
+  const [aiSelectedChapter, setAiSelectedChapter] = useState("");
+  const [ragChapters, setRagChapters] = useState<string[]>([]);
+  const [ragChaptersLoading, setRagChaptersLoading] = useState(false);
   const [aiQuestionType, setAiQuestionType] = useState<"mcq" | "subjective">("mcq");
   const [aiQuestionCount, setAiQuestionCount] = useState<number>(5);
 
@@ -95,7 +156,6 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
       chemistry: "Chemistry",
       english: "English",
       bm: "BM",
-      history: "Sejarah",
       math: "Math",
       addmath: "Additional Math",
     };
@@ -228,19 +288,28 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
     }
   }, []);
 
+  const favouritesVisible = useMemo(() => stripScienceAndHistory(favourites), [favourites]);
+
   const subjectsToAdd = useMemo(() => {
     const have = new Set(favourites.map((f) => favouriteKey(f)));
-    return onboardingSubjects.filter((s) => !have.has(favouriteKey({ code: s.code, name: s.name })));
+    return onboardingSubjects.filter(
+      (s) => !isExcludedOnboardingSubject(s) && !have.has(favouriteKey({ code: s.code, name: s.name })),
+    );
   }, [favourites, onboardingSubjects]);
 
   const setsInFavourites = useMemo(() => {
-    if (favourites.length === 0) {
+    if (favouritesVisible.length === 0) {
       return sets;
     }
-    return sets.filter((item) => favourites.some((f) => practiceSetSubjectMatchesFavourite(item.subject, f)));
-  }, [sets, favourites]);
+    return sets.filter((item) =>
+      favouritesVisible.some((f) => practiceSetSubjectMatchesFavourite(item.subject, f)),
+    );
+  }, [sets, favouritesVisible]);
 
-  const favouriteTiles = useMemo(() => withBiologyTile(favourites), [favourites]);
+  const favouriteTiles = useMemo(
+    () => withAdditionalMathTile(withMathTile(withChemistryTile(withBiologyTile(favouritesVisible)))),
+    [favouritesVisible],
+  );
 
   /** Selected subject for filtering: tap a tile to show only that subject; default first favourite when any exist. */
   const selectedSubjectKey = useMemo(() => {
@@ -289,19 +358,51 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
     setAiModalOpen(true);
   };
 
+  const backendSubjectForModal = useMemo(
+    () => backendSubjectFromPracticeCode(selectedSubjectKey),
+    [selectedSubjectKey],
+  );
+
+  useEffect(() => {
+    if (!aiModalOpen) return;
+    const subject = backendSubjectForModal;
+    if (!subject) {
+      setRagChapters([]);
+      return;
+    }
+    let cancelled = false;
+    setRagChaptersLoading(true);
+    void ragApiGet<{ chapters?: string[] }>("/rag/textbook-chapters", {
+      subject,
+      form: metaFormLevel,
+    })
+      .then((res) => {
+        if (!cancelled) setRagChapters(Array.isArray(res.chapters) ? res.chapters : []);
+      })
+      .catch(() => {
+        if (!cancelled) setRagChapters([]);
+      })
+      .finally(() => {
+        if (!cancelled) setRagChaptersLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [aiModalOpen, backendSubjectForModal, metaFormLevel]);
+
   const questionTypeLabel = aiQuestionType === "mcq" ? "MCQ (A-D)" : "subjective";
 
-  const buildAiQuery = (subject: string): string => {
+  const buildAiQuery = (subject: string, chapterDbLabel: string): string => {
     const topicPart =
-      aiMode === "topic" && aiTopic.trim().length > 0
-        ? ` focused on topic: ${aiTopic.trim()}`
+      aiMode === "topic" && chapterDbLabel.length > 0
+        ? ` aligned to this syllabus chapter heading (stay within its scope): ${chapterDbLabel}`
         : "";
 
     if (aiQuestionType === "mcq") {
       return `Generate ${aiQuestionCount} SPM ${subject} ${questionTypeLabel} questions${topicPart}. Include A-D options, Jawapan and Penjelasan.`;
     }
 
-    return `Generate ${aiQuestionCount} SPM ${subject} subjective questions${topicPart}. For each question, include a concise model answer and marking points.`;
+    return `Generate ${aiQuestionCount} short SPM ${subject} subjective questions${topicPart}. Each question must be worth 1 to 3 marks only, and the mark allocation must appear in every question stem, e.g. "(2 marks)" or "(3 marks)". Keep each stem concise so students can answer in a few sentences. For each question, include a concise model answer and marking points.`;
   };
 
   const runAiGenerate = async () => {
@@ -312,19 +413,34 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
       showComingSoonWithSound();
       return;
     }
-    if (aiMode === "topic" && aiTopic.trim().length === 0) {
-      showToast("Please enter a topic.");
+    const chapterDb =
+      aiMode === "topic" ? (aiSelectedChapter.trim() || aiTopic.trim()) : "";
+    if (aiMode === "topic" && chapterDb.length === 0) {
+      showToast(
+        ragChapters.length > 0
+          ? "Please select a chapter from the list."
+          : "No textbook chapters loaded — type a chapter phrase, or check subject/form and RAG ingest.",
+      );
       return;
     }
 
     setAiGenerating(true);
     try {
-      const result = await ragApiPost<{ answer: string; sources?: unknown }>(
+      const topicTrim = chapterDb;
+      const result = await ragApiPost<RagGenerateResponse>(
         "/rag/generate",
         {
-          query: buildAiQuery(backendSubject),
+          query: buildAiQuery(backendSubject, topicTrim),
           subject: backendSubject,
+          form: metaFormLevel,
           topK: 8,
+          createOpenEndedRubrics: aiQuestionType === "subjective",
+          ...(aiMode === "topic" && topicTrim.length > 0
+            ? {
+                chapterHint: topicTrim,
+                ...( /^(chapter|bab|unit)\s*\d+/i.test(topicTrim) ? { chapterFilter: topicTrim } : {} ),
+              }
+            : {}),
         },
       );
 
@@ -344,7 +460,26 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
         return;
       }
 
-      const parsedOpen = parseAiGeneratedOpenEnded(result.answer, "short");
+      const structuredOpen: PracticeSetQuestion[] = Array.isArray(result.openEndedQuestions)
+        ? result.openEndedQuestions.map((item, idx) => ({
+            id: typeof item?.id === "number" ? item.id : idx + 1,
+            sortOrder: typeof item?.sortOrder === "number" ? item.sortOrder : idx + 1,
+            questionText: typeof item?.questionText === "string" ? item.questionText : "",
+            questionType: typeof item?.questionType === "string" ? item.questionType : "short_answer",
+            difficulty: typeof item?.difficulty === "string" ? item.difficulty : "mixed",
+            options: [],
+            correctAnswer: "",
+            explanation: typeof item?.explanation === "string" ? item.explanation : null,
+            maxMarks: typeof item?.maxMarks === "number" ? item.maxMarks : undefined,
+            questionForGrade: typeof item?.questionForGrade === "string" ? item.questionForGrade : undefined,
+            rubricId: typeof item?.rubricId === "string" ? item.rubricId : undefined,
+            modelAnswer: typeof item?.modelAnswer === "string" ? item.modelAnswer : undefined,
+            rubricIdeas: Array.isArray(item?.rubricIdeas) ? item.rubricIdeas : undefined,
+          })).filter((item) => item.questionText.trim().length > 0)
+        : [];
+      const parsedOpen = structuredOpen.length > 0
+        ? structuredOpen
+        : parseAiGeneratedOpenEnded(result.answer, "short");
       if (parsedOpen.length === 0) {
         showToast("AI did not return parseable questions. Try again.");
         return;
@@ -580,13 +715,38 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
             onPress={(e) => e.stopPropagation()}
           >
             <Text style={styles.modalTitle}>Generate AI questions</Text>
-            <Text style={styles.modalHint}>Choose mode, question type, and how many questions.</Text>
+            <Text style={styles.modalHint}>
+              Pick Form (must match ingested textbooks), then topic-specific uses chapter titles from the database.
+            </Text>
+
+            <Text style={styles.fieldLabel}>Form (matches textbook in RAG)</Text>
+            <View style={styles.choiceRow}>
+              {(["Form 4", "Form 5"] as const).map((lvl) => (
+                <Pressable
+                  key={lvl}
+                  style={[styles.choiceChip, metaFormLevel === lvl && styles.choiceChipActive]}
+                  onPress={() => {
+                    setMetaFormLevel(lvl);
+                    setAiSelectedChapter("");
+                  }}
+                >
+                  <Text
+                    style={[styles.choiceChipText, metaFormLevel === lvl && styles.choiceChipTextActive]}
+                  >
+                    {lvl}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
 
             <Text style={styles.fieldLabel}>Mode</Text>
             <View style={styles.choiceRow}>
               <Pressable
                 style={[styles.choiceChip, aiMode === "general" && styles.choiceChipActive]}
-                onPress={() => setAiMode("general")}
+                onPress={() => {
+                  setAiMode("general");
+                  setAiSelectedChapter("");
+                }}
               >
                 <Text style={[styles.choiceChipText, aiMode === "general" && styles.choiceChipTextActive]}>
                   General
@@ -594,7 +754,10 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
               </Pressable>
               <Pressable
                 style={[styles.choiceChip, aiMode === "topic" && styles.choiceChipActive]}
-                onPress={() => setAiMode("topic")}
+                onPress={() => {
+                  setAiMode("topic");
+                  setAiSelectedChapter("");
+                }}
               >
                 <Text style={[styles.choiceChipText, aiMode === "topic" && styles.choiceChipTextActive]}>
                   Topic-specific
@@ -604,11 +767,52 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
 
             {aiMode === "topic" ? (
               <>
-                <Text style={styles.fieldLabel}>Topic</Text>
+                <Text style={styles.fieldLabel}>Syllabus topic (from your textbook DB)</Text>
+                {ragChaptersLoading ? (
+                  <ActivityIndicator style={{ marginVertical: 12 }} color={BRAND} />
+                ) : ragChapters.length > 0 ? (
+                  <ScrollView
+                    style={styles.topicChapterScroll}
+                    nestedScrollEnabled
+                    keyboardShouldPersistTaps="handled"
+                  >
+                    {ragChapters.map((ch) => {
+                      const active = aiSelectedChapter === ch;
+                      return (
+                        <Pressable
+                          key={ch}
+                          style={[styles.topicChapterRow, active && styles.topicChapterRowActive]}
+                          onPress={() => {
+                            setAiSelectedChapter(ch);
+                            setAiTopic("");
+                          }}
+                        >
+                          <Text
+                            style={[styles.topicChapterRowText, active && styles.topicChapterRowTextActive]}
+                            numberOfLines={3}
+                          >
+                            {ch}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </ScrollView>
+                ) : (
+                  <Text style={styles.modalHint}>
+                    No chapter headings found for this subject and form. Ingest a textbook or pick another
+                    form. You can still type a phrase below as a soft retrieval hint.
+                  </Text>
+                )}
+                <Text style={styles.fieldLabel}>
+                  {ragChapters.length > 0 ? "Or type a custom chapter hint" : "Chapter hint (typed)"}
+                </Text>
                 <TextInput
                   value={aiTopic}
-                  onChangeText={setAiTopic}
-                  placeholder="e.g., Cell respiration"
+                  onChangeText={(t) => {
+                    setAiTopic(t);
+                    if (t.trim().length > 0) setAiSelectedChapter("");
+                  }}
+                  placeholder="Only if list is empty or you need a different phrase"
                   placeholderTextColor="#94A3B8"
                   style={styles.topicInput}
                 />
@@ -944,6 +1148,32 @@ const styles = StyleSheet.create({
   },
   choiceChipTextActive: {
     color: "#FFFFFF",
+  },
+  topicChapterScroll: {
+    maxHeight: 220,
+    borderWidth: 1,
+    borderColor: "rgba(15, 23, 42, 0.12)",
+    borderRadius: 12,
+    marginBottom: 4,
+  },
+  topicChapterRow: {
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "rgba(15, 23, 42, 0.08)",
+  },
+  topicChapterRowActive: {
+    backgroundColor: BRAND_SOFT,
+  },
+  topicChapterRowText: {
+    fontSize: 14,
+    fontFamily: fonts.regular,
+    color: colors.text,
+    lineHeight: 20,
+  },
+  topicChapterRowTextActive: {
+    fontFamily: fonts.semiBold,
+    color: colors.text,
   },
   topicInput: {
     borderWidth: 1,

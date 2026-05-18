@@ -1,6 +1,12 @@
-import type { GradeSubmissionInput, MarkBreakdownItem, StudentIdea } from "./types";
-import { cosineSimilarity, embedTexts } from "./embeddingsService";
-import { getOrCreateRubric } from "./rubricService";
+import type { AcceptedConceptBundle, GradeSubmissionInput, MarkBreakdownItem, StudentIdea } from "./types";
+import { buildGradingContextFromChunks } from "./retrievalService";
+import { formatSpmStudentFriendlyRulesBlock } from "./spmStudentLanguage";
+import { finalizeRubricIdeas, getOrCreateRubric, getRubricById } from "./rubricService";
+import { fixMissingIdeasAgainstStudentAnswer } from "./gradingFairnessMatch";
+import { mapAnalysisToRubricQuestionType } from "./questionAnalysisService";
+import { matchStudentIdeasToRubric } from "./rubricMatchingService";
+import { buildPostScoreFeedback, resolveGradingModelLabel } from "./gradingFeedbackService";
+import { qwenGradingJson } from "./qwenGradingClient";
 
 type QuestionType =
   | "state"
@@ -18,7 +24,7 @@ type QuestionType =
   | "graph_reading"
   | "general";
 
-type PipelineResult = {
+export type PipelineResult = {
   score: number;
   feedback: string;
   modelAnswer?: string;
@@ -28,6 +34,12 @@ type PipelineResult = {
   strengths: string[];
   improvements: string[];
   model: string;
+  studentIdeasDetected: string[];
+  rubricIdeas: string[];
+  acceptedConcepts: AcceptedConceptBundle[];
+  contradictionCheckPassed: boolean;
+  /** True when v2 used merged/audited context supplied by gradeService (not independent retrieval). */
+  usedAuditedContext?: boolean;
 };
 
 function isDiagramLabelQuestion(cleaned: string): boolean {
@@ -69,13 +81,16 @@ function isGraphReadingQuestion(cleaned: string): boolean {
 }
 
 function detectQuestionType(question: string): QuestionType {
-  const cleaned = question
+  let cleaned = question
     .toLowerCase()
     .replace(/^\s*(?:\([a-z0-9]+\)|\d+\s*[.)])\s*/i, "")
     .trim();
+  cleaned = cleaned.replace(/^(en|bm)\s*:\s*/i, "").trim();
 
   if (isDiagramLabelQuestion(cleaned)) return "diagram_label";
   if (isGraphReadingQuestion(cleaned)) return "graph_reading";
+
+  if (/\bwhich\s+(type|kind|sort)\s+of\b/.test(cleaned)) return "identify";
 
   const startsWith = (word: string): boolean =>
     cleaned.startsWith(`${word} `) || cleaned.startsWith(`${word}:`) || cleaned === word;
@@ -126,85 +141,24 @@ function detectAnswerLanguage(text: string): "english" | "malay" | "mixed" {
   return "mixed";
 }
 
-function resolveQwenConfig(): { apiKey: string; baseUrl: string; model: string } {
-  const apiKey = process.env["QWEN_GRADING_API_KEY"]?.trim() || process.env["QWEN_OCR_API_KEY"]?.trim();
-  const baseUrl =
-    process.env["QWEN_GRADING_BASE_URL"]?.trim().replace(/\/+$/, "") ||
-    process.env["QWEN_OCR_BASE_URL"]?.trim().replace(/\/+$/, "");
-  const model = process.env["QWEN_GRADING_MODEL"]?.trim() || "qwen-plus";
-  if (!apiKey || !baseUrl) throw new Error("Qwen grading is not configured.");
-  return { apiKey, baseUrl, model };
-}
-
-function messageContentToString(content: unknown): string {
-  if (typeof content === "string") return content;
-  if (Array.isArray(content)) {
-    return content
-      .map((item) =>
-        item && typeof item === "object" && "text" in item && typeof (item as { text?: unknown }).text === "string"
-          ? ((item as { text: string }).text ?? "")
-          : "",
-      )
-      .filter(Boolean)
-      .join("\n");
-  }
-  return "";
-}
-
-function extractJson(text: string): string {
-  const trimmed = text.trim();
-  if (trimmed.startsWith("{") && trimmed.endsWith("}")) return trimmed;
-  const start = trimmed.indexOf("{");
-  const end = trimmed.lastIndexOf("}");
-  if (start >= 0 && end > start) return trimmed.slice(start, end + 1);
-  return trimmed;
-}
-
-async function qwenJson(system: string, user: string): Promise<any> {
-  const config = resolveQwenConfig();
-  const response = await fetch(`${config.baseUrl}/chat/completions`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${config.apiKey}`,
-    },
-    body: JSON.stringify({
-      model: config.model,
-      temperature: 0.1,
-      messages: [
-        { role: "system", content: system },
-        { role: "user", content: user },
-      ],
-    }),
-  });
-  const rawText = await response.text();
-  let parsedResponse: any;
-  try {
-    parsedResponse = JSON.parse(rawText);
-  } catch {
-    throw new Error(rawText.slice(0, 500) || `Qwen call failed (${response.status})`);
-  }
-  if (!response.ok) {
-    throw new Error(parsedResponse?.error?.message || parsedResponse?.message || `Qwen call failed (${response.status})`);
-  }
-  const content = parsedResponse?.choices?.[0]?.message?.content;
-  const raw = messageContentToString(content).trim();
-  const jsonText = extractJson(raw);
-  return JSON.parse(jsonText);
-}
-
-async function extractStudentIdeas(question: string, studentAnswer: string, language: string): Promise<StudentIdea[]> {
+export async function extractStudentIdeas(question: string, studentAnswer: string, language: string): Promise<StudentIdea[]> {
   const system = [
     "Extract concise ideas from a student's answer.",
+    formatSpmStudentFriendlyRulesBlock(),
+    "Each \"idea\" string must stay short and in plain school-level wording (same language style as the student's answer).",
     "Return JSON only: { \"ideas\": [{ \"idea\": string, \"hasCausalLink\": boolean }] }.",
   ].join("\n");
   const user = [
     `Question: ${question}`,
     `Student answer: ${studentAnswer}`,
     `Language: ${language}`,
-    "Split into short markable ideas. hasCausalLink=true if this idea explicitly contains explanation linkage (because/so that/to/kerana/supaya/untuk etc).",
+    "Split into short markable ideas — include every distinct correct point, even if phrased briefly, informally, or with weak grammar.",
+    "When one sentence contains several scientific points, split them into separate ideas (e.g. nutrients + energy + germination + pollen tube).",
+    "Example: 'PPE is used to protect us from chemicals and accidents in the laboratory' → separate ideas: PPE protects the user; PPE protects from chemicals; PPE protects from accidents in the laboratory.",
+    "Example: 'Because the body needs more oxygen after running' → idea: the body needs more oxygen after running / after exercise.",
+    "hasCausalLink=true if this idea explicitly contains explanation linkage (because/so that/to/kerana/supaya/untuk etc).",
   ].join("\n\n");
-  const parsed = await qwenJson(system, user);
+  const parsed = await qwenGradingJson(system, user);
   const ideas = Array.isArray(parsed?.ideas) ? parsed.ideas : [];
   return ideas
     .map((row: any) => ({
@@ -219,32 +173,6 @@ async function extractStudentIdeas(question: string, studentAnswer: string, lang
     .filter((row: StudentIdea) => row.idea.length > 0);
 }
 
-async function verifyMatchWithLlm(params: {
-  question: string;
-  rubricIdea: string;
-  studentIdea: string;
-  similarity: number;
-}): Promise<{ awarded: boolean; reason: string }> {
-  const system = "Verify if a student idea matches a rubric idea at SPM level. Return JSON only.";
-  const user = [
-    "Return JSON: { \"awarded\": boolean, \"reason\": string }",
-    `Question: ${params.question}`,
-    `Rubric idea: ${params.rubricIdea}`,
-    `Student idea candidate: ${params.studentIdea}`,
-    `Embedding similarity: ${params.similarity.toFixed(3)}`,
-    "Award true only if meaning matches clearly.",
-  ].join("\n\n");
-  const parsed = await qwenJson(system, user);
-  const awarded =
-    typeof parsed?.awarded === "boolean"
-      ? parsed.awarded
-      : typeof parsed?.awarded === "string"
-        ? /^(true|yes|1)$/i.test(parsed.awarded)
-        : false;
-  const reason = typeof parsed?.reason === "string" ? parsed.reason.trim() : "";
-  return { awarded, reason };
-}
-
 function fallbackFeedback(params: {
   score: number;
   maxScore: number;
@@ -255,23 +183,24 @@ function fallbackFeedback(params: {
   const lang = params.language === "malay" ? "malay" : "english";
   if (lang === "malay") {
     if (params.score >= params.maxScore) {
-      return `Betul. Anda sudah merangkumi poin utama: ${params.matchedIdeas.slice(0, 3).join(", ")}.`;
+      return `Bagus — betul. Anda sudah nyatakan perkara utama: ${params.matchedIdeas.slice(0, 3).join(", ")}.`;
     }
     if (params.score === 0) {
-      return `Jawapan kurang tepat. Poin utama yang perlu ada: ${params.missingIdeas.slice(0, 2).join("; ")}.`;
+      return `Jawapan ini kurang tepat atau terlalu kosong. Cuba sertakan: ${params.missingIdeas.slice(0, 2).join("; ")}.`;
     }
-    return `Sebahagian betul: ${params.matchedIdeas.slice(0, 2).join(", ")}. Perlu tambah: ${params.missingIdeas.slice(0, 2).join("; ")}.`;
+    return `Ada bahagian betul: ${params.matchedIdeas.slice(0, 2).join(", ")}. Tambah atau betulkan: ${params.missingIdeas.slice(0, 2).join("; ")}.`;
   }
   if (params.score >= params.maxScore) {
-    return `Correct. You covered the key points: ${params.matchedIdeas.slice(0, 3).join(", ")}.`;
+    return `Well done — correct. You gave the main points: ${params.matchedIdeas.slice(0, 3).join(", ")}.`;
   }
   if (params.score === 0) {
-    return `Your answer is too vague/incorrect. Key idea(s) needed: ${params.missingIdeas.slice(0, 2).join("; ")}.`;
+    return `This answer is not clear enough or is wrong. Try to include: ${params.missingIdeas.slice(0, 2).join("; ")}.`;
   }
-  return `Partly correct: ${params.matchedIdeas.slice(0, 2).join(", ")}. You still need: ${params.missingIdeas.slice(0, 2).join("; ")}.`;
+  return `Partly right: ${params.matchedIdeas.slice(0, 2).join(", ")}. You still need to add or fix: ${params.missingIdeas.slice(0, 2).join("; ")}.`;
 }
 
-function sanitizeFeedback(feedback: string): string {
+function sanitizeFeedback(feedback: string, opts?: { maxSentences?: number }): string {
+  const maxSentences = typeof opts?.maxSentences === "number" && opts.maxSentences > 0 ? opts.maxSentences : 3;
   const cleaned = (feedback || "")
     .replace(/\[Low-?context-?warning\][^\n]*/gi, "")
     .replace(/\[TEXTBOOK CONTEXT\]/gi, "")
@@ -283,7 +212,21 @@ function sanitizeFeedback(feedback: string): string {
     .split(/(?<=[.!?])\s+/)
     .map((s) => s.trim())
     .filter(Boolean);
-  return sentences.slice(0, 3).join(" ").trim();
+  if (sentences.length <= maxSentences) return cleaned;
+  return sentences.slice(0, maxSentences).join(" ").trim();
+}
+
+/** Same heuristic as gradeService: practice MCQ "Ask AI" with letter-only answer. */
+function looksLikeMcqWithLetterOptions(question: string): boolean {
+  const q = question.replace(/\r/g, "\n");
+  return /\bA\s*[\.)]\s*\S/m.test(q) && /\bB\s*[\.)]\s*\S/m.test(q);
+}
+
+function isMcqLetterOnlyExplanationRequest(question: string, studentAnswer: string, maxScore: number): boolean {
+  if (maxScore !== 1) return false;
+  const letter = studentAnswer.trim().toUpperCase();
+  if (!/^[A-D]$/.test(letter)) return false;
+  return looksLikeMcqWithLetterOptions(question);
 }
 
 function buildModelAnswer(awardedRows: MarkBreakdownItem[], missingRows: MarkBreakdownItem[]): string {
@@ -299,77 +242,93 @@ export async function gradeWithPipelineV2(input: GradeSubmissionInput): Promise<
   const subject = input.subject?.trim() || "General";
   const form = input.form?.trim() || "General";
 
-  const questionType = detectQuestionType(question);
+  const mergedFromParent = (input.mergedGradingContextText ?? "").trim();
+  const auditedChunks = input.auditedRetrievedChunks ?? [];
+  const auditedExcerpt =
+    mergedFromParent.length > 0
+      ? mergedFromParent
+      : auditedChunks.length > 0
+        ? buildGradingContextFromChunks(question, auditedChunks).mergedContextText
+        : "";
+  const usedAuditedContext = auditedExcerpt.length > 0;
+
+  const rubricQuestionType = (input.questionAnalysis
+    ? mapAnalysisToRubricQuestionType(input.questionAnalysis)
+    : detectQuestionType(question)) as QuestionType;
   const language = detectAnswerLanguage(studentAnswer);
-  const rubric = await getOrCreateRubric({
-    question,
-    subject,
-    form,
-    maxScore,
-    questionType,
-  });
-
-  const studentIdeas = await extractStudentIdeas(question, studentAnswer, language);
-  const rubricIdeaTexts = rubric.ideas.map((idea) => idea.idea);
-  const studentIdeaTexts = studentIdeas.map((idea) => idea.idea);
-  const vectors = await embedTexts([...rubricIdeaTexts, ...studentIdeaTexts]);
-  const rubricVectors = vectors.slice(0, rubricIdeaTexts.length);
-  const studentVectors = vectors.slice(rubricIdeaTexts.length);
-
-  const markBreakdown: MarkBreakdownItem[] = [];
-  for (let i = 0; i < rubric.ideas.length; i += 1) {
-    const rubricIdea = rubric.ideas[i];
-    const rv = rubricVectors[i];
-    let bestIdx = -1;
-    let bestScore = -1;
-    for (let j = 0; j < studentVectors.length; j += 1) {
-      const sim = cosineSimilarity(rv, studentVectors[j]);
-      if (sim > bestScore) {
-        bestScore = sim;
-        bestIdx = j;
-      }
-    }
-
-    let awarded = false;
-    let reason = "";
-    let evidence = "";
-    if (bestIdx >= 0) {
-      evidence = studentIdeas[bestIdx]?.idea ?? "";
-      if (bestScore >= 0.83) {
-        awarded = true;
-        reason = `High embedding similarity (${bestScore.toFixed(2)}) with student idea: ${evidence}`;
-      } else if (bestScore <= 0.45) {
-        awarded = false;
-        reason = `Low embedding similarity (${bestScore.toFixed(2)}).`;
-      } else {
-        const verified = await verifyMatchWithLlm({
-          question,
-          rubricIdea: rubricIdea.idea,
-          studentIdea: evidence,
-          similarity: bestScore,
-        });
-        awarded = verified.awarded;
-        reason = verified.reason || `LLM verifier: ${awarded ? "match" : "no match"} at similarity ${bestScore.toFixed(2)}.`;
-      }
-    } else {
-      reason = "No student idea extracted that can be compared.";
-    }
-
-    markBreakdown.push({
-      idea: rubricIdea.idea,
-      awarded,
-      marks: rubricIdea.marks,
-      reason,
-    });
+  const savedRubricId = input.rubricId?.trim();
+  const rubric = savedRubricId
+    ? await getRubricById(savedRubricId)
+    : await getOrCreateRubric({
+        question,
+        subject,
+        form,
+        maxScore,
+        questionType: rubricQuestionType,
+        skipNearestCachedRubric: true,
+        useAuditContextOnly: true,
+        auditedContextExcerpt: auditedExcerpt.length > 0 ? auditedExcerpt : null,
+        questionAnalysis: input.questionAnalysis ?? null,
+      });
+  if (!rubric) {
+    throw new Error(`Saved rubric not found: ${savedRubricId}`);
+  }
+  if (savedRubricId && rubric.maxScore !== maxScore) {
+    throw new Error(`Saved rubric maxScore ${rubric.maxScore} does not match request maxScore ${maxScore}.`);
+  }
+  if (savedRubricId && rubric.subject.trim().toLowerCase() !== subject.trim().toLowerCase()) {
+    throw new Error(`Saved rubric subject ${rubric.subject} does not match request subject ${subject}.`);
   }
 
-  const rawScore = markBreakdown.reduce((sum, row) => sum + (row.awarded ? row.marks : 0), 0);
-  const score = Math.max(0, Math.min(maxScore, Math.round(rawScore)));
-  const matchedRows = markBreakdown.filter((row) => row.awarded);
-  const missingRows = markBreakdown.filter((row) => !row.awarded);
-  const matchedIdeas = matchedRows.map((row) => row.idea);
-  const missingIdeas = missingRows.map((row) => row.idea);
-  const feedback = sanitizeFeedback(
+  const studentIdeas = await extractStudentIdeas(question, studentAnswer, language);
+  const rubricIdeasForMarking = finalizeRubricIdeas(
+    rubric.ideas,
+    question,
+    rubric.maxScore,
+    input.questionAnalysis ?? null,
+    subject,
+  );
+  const rubricIdeaTexts = rubricIdeasForMarking.map((idea) => idea.idea);
+  const studentIdeaTexts = studentIdeas.map((idea) => idea.idea);
+
+  const matchResult = await matchStudentIdeasToRubric({
+    question,
+    studentAnswer,
+    studentIdeas,
+    rubricIdeas: rubricIdeasForMarking,
+    questionAnalysis: input.questionAnalysis,
+    subject,
+    maxScore,
+  });
+
+  let markBreakdown = matchResult.markBreakdown;
+  let score = matchResult.totalScore;
+  let matchedRows = markBreakdown.filter((row) => row.awarded);
+  let missingRows = markBreakdown.filter((row) => !row.awarded);
+  let matchedIdeas = matchedRows.map((row) => row.idea);
+  let missingIdeas = missingRows.map((row) => row.idea);
+
+  const reconciled = fixMissingIdeasAgainstStudentAnswer({
+    studentAnswer,
+    missingIdeas,
+    matchedIdeas,
+    markBreakdown,
+    score,
+    maxScore,
+  });
+  missingIdeas = reconciled.missingIdeas;
+  matchedIdeas = reconciled.matchedIdeas;
+  score = reconciled.score;
+  const markBreakdownOut = reconciled.markBreakdown ?? markBreakdown;
+  const matchedRows2 = markBreakdownOut.filter((row) => row.awarded);
+  const missingRows2 = markBreakdownOut.filter((row) => !row.awarded);
+
+  const acceptedConcepts: AcceptedConceptBundle[] = rubric.ideas.map((idea) => ({
+    rubricIdea: idea.idea,
+    acceptedPhrases: [...(idea.keywords ?? []), ...(idea.acceptedConcepts ?? [])],
+  }));
+
+  let feedback = sanitizeFeedback(
     fallbackFeedback({
       score,
       maxScore,
@@ -377,17 +336,46 @@ export async function gradeWithPipelineV2(input: GradeSubmissionInput): Promise<
       missingIdeas,
       language,
     }),
+    {
+      maxSentences: isMcqLetterOnlyExplanationRequest(question, studentAnswer, maxScore) ? 8 : undefined,
+    },
   );
+
+  try {
+    const post = await buildPostScoreFeedback({
+      question,
+      studentAnswer,
+      score,
+      maxScore,
+      matchedIdeas,
+      missingIdeas,
+      questionAnalysis: input.questionAnalysis,
+      subject,
+      language,
+    });
+    if (post.trim().length > 0) {
+      feedback = sanitizeFeedback(post, {
+        maxSentences: isMcqLetterOnlyExplanationRequest(question, studentAnswer, maxScore) ? 8 : undefined,
+      });
+    }
+  } catch {
+    /* keep fallback */
+  }
 
   return {
     score,
     feedback,
-    modelAnswer: buildModelAnswer(matchedRows, missingRows),
+    modelAnswer: buildModelAnswer(matchedRows2, missingRows2),
     matchedIdeas,
     missingIdeas,
-    markBreakdown,
+    markBreakdown: markBreakdownOut,
     strengths: matchedIdeas,
     improvements: score === maxScore ? [] : missingIdeas,
-    model: `${resolveQwenConfig().model}-pipeline-v2`,
+    model: resolveGradingModelLabel("-pipeline-v2"),
+    studentIdeasDetected: studentIdeaTexts,
+    rubricIdeas: rubricIdeaTexts,
+    acceptedConcepts,
+    contradictionCheckPassed: reconciled.contradictionCheckPassed,
+    usedAuditedContext,
   };
 }

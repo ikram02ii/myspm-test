@@ -96,6 +96,11 @@ npm run ingest:past-paper -- \\
   --overlap 200
 
 Optional: --chapter, --sourceName, --paperId (stable id; auto if omitted)
+
+Full SPM syllabus in one paper (e.g. KMJ, trial K2 covering F4+F5): use
+  --form "Form 4 & 5"
+or --form "SPM"
+so retrieval matches both Form 4 and Form 5 sessions. Form-only trials can use "Form 4" or "Form 5".
 `);
 }
 

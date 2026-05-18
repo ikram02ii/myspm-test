@@ -8,20 +8,21 @@ const CODE_TO_PRACTICE_SUBJECT: Record<string, string> = {
   MATH: "Mathematics",
   MATHEMATICS: "Mathematics",
   math: "Mathematics",
-  ADDMATH: "Mathematics",
-  ADDMATHS: "Mathematics",
-  SCIENCE: "Science",
-  science: "Science",
-  BIO: "Science",
-  BIOLOGY: "Science",
-  PHYSICS: "Science",
-  CHEMISTRY: "Science",
-  SEJARAH: "History",
-  history: "History",
+  ADDMATH: "Additional Math",
+  ADDMATHS: "Additional Math",
+  addmath: "Additional Math",
+  BIO: "Biology",
+  BIOLOGY: "Biology",
+  biology: "Biology",
+  PHYSICS: "Physics",
+  physics: "Physics",
+  CHEMISTRY: "Chemistry",
+  chemistry: "Chemistry",
 };
 
 export function subjectTileShortLabel(code: string): string {
   const t = code.trim().toUpperCase();
+  if (t === "ADDMATH" || t === "ADDMATHS") return "+MATH";
   return t.length <= 4 ? t : t.slice(0, 4);
 }
 
@@ -32,6 +33,17 @@ export function practiceSetSubjectMatchesFavourite(
   const set = practiceSetSubject.trim().toLowerCase();
   const name = favourite.name.trim().toLowerCase();
   if (set === name) return true;
+
+  const codeUpper = favourite.code.trim().toUpperCase();
+  if (codeUpper === "ADDMATH" || codeUpper === "ADDMATHS") {
+    const addMathHints = [
+      "additional mathematics",
+      "additional math",
+      "add maths",
+      "add math",
+    ];
+    if (addMathHints.some((h) => set.includes(h))) return true;
+  }
 
   const mapped = CODE_TO_PRACTICE_SUBJECT[favourite.code] ?? CODE_TO_PRACTICE_SUBJECT[favourite.code.toUpperCase()];
   if (mapped && mapped.trim().toLowerCase() === set) return true;

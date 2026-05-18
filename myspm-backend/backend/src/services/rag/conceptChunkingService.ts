@@ -1,4 +1,6 @@
 type ConceptChunk = {
+  /** e.g. "Chapter 1: Cell Structure" or "Bab 3: Enzim" — from textbook headings in the excerpt */
+  chapter: string;
   conceptTitle: string;
   conceptSummary: string;
   chunkText: string;
@@ -78,7 +80,10 @@ export async function llmConceptChunkSection(params: {
   sourceName: string;
   pageStart?: number;
   pageEnd?: number;
+  /** Optional ingest hint; weaker than sectionChapterFromPdf */
   chapter?: string;
+  /** Chapter inferred from PDF page stream (Bab 2, Chapter 3, …) for this page span */
+  sectionChapterFromPdf?: string;
 }): Promise<ConceptChunk[]> {
   const config = resolveQwenConfig();
   const url = `${config.baseUrl}/chat/completions`;
@@ -90,17 +95,23 @@ export async function llmConceptChunkSection(params: {
   const maxTokens = Number.isFinite(Number(maxTokensRaw)) ? Math.max(64, Math.floor(Number(maxTokensRaw))) : 1200;
 
   const systemPrompt =
-    "You split textbook text into concept-aware chunks for retrieval. Return JSON only with shape { chunks: [{ conceptTitle, conceptSummary, chunkText, keywords, isComplete }] }.";
+    "You split textbook text into concept-aware chunks for retrieval. Return JSON only with shape { chunks: [{ chapter, conceptTitle, conceptSummary, chunkText, keywords, isComplete }] }.";
+
+  const pdfChapter =
+    params.sectionChapterFromPdf?.trim() || params.chapter?.trim() || "";
 
   const userPrompt = [
     `Subject: ${params.subject}`,
     `Form: ${params.form}`,
     `Source: ${params.sourceName}`,
-    params.chapter ? `Chapter: ${params.chapter}` : null,
+    pdfChapter
+      ? `Chapter for this excerpt (from PDF page order — use this exact chapter value for every chunk unless the excerpt clearly contains a newer heading below): ${pdfChapter}`
+      : null,
     params.pageStart ? `Page start: ${params.pageStart}` : null,
     params.pageEnd ? `Page end: ${params.pageEnd}` : null,
     "Rules:",
     "- Do not invent information not present in the text.",
+    "- chapter: REQUIRED for every chunk. If a PDF chapter line is given above, set chapter to that value for all chunks in this excerpt unless the excerpt text itself shows a different chapter heading (e.g. excerpt starts mid-document at a new BAB). Otherwise copy headings from the text (e.g. \"BAB 3\", \"Chapter 2: Cell Structure\"). Prefer the book's language (Bab N for BM books, Chapter N for English). If the excerpt only shows a section number (e.g. \"1.2\") with a title, use \"Section 1.2: <title>\". If nothing applies, use \"\".",
     "- Create one chunk per concept where possible.",
     "- If concept is mentioned but not explained, set isComplete=false or skip it.",
     "- chunkText target length is 400-1200 chars where possible.",

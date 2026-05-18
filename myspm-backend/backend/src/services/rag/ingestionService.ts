@@ -30,8 +30,98 @@ export type IngestPastPaperPdfInput = IngestPdfInput & {
   paperLabel?: string | null;
 };
 
-type DeterministicSection = { text: string; pageStart?: number; pageEnd?: number };
+type DeterministicSection = {
+  text: string;
+  pageStart?: number;
+  pageEnd?: number;
+  /** Chapter label from scanning PDF headings by page (Bab 2, Chapter 3, …) */
+  sectionChapter?: string;
+};
+
+const CHAPTER_TITLE_MAX = 180;
+
+/**
+ * Parse one line that looks like a main chapter/unit heading (BM or EN textbooks).
+ */
+function parseChapterHeadingLine(line: string): string | null {
+  const t = line.replace(/\s+/g, " ").trim();
+  if (t.length < 4 || t.length > 220) return null;
+
+  const bahagian = t.match(/^bahagian\s+([A-Z])\s*[.:]?\s*(.+)?$/i);
+  if (bahagian && t.length <= 100) {
+    const letter = bahagian[1].toUpperCase();
+    const rest = bahagian[2]?.trim();
+    return rest ? `Bahagian ${letter}: ${rest.slice(0, CHAPTER_TITLE_MAX)}` : `Bahagian ${letter}`;
+  }
+
+  const babCap = t.match(/^BAB\s+(\d{1,2})\b\s*(.*)$/i);
+  if (babCap) {
+    const num = babCap[1];
+    const rest = babCap[2].trim().replace(/^[\u2013\u2014:.\-–—]+\s*/, "");
+    return rest ? `Bab ${num}: ${rest.slice(0, CHAPTER_TITLE_MAX)}` : `Bab ${num}`;
+  }
+
+  const chapCap = t.match(/^CHAPTER\s+(\d{1,2})\b\s*(.*)$/i);
+  if (chapCap) {
+    const num = chapCap[1];
+    const rest = chapCap[2].trim().replace(/^[\u2013\u2014:.\-–—]+\s*/, "");
+    return rest ? `Chapter ${num}: ${rest.slice(0, CHAPTER_TITLE_MAX)}` : `Chapter ${num}`;
+  }
+
+  const m = t.match(
+    /^(bab|chapter|ch\.?|unit|topik|topic)\s*[#.:]?\s*(\d{1,2})\b(?:\s*[:\u2013\u2014.\-–—]\s*)?(.+)?$/i,
+  );
+  if (m) {
+    const kind = m[1].toLowerCase().replace(/\.$/, "");
+    const num = m[2];
+    let rest = (m[3] ?? "").trim().replace(/^\d{1,2}\s*$/, "");
+    if (kind === "bab") return rest ? `Bab ${num}: ${rest.slice(0, CHAPTER_TITLE_MAX)}` : `Bab ${num}`;
+    if (kind === "chapter" || kind === "ch") {
+      return rest ? `Chapter ${num}: ${rest.slice(0, CHAPTER_TITLE_MAX)}` : `Chapter ${num}`;
+    }
+    if (kind === "unit") return rest ? `Unit ${num}: ${rest.slice(0, CHAPTER_TITLE_MAX)}` : `Unit ${num}`;
+    return rest ? `Topik ${num}: ${rest.slice(0, CHAPTER_TITLE_MAX)}` : `Topik ${num}`;
+  }
+
+  return null;
+}
+
+/** After each page, the chapter label in effect (from headings scanned in order). */
+function buildChapterByPageMap(pages: PdfPage[], documentHint?: string): Map<number, string> {
+  const sorted = [...pages].sort((a, b) => a.pageNumber - b.pageNumber);
+  let active = documentHint?.trim() ?? "";
+  const map = new Map<number, string>();
+
+  for (const page of sorted) {
+    if (!page.text) {
+      map.set(page.pageNumber, active);
+      continue;
+    }
+    const lines = page.text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+    for (const line of lines) {
+      const parsed = parseChapterHeadingLine(line);
+      if (parsed) active = parsed;
+    }
+    map.set(page.pageNumber, active);
+  }
+  return map;
+}
+
+function chapterForPageSpan(
+  chapterByPage: Map<number, string>,
+  pageStart?: number,
+  pageEnd?: number,
+): string | undefined {
+  if (pageStart == null || pageEnd == null) return undefined;
+  const a = Math.min(pageStart, pageEnd);
+  const b = Math.max(pageStart, pageEnd);
+  const mid = Math.floor((a + b) / 2);
+  const c = chapterByPage.get(mid) ?? chapterByPage.get(b) ?? chapterByPage.get(a);
+  return c && c.trim().length > 0 ? c.trim() : undefined;
+}
 type PersistableChunk = {
+  /** Inferred or LLM-provided chapter label for topic-specific retrieval */
+  chapter?: string;
   conceptTitle?: string;
   conceptSummary?: string;
   chunkText: string;
@@ -40,6 +130,22 @@ type PersistableChunk = {
   pageStart?: number;
   pageEnd?: number;
 };
+
+/** Best-effort chapter heading from the start of a section excerpt when the LLM omits `chapter`. */
+function inferChapterFromSectionText(sectionText: string): string | undefined {
+  const lines = sectionText
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+  for (const line of lines.slice(0, 24)) {
+    const parsed = parseChapterHeadingLine(line);
+    if (parsed) return parsed;
+    if (/^\d+\.\d+\s+\S/.test(line) && line.length <= 160) {
+      return line.slice(0, 220);
+    }
+  }
+  return undefined;
+}
 
 function isEnvTrue(value: string | undefined): boolean {
   const normalized = (value ?? "").trim().toLowerCase();
@@ -100,8 +206,12 @@ export function splitIntoChunks(text: string, chunkSize = 1200, overlap = 200): 
   return chunks;
 }
 
-function splitSectionsDeterministically(pages: PdfPage[]): DeterministicSection[] {
+function splitSectionsDeterministically(
+  pages: PdfPage[],
+  documentChapterHint?: string,
+): DeterministicSection[] {
   const sections: DeterministicSection[] = [];
+  const chapterByPage = buildChapterByPageMap(pages, documentChapterHint);
   const maxCharsPerWindowRaw = process.env["RAG_SECTION_MAX_CHARS_PER_WINDOW"];
   const maxCharsPerWindow = Number.isFinite(Number(maxCharsPerWindowRaw)) ? Number(maxCharsPerWindowRaw) : 3400;
   let currentText = "";
@@ -110,7 +220,10 @@ function splitSectionsDeterministically(pages: PdfPage[]): DeterministicSection[
 
   const flush = () => {
     const cleaned = cleanText(currentText);
-    if (cleaned.length > 0) sections.push({ text: cleaned, pageStart: startPage, pageEnd: endPage });
+    if (cleaned.length > 0) {
+      const sectionChapter = chapterForPageSpan(chapterByPage, startPage, endPage);
+      sections.push({ text: cleaned, pageStart: startPage, pageEnd: endPage, sectionChapter });
+    }
     currentText = "";
     startPage = undefined;
     endPage = undefined;
@@ -149,8 +262,20 @@ function qualityFilter(chunks: PersistableChunk[]): PersistableChunk[] {
   return result;
 }
 
-function toPersistableFromFallback(section: DeterministicSection, chunks: string[], subject: string): PersistableChunk[] {
+function toPersistableFromFallback(
+  section: DeterministicSection,
+  chunks: string[],
+  subject: string,
+  documentChapterHint?: string,
+): PersistableChunk[] {
+  const inferred = inferChapterFromSectionText(section.text);
+  const chapter =
+    section.sectionChapter?.trim() ||
+    documentChapterHint?.trim() ||
+    inferred ||
+    undefined;
   return chunks.map((chunkText, index) => ({
+    chapter,
     conceptTitle: `Concept ${index + 1}`,
     conceptSummary: `${subject} concept extracted via deterministic fallback chunking.`,
     chunkText,
@@ -173,13 +298,20 @@ async function chunkSectionWithLlmOrFallback(params: {
   requireLlmChunking?: boolean;
   llmRetries?: number;
 }): Promise<{ chunks: PersistableChunk[]; disableLlmForRemainingSections: boolean }> {
+  const resolvedSectionChapter =
+    params.section.sectionChapter?.trim() ||
+    inferChapterFromSectionText(params.section.text) ||
+    params.chapter?.trim() ||
+    undefined;
   if (!params.allowLlmChunking) {
     if (params.requireLlmChunking) {
       throw new Error("[rag][ingest] LLM chunking is required but disabled for this section.");
     }
     const deterministic = splitIntoChunks(params.section.text, params.chunkSize, params.overlap);
     return {
-      chunks: qualityFilter(toPersistableFromFallback(params.section, deterministic, params.subject)),
+      chunks: qualityFilter(
+        toPersistableFromFallback(params.section, deterministic, params.subject, params.chapter),
+      ),
       disableLlmForRemainingSections: false,
     };
   }
@@ -196,6 +328,7 @@ async function chunkSectionWithLlmOrFallback(params: {
           form: params.form,
           sourceName: params.sourceName,
           chapter: params.chapter,
+          sectionChapterFromPdf: params.section.sectionChapter,
           pageStart: params.section.pageStart,
           pageEnd: params.section.pageEnd,
         });
@@ -216,15 +349,22 @@ async function chunkSectionWithLlmOrFallback(params: {
     if (!llmChunks) throw lastError instanceof Error ? lastError : new Error(String(lastError));
     return {
       chunks: qualityFilter(
-        llmChunks.map((chunk) => ({
-          conceptTitle: chunk.conceptTitle,
-          conceptSummary: chunk.conceptSummary,
-          chunkText: chunk.chunkText,
-          keywords: chunk.keywords,
-          isComplete: chunk.isComplete,
-          pageStart: params.section.pageStart,
-          pageEnd: params.section.pageEnd,
-        })),
+        llmChunks.map((chunk) => {
+          const ch =
+            chunk.chapter?.trim() ||
+            resolvedSectionChapter ||
+            undefined;
+          return {
+            chapter: ch,
+            conceptTitle: chunk.conceptTitle,
+            conceptSummary: chunk.conceptSummary,
+            chunkText: chunk.chunkText,
+            keywords: chunk.keywords,
+            isComplete: chunk.isComplete,
+            pageStart: params.section.pageStart,
+            pageEnd: params.section.pageEnd,
+          };
+        }),
       ),
       disableLlmForRemainingSections: false,
     };
@@ -244,7 +384,9 @@ async function chunkSectionWithLlmOrFallback(params: {
     });
     const deterministic = splitIntoChunks(params.section.text, params.chunkSize, params.overlap);
     return {
-      chunks: qualityFilter(toPersistableFromFallback(params.section, deterministic, params.subject)),
+      chunks: qualityFilter(
+        toPersistableFromFallback(params.section, deterministic, params.subject, params.chapter),
+      ),
       disableLlmForRemainingSections: shouldDisableLlmForRun,
     };
   }
@@ -296,7 +438,7 @@ export async function buildFinalChunksFromPdf(input: IngestPdfInput): Promise<Pe
     afterNoiseRemoval: pages.length,
   });
 
-  const sections = splitSectionsDeterministically(pages);
+  const sections = splitSectionsDeterministically(pages, chapter);
   console.info("[rag][ingest] split into sections", { sectionCount: sections.length });
   if (sections.length === 0) throw new Error("Extracted PDF text is empty");
 
@@ -390,7 +532,7 @@ export async function ingestPdfToRagDb(input: IngestPdfInput): Promise<{ textboo
       conceptTitle: chunk.conceptTitle,
       conceptSummary: chunk.conceptSummary,
       keywords: chunk.keywords.join(", "),
-      chapter: chapter ?? null,
+      chapter: chunk.chapter?.trim() || null,
       sourceName,
       pageStart: chunk.pageStart ?? null,
       pageEnd: chunk.pageEnd ?? null,

@@ -6,6 +6,7 @@ import {
   ragTextbookChunksTable,
   ragTextbooksTable,
 } from "../../lib/ragDb";
+import { pastPaperFormWhereClause } from "./pastPaperFormFilter";
 import type {
   GradingContextPayload,
   RetrieveChunksInput,
@@ -79,6 +80,11 @@ const CONCEPT_PROFILES: Array<{ matcher: (query: string) => boolean; profile: Co
 function getConceptProfile(query: string): ConceptProfile | null {
   const matched = CONCEPT_PROFILES.find((entry) => entry.matcher(query));
   return matched?.profile ?? null;
+}
+
+/** Strip SQL LIKE wildcards from user-provided chapter filters */
+function sanitizeChapterFilter(raw: string): string {
+  return raw.replace(/[%_\\]/g, " ").replace(/\s+/g, " ").trim();
 }
 
 function countPhraseHits(text: string, phrases: string[]): number {
@@ -240,6 +246,14 @@ export async function retrieveChunks(input: RetrieveChunksInput): Promise<Retrie
 
   const subject = input.subject?.trim();
   const form = input.form?.trim();
+  const chapterFilterRaw = input.chapterFilter?.trim();
+  const chapterFilterSanitized =
+    chapterFilterRaw && chapterFilterRaw.length >= 2 ? sanitizeChapterFilter(chapterFilterRaw) : "";
+  const chapterFilterClause =
+    chapterFilterSanitized.length >= 2
+      ? ilike(ragTextbookChunksTable.chapter, `%${chapterFilterSanitized}%`)
+      : undefined;
+  const chapterHintLower = input.chapterHint?.trim().toLowerCase() ?? "";
   const requestedTopK = typeof input.topK === "number" ? input.topK : Number.NaN;
   const topK = Number.isFinite(requestedTopK) ? Math.max(1, Math.min(20, Math.floor(requestedTopK))) : 6;
   const candidateLimit = Math.min(500, Math.max(100, topK * 20));
@@ -265,7 +279,8 @@ export async function retrieveChunks(input: RetrieveChunksInput): Promise<Retrie
   const filters = [
     subject ? eq(ragTextbooksTable.subject, subject) : undefined,
     form ? eq(ragTextbooksTable.form, form) : undefined,
-  ].filter((v): v is ReturnType<typeof eq> => v != null);
+    chapterFilterClause,
+  ].filter((v): v is NonNullable<typeof v> => v != null);
   const whereClause = filters.length > 0 ? and(...filters, tokenClause) : tokenClause;
 
   const tokenPredicatesPaper = searchTokens.flatMap((token) => [
@@ -275,10 +290,11 @@ export async function retrieveChunks(input: RetrieveChunksInput): Promise<Retrie
     ilike(ragPastPaperChunksTable.keywords, `%${token}%`),
   ]);
   const tokenClausePaper = or(...tokenPredicatesPaper);
+  const paperFormClause = pastPaperFormWhereClause(form);
   const paperFilters = [
     subject ? eq(ragPastPapersTable.subject, subject) : undefined,
-    form ? eq(ragPastPapersTable.form, form) : undefined,
-  ].filter((v): v is ReturnType<typeof eq> => v != null);
+    paperFormClause,
+  ].filter((v): v is NonNullable<typeof v> => v != null);
   const whereClausePaper =
     tokenClausePaper == null
       ? undefined
@@ -378,8 +394,10 @@ export async function retrieveChunks(input: RetrieveChunksInput): Promise<Retrie
     };
   };
 
-  const textbookScored: RetrievedChunk[] = qualityFilteredRows.map((row) =>
-    mapToScored(
+  const textbookScored: RetrievedChunk[] = qualityFilteredRows.map((row) => {
+    const chapterBoost =
+      chapterHintLower.length >= 2 && row.chapter?.toLowerCase().includes(chapterHintLower) ? 0.45 : 0;
+    return mapToScored(
       "textbook",
       row.textbookId,
       row.subject,
@@ -394,9 +412,9 @@ export async function retrieveChunks(input: RetrieveChunksInput): Promise<Retrie
       row.chapter ?? undefined,
       row.pageStart ?? undefined,
       row.pageEnd ?? undefined,
-      0,
-    ),
-  );
+      chapterBoost,
+    );
+  });
 
   const paperScored: RetrievedChunk[] = qualityFilteredPaperRows.map((row) =>
     mapToScored(

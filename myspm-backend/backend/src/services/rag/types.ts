@@ -28,6 +28,10 @@ export type RetrieveChunksInput = {
   subject?: string;
   form?: string;
   topK?: number;
+  /** Case-insensitive substring match on `rag_textbook_chunks.chapter` (strict filter). */
+  chapterFilter?: string;
+  /** Soft boost in ranking when chunk.chapter contains this substring (topic / chapter headings). */
+  chapterHint?: string;
 };
 
 export type RetrievedChunkSource = "textbook" | "past_paper";
@@ -89,6 +93,46 @@ export type ContextAuditResult = {
   reason: string;
 };
 
+/** Command word detected from the stem (deterministic). */
+export type QuestionCommandWord =
+  | "state"
+  | "name"
+  | "list"
+  | "give"
+  | "define"
+  | "explain"
+  | "describe"
+  | "compare"
+  | "calculate"
+  | "identify"
+  | "discuss"
+  | "general";
+
+/** High-level demand shape for scoring policy. */
+export type QuestionAnalysisQuestionType =
+  | "fixed_answer"
+  | "open_ended_example"
+  | "function_purpose"
+  | "structure_description"
+  | "cause_effect"
+  | "compare_contrast"
+  | "calculation"
+  | "mcq"
+  | "general";
+
+export type QuestionAnalysis = {
+  subject: string;
+  topicKeywords: string[];
+  commandWord: QuestionCommandWord;
+  questionType: QuestionAnalysisQuestionType;
+  isOpenEnded: boolean;
+  isCompoundQuestion: boolean;
+  expectedAnswerStyle: string;
+  suggestedMaxScore: number;
+  requiresCausalLink: boolean;
+  requiresFeatureFunction: boolean;
+};
+
 export type GradeSubmissionInput = {
   question: string;
   studentAnswer: string;
@@ -96,21 +140,55 @@ export type GradeSubmissionInput = {
   form?: string;
   topK?: number;
   maxScore?: number;
+  /** Optional saved rubric from AI Practice generation; marking should reuse this exact rubric. */
+  rubricId?: string;
   rubricVersion?: string;
   diagramImageUrl?: string;
   diagramImageBase64?: string;
   submissionId?: string;
   userId?: number | null;
+  /** Pipeline v2: merged audited context (same as v1 grader). Do not retrieve independently in the pipeline. */
+  mergedGradingContextText?: string;
+  /** Pipeline v2: chunks that passed context audit (may be empty). */
+  auditedRetrievedChunks?: RetrievedChunk[];
+  pipelineContextAudit?: ContextAuditResult;
+  gradingLowConfidence?: boolean;
+  gradingContextWarning?: string | null;
+  /** Pre-computed analysis from gradeService (optional). */
+  questionAnalysis?: QuestionAnalysis;
 };
+
+export type MatchMethod =
+  | "exact"
+  | "synonym"
+  | "acceptedConcept"
+  | "embedding"
+  | "llmVerifier"
+  | "openEndedCategory";
 
 export type MarkBreakdownItem = {
   idea: string;
   awarded: boolean;
   marks: number;
   reason: string;
+  /** How this row was matched (pipeline v2). */
+  matchMethod?: MatchMethod;
+  /** Stable id from rubric JSON when present. */
+  rubricId?: string;
 };
 
-export type RubricIdeaKind = "feature" | "function" | "point" | "step" | "comparison";
+export type RubricIdeaKind =
+  | "feature"
+  | "function"
+  | "point"
+  | "step"
+  | "comparison"
+  | "knowledge"
+  | "explanation"
+  | "example"
+  | "use"
+  | "calculation"
+  | "definition";
 
 export type RubricIdea = {
   id: string;
@@ -121,6 +199,12 @@ export type RubricIdea = {
   linkedToId?: string;
   /** Optional keyword hints used by the embedding/LLM matcher. */
   keywords?: string[];
+  /** When true, accept scientifically valid alternatives (not a single textbook phrase). */
+  openEnded?: boolean;
+  /** Extra accepted paraphrases beyond keywords (SPM-level). */
+  acceptedConcepts?: string[];
+  /** If true, withhold explanation marks unless a causal link appears in the student idea. */
+  requiresCausalLink?: boolean;
 };
 
 export type RubricSource = "past_paper" | "llm_generated" | "manual";
@@ -223,6 +307,11 @@ export type DiagramContext = {
   confidence: number;
 };
 
+export type AcceptedConceptBundle = {
+  rubricIdea: string;
+  acceptedPhrases: string[];
+};
+
 export type GradeSubmissionResult = {
   submissionId: string;
   score: number;
@@ -235,6 +324,15 @@ export type GradeSubmissionResult = {
   markBreakdown?: MarkBreakdownItem[];
   strengths?: string[];
   improvements?: string[];
+  /** Client-requested cap before stem-based adjustment (optional). */
+  originalMaxScore?: number;
+  /** Same as `maxScore` when adjusted downward from the client value. */
+  adjustedMaxScore?: number;
+  maxScoreAdjustedReason?: string;
+  studentIdeasDetected?: string[];
+  rubricIdeas?: string[];
+  acceptedConcepts?: AcceptedConceptBundle[];
+  contradictionCheckPassed?: boolean;
   /** Human-readable rendering of the diagram context (kept for back-compat). */
   diagramContext?: string;
   /** Structured JSON form of the diagram context (preferred for new consumers). */
@@ -246,4 +344,10 @@ export type GradeSubmissionResult = {
   warning?: string;
   contextAudit: ContextAuditResult;
   context: GradingContextPayload;
+  topicConsistencyPassed?: boolean;
+  topicConsistencyWarning?: string;
+  /** Structured pre-grade analysis (command word, demand type, suggested marks). */
+  questionAnalysis?: QuestionAnalysis;
+  /** Qualitative retrieval confidence for clients (e.g. high | medium | low). */
+  retrievalConfidence?: "high" | "medium" | "low";
 };

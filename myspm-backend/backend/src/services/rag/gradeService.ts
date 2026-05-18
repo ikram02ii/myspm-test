@@ -2,7 +2,8 @@ import { randomUUID } from "node:crypto";
 import { ragDb, ragGradingResultsTable } from "../../lib/ragDb";
 import { auditRetrievedContext } from "./contextAuditService";
 import { buildGradingContextFromChunks, retrieveChunks } from "./retrievalService";
-import { gradeWithPipelineV2 } from "./gradePipelineService";
+import { gradeWithPipelineV2, extractStudentIdeas } from "./gradePipelineService";
+import { analyzeQuestion } from "./questionAnalysisService";
 import type {
   DiagramArrow,
   DiagramAxes,
@@ -14,9 +15,14 @@ import type {
   GradeSubmissionInput,
   GradeSubmissionResult,
   MarkBreakdownItem,
+  QuestionAnalysis,
   RetrievedChunk,
 } from "./types";
-import { getSubjectSpecificRubric } from "./rubrics/subjectRubric";
+import { formatSpmStudentFriendlyRulesBlock } from "./spmStudentLanguage";
+import { inferAdjustedMaxScore } from "./gradingMaxScoreInference";
+import { fixMissingIdeasAgainstStudentAnswer } from "./gradingFairnessMatch";
+import { validateTopicConsistency } from "./gradingTopicConsistency";
+import { applyScoreConsistencyRules, computeRetrievalConfidence } from "./validationService";
 
 type QwenGradeShape = {
   score: number;
@@ -131,7 +137,7 @@ function enforceFeatureFunctionRule(parsed: QwenGradeShape, context: {
   const newImprovements = newBreakdown.filter((r) => !r.awarded).map((r) => r.idea);
 
   const newFeedback = sanitizeFeedback(
-    "You named the correct features, but did not explain how each helps. Link each feature to its function (e.g., 'to reduce diffusion distance', 'to maintain a steep concentration gradient') to score full marks.",
+    "You gave the right parts, but you did not say what each part does. Add a short link for each part — for example say what it helps or why it matters (use 'because', 'so that', or 'to ...') — to get the rest of the marks.",
   );
 
   return {
@@ -182,6 +188,7 @@ function isNamingWeaknessText(text: string): boolean {
 function enforceDiagramRoleFeedbackRule(parsed: QwenGradeShape, context: {
   question: string;
   maxScore: number;
+  feedbackMaxSentences?: number;
 }): QwenGradeShape {
   if (!questionAsksRoleFunctionPurpose(context.question)) return parsed;
   if (questionExplicitlyAsksNaming(context.question)) return parsed;
@@ -216,7 +223,9 @@ function enforceDiagramRoleFeedbackRule(parsed: QwenGradeShape, context: {
     if (!keep) mutated = true;
     return keep;
   });
-  const cleanedFeedback = sanitizeFeedback(cleanedFeedbackSentences.join(" ").trim());
+  const cleanedFeedback = sanitizeFeedback(cleanedFeedbackSentences.join(" ").trim(), {
+    maxSentences: context.feedbackMaxSentences,
+  });
 
   if (!mutated) return parsed;
 
@@ -240,8 +249,9 @@ function enforceDiagramRoleFeedbackRule(parsed: QwenGradeShape, context: {
   };
 }
 
-function sanitizeFeedback(raw: string): string {
+function sanitizeFeedback(raw: string, opts?: { maxSentences?: number }): string {
   if (!raw) return "";
+  const maxSentences = typeof opts?.maxSentences === "number" && opts.maxSentences > 0 ? opts.maxSentences : 3;
   let cleaned = raw;
   for (const pattern of INTERNAL_LABEL_PATTERNS) {
     cleaned = cleaned.replace(pattern, "");
@@ -254,8 +264,8 @@ function sanitizeFeedback(raw: string): string {
     .split(/(?<=[.!?])\s+/)
     .map((sentence) => sentence.trim())
     .filter(Boolean);
-  if (sentences.length <= 3) return cleaned;
-  return sentences.slice(0, 3).join(" ").trim();
+  if (sentences.length <= maxSentences) return cleaned;
+  return sentences.slice(0, maxSentences).join(" ").trim();
 }
 
 function filterChunksByAudit(chunks: RetrievedChunk[], relevantChunkIds: string[]): RetrievedChunk[] {
@@ -319,7 +329,11 @@ function sanitizeMarkBreakdown(value: unknown, maxScore: number): MarkBreakdownI
   return items.length > 0 ? items : undefined;
 }
 
-function parseGradeResponse(raw: string, maxScore: number): QwenGradeShape {
+function parseGradeResponse(
+  raw: string,
+  maxScore: number,
+  opts?: { feedbackMaxSentences?: number },
+): QwenGradeShape {
   const jsonText = extractJson(raw);
   let parsed: unknown;
   try {
@@ -348,7 +362,9 @@ function parseGradeResponse(raw: string, maxScore: number): QwenGradeShape {
     typeof obj.feedback === "string" && obj.feedback.trim().length > 0
       ? obj.feedback.trim()
       : "No feedback returned by model.";
-  const feedback = sanitizeFeedback(rawFeedback);
+  const feedback = sanitizeFeedback(rawFeedback, {
+    maxSentences: opts?.feedbackMaxSentences,
+  });
 
   const modelAnswer =
     typeof obj.modelAnswer === "string" && obj.modelAnswer.trim().length > 0
@@ -470,13 +486,15 @@ function detectAnswerLanguage(text: string): AnswerLanguage {
 }
 
 function buildLanguageDirective(language: AnswerLanguage): string {
+  const level =
+    "Use simple, student-friendly wording for SPM Form 4/5: short sentences, common school words, no advanced jargon.";
   if (language === "malay") {
-    return "OUTPUT LANGUAGE = BAHASA MELAYU. Write feedback, strengths, improvements ENTIRELY in Bahasa Melayu. Standard scientific terms (e.g., 'enzyme') may be kept. Do NOT use full English sentences.";
+    return `OUTPUT LANGUAGE = BAHASA MELAYU. ${level} Write feedback, strengths, improvements ENTIRELY in Bahasa Melayu. Standard scientific terms (e.g., 'enzyme') may be kept. Do NOT use full English sentences.`;
   }
   if (language === "mixed") {
-    return "OUTPUT LANGUAGE = ENGLISH (student wrote mixed language; default to English). Do NOT switch into full Bahasa Melayu sentences.";
+    return `OUTPUT LANGUAGE = ENGLISH (student wrote mixed language; default to English). ${level} Do NOT switch into full Bahasa Melayu sentences.`;
   }
-  return "OUTPUT LANGUAGE = ENGLISH. Write feedback, strengths, improvements ENTIRELY in English. Do NOT use full Bahasa Melayu sentences.";
+  return `OUTPUT LANGUAGE = ENGLISH. ${level} Write feedback, strengths, improvements ENTIRELY in English. Do NOT use full Bahasa Melayu sentences.`;
 }
 
 function isDiagramLabelQuestion(cleaned: string): boolean {
@@ -529,15 +547,20 @@ function isGraphReadingQuestion(cleaned: string): boolean {
 }
 
 function detectQuestionType(question: string): QuestionType {
-  const cleaned = question
+  let cleaned = question
     .toLowerCase()
     .replace(/^\s*(?:\([a-z0-9]+\)|\d+\s*[.)])\s*/i, "")
     .trim();
+  // Bilingual stems from generators, e.g. "EN: Which ..." / "BM: Namakan ..."
+  cleaned = cleaned.replace(/^(en|bm)\s*:\s*/i, "").trim();
 
   // Diagram/graph checks run BEFORE the generic startsWith chain so questions
   // like "Name the part labelled P" route to diagram_label rather than name.
   if (isDiagramLabelQuestion(cleaned)) return "diagram_label";
   if (isGraphReadingQuestion(cleaned)) return "graph_reading";
+
+  // "Which type/kind/sort of ..." asks for a named choice; stem may already state the role.
+  if (/\bwhich\s+(type|kind|sort)\s+of\b/.test(cleaned)) return "identify";
 
   const startsWith = (word: string): boolean =>
     cleaned.startsWith(`${word} `) ||
@@ -581,6 +604,16 @@ function detectQuestionType(question: string): QuestionType {
   return "general";
 }
 
+/** When true, post-process may split merged feature+function rows; LLM rules use the same flag. */
+function requiresFeatureFunction(question: string, questionType: QuestionType): boolean {
+  const q = (question || "").toLowerCase().replace(/^(en|bm)\s*:\s*/i, "").trim();
+  if (questionType === "explain" || questionType === "discuss") return true;
+  if (questionType === "describe") {
+    return /\b(adapted|adaptation|function|role|effect|importance|how|why|advantage|helps|enable|allows)\b/i.test(q);
+  }
+  return false;
+}
+
 function buildQuestionTypeRules(type: QuestionType): string {
   const header = `Question-type rule (detected: ${type}):`;
   switch (type) {
@@ -592,6 +625,7 @@ function buildQuestionTypeRules(type: QuestionType): string {
         header,
         "- Short confirmation only — 1 short sentence.",
         "- Do NOT explain, justify, or add 'because' / 'kerana'.",
+        "- If the stem already states facts (e.g. what a cell does), that text is GIVEN information — do NOT withhold marks because the student did not repeat it; grade only the name/term they must supply.",
         "- If the student is correct: confirm briefly (e.g., 'Correct — fox and owl are valid secondary consumers.').",
         "- If items are missing: list ONLY the missing items briefly, no elaboration.",
         "- If wrong: give the correct term/items in one short line, nothing more.",
@@ -673,6 +707,8 @@ function buildQuestionTypeRules(type: QuestionType): string {
     default:
       return [
         header,
+        "- If one correct short factual answer (name, term, value, or single result) satisfies the question, prefer ONE markBreakdown row with marks = maxScore when fully correct.",
+        "- Never split the stem into artificial extra marks (e.g. 'named the cell' vs 'repeated what the question already said') unless the question explicitly asks for multiple separate points (e.g. 'State TWO...', 'List three...').",
         "- Match feedback depth to question complexity.",
         "- Short factual questions get short confirmation; reasoning questions get short cause/effect.",
       ].join("\n");
@@ -1030,6 +1066,7 @@ function buildDiagramSystemPromptForSubject(subject?: string): string {
     "- For circuits: list components in `keyValues` (e.g. R1, V, I) with units.",
     "- If you are unsure, lower the per-label or overall `confidence` and add a note to `ambiguities` — DO NOT guess.",
     "- If the visual is irrelevant to the question, return `{ \"diagramType\": \"other\", \"summary\": \"No relevant diagram context.\", \"labels\": [], \"observations\": [], \"confidence\": 0.1 }`.",
+    "- In `summary`, `observations`, and `ambiguities`, use short plain language Form 4/5 students can read (no university-style phrasing).",
   ];
 
   const normalized = (subject || "").trim().toLowerCase();
@@ -1162,6 +1199,31 @@ async function generateDiagramContextWithQwen(params: {
   throw new Error(lastError || "Qwen diagram context failed for all candidate vision models.");
 }
 
+/** Practice app: MCQ "Ask AI" sends only A–D and maxScore 1 — steer feedback to compare wrong vs correct options. */
+function looksLikeMcqWithLetterOptions(question: string): boolean {
+  const q = question.replace(/\r/g, "\n");
+  return /\bA\s*[\.)]\s*\S/m.test(q) && /\bB\s*[\.)]\s*\S/m.test(q);
+}
+
+function isMcqLetterOnlyExplanationRequest(question: string, studentAnswer: string, maxScore: number): boolean {
+  if (maxScore !== 1) return false;
+  const letter = studentAnswer.trim().toUpperCase();
+  if (!/^[A-D]$/.test(letter)) return false;
+  return looksLikeMcqWithLetterOptions(question);
+}
+
+/** Generic SPM hints for legacy (v1) single-shot LLM grading only. */
+function legacyGradingRubricHints(subject?: string): string[] {
+  return [
+    `Subject context: ${subject?.trim() || "General"}`,
+    "- Prioritize syllabus accuracy at SPM Form 4/5 level.",
+    "- Reward correct reasoning and paraphrases (BM/EN) when meaning is correct.",
+    "- Award marks point-by-point; do not require exact textbook wording.",
+    "- For visuals (diagram/graph/table), require evidence from the named source when the stem is context-bound.",
+    "- Penalize only clear errors; feedback should be concise and student-friendly.",
+  ];
+}
+
 async function gradeWithQwen(params: {
   question: string;
   studentAnswer: string;
@@ -1171,6 +1233,7 @@ async function gradeWithQwen(params: {
   maxScore: number;
   rubricVersion: string;
   warning: string | null;
+  questionAnalysis?: QuestionAnalysis | null;
 }): Promise<{ parsed: QwenGradeShape; model: string }> {
   const config = resolveQwenConfig();
   const url = `${config.baseUrl}/chat/completions`;
@@ -1183,9 +1246,11 @@ async function gradeWithQwen(params: {
   const languageDirective = buildLanguageDirective(answerLanguage);
   const answerStyle = detectAnswerStyle(params.studentAnswer);
 
-  const explainExpected = questionType === "explain" || questionType === "describe" || questionType === "discuss";
+  const featureFunctionMode =
+    params.questionAnalysis?.requiresFeatureFunction ??
+    requiresFeatureFunction(params.question, questionType);
   const styleMismatch =
-    (explainExpected && answerStyle === "stating") ||
+    (featureFunctionMode && answerStyle === "stating") ||
     (questionType === "compare" && answerStyle !== "comparing" && answerStyle !== "mixed-or-unknown") ||
     (questionType === "process" && answerStyle !== "process" && answerStyle !== "explaining" && answerStyle !== "mixed-or-unknown");
 
@@ -1197,8 +1262,33 @@ async function gradeWithQwen(params: {
     ? "No retrieved context: grade carefully using general SPM-level knowledge."
     : "Both textbook and past-paper examples are available.";
 
+  const featureFunctionGradingParagraph = featureFunctionMode
+    ? [
+        "Feature + function rule (APPLIES — explain/discuss, or describe-with-adaptation/function):",
+        "- Do NOT apply feature+function mark splitting to STATE, NAME, LIST, IDENTIFY, DEFINE, CALCULATE, DIAGRAM_LABEL, GRAPH_READING, PROCESS, COMPARE, or GENERAL short-recall items.",
+        "- If the stem describes what something does but the task is only to name/identify which (e.g. 'Which type of white blood cell produces antibodies?'), the expected answer is the CORRECT NAME/TYPE only. Award full maxScore when that name is correct. Never require the student to copy stem wording as an extra mark.",
+        "- SPM Explain/Describe-with-role questions are usually marked as feature + function (or structure + role) PAIRS:",
+        "    * 1 mark for naming/stating the feature/structure.",
+        "    * 1 mark for explaining HOW it helps / what it does (the function/mechanism).",
+        "- For an N-mark Explain with K features, build markBreakdown as 2K rows: one 'feature' row + one 'function' row per feature.",
+        "- If the student only NAMED a feature (no link to its function/effect), award the feature mark ONLY. Do NOT award the function mark.",
+        "- A linking word/phrase is required for the function mark, e.g.: 'because', 'so that', 'in order to', 'to (reduce/increase/maintain/allow/...)', 'kerana', 'supaya', 'untuk', or a clear cause/effect clause.",
+        "- Example: question 'Explain how alveoli are adapted for gas exchange' (4 marks). Student writes 'thin walls and many capillaries'.",
+        "    * Award: 'thin walls' (feature) = 1m, 'many capillaries' (feature) = 1m.",
+        "    * Withhold: 'thin walls → reduces diffusion distance' (function) = 0m, 'many capillaries → maintain steep diffusion gradient' (function) = 0m.",
+        "    * Final score = 2/4. missingIdeas should list the two missing function explanations.",
+        "- Do NOT silently merge feature + function into one row to give full marks when the student only stated features.",
+      ].join("\n")
+    : [
+        "Feature + function rule (DOES NOT apply to this stem):",
+        "- Do NOT force paired feature+function rows for pure structure description (e.g. 'Describe the structure of …') unless the stem asks for adaptation, role, effect, how, or why.",
+        "- Award one mark per correct structural or requested point the question actually asks for.",
+        "- If the stem describes background but the task is only to name/identify which, the expected answer is the CORRECT NAME/TYPE only. Award full maxScore when that name is correct.",
+      ].join("\n");
+
   const systemPrompt = [
     "You are a fair, rubric-based SPM (Form 4/5) grader for Malaysian students.",
+    formatSpmStudentFriendlyRulesBlock(),
     "Return JSON ONLY (no prose, no code fences) with these fields:",
     "{",
     "  \"markBreakdown\": [{ \"idea\": string, \"awarded\": boolean, \"marks\": number, \"reason\": string }],",
@@ -1231,18 +1321,7 @@ async function gradeWithQwen(params: {
       ? "- STYLE MISMATCH FLAG = TRUE. The student's answer style does NOT match what the question type demands. Award only the marks the student actually earned at their style level. DO NOT award explanation/comparison/process marks for content the student did not actually write."
       : "- STYLE MISMATCH FLAG = FALSE.",
 
-    "Feature + function rule (Explain / Describe / Discuss questions):",
-    "- SPM Explain/Describe questions are usually marked as feature + function (or structure + role) PAIRS:",
-    "    * 1 mark for naming/stating the feature/structure.",
-    "    * 1 mark for explaining HOW it helps / what it does (the function/mechanism).",
-    "- For an N-mark Explain with K features, build markBreakdown as 2K rows: one 'feature' row + one 'function' row per feature.",
-    "- If the student only NAMED a feature (no link to its function/effect), award the feature mark ONLY. Do NOT award the function mark.",
-    "- A linking word/phrase is required for the function mark, e.g.: 'because', 'so that', 'in order to', 'to (reduce/increase/maintain/allow/...)', 'kerana', 'supaya', 'untuk', or a clear cause/effect clause.",
-    "- Example: question 'Explain how alveoli are adapted for gas exchange' (4 marks). Student writes 'thin walls and many capillaries'.",
-    "    * Award: 'thin walls' (feature) = 1m, 'many capillaries' (feature) = 1m.",
-    "    * Withhold: 'thin walls → reduces diffusion distance' (function) = 0m, 'many capillaries → maintain steep diffusion gradient' (function) = 0m.",
-    "    * Final score = 2/4. missingIdeas should list the two missing function explanations.",
-    "- Do NOT silently merge feature + function into one row to give full marks when the student only stated features.",
+    featureFunctionGradingParagraph,
 
     "Compare questions:",
     "- Build markBreakdown as paired-difference rows ('X is __ while Y is __'). Award only when both halves are present.",
@@ -1251,6 +1330,7 @@ async function gradeWithQwen(params: {
     "- Build markBreakdown as ordered steps. Award a step only if the student wrote that step (correct content AND correct relative order).",
 
     "Calibration:",
+    "- Award marks based on correct scientific meaning, not exact textbook wording.",
     "- Grade at SPM Form 4/5 level — NOT A-Level / matriculation / university.",
     "- Accept paraphrases and equivalent meaning; do not require textbook-exact wording.",
     "- Do not require advanced details SPM does not ask for (e.g., Na+/glucose symport, renal threshold, secondary active transport, ATP/ADP minutiae, enzyme kinetics formulas, biochem pathways beyond syllabus).",
@@ -1270,14 +1350,15 @@ async function gradeWithQwen(params: {
     "- If matchedIdeas covers every required idea, score = maxScore and missingIdeas = [].",
     "- Low retrieval confidence does not lower a clearly correct answer's score.",
 
-    "FEEDBACK STYLE (sounds like an SPM examiner, not a lecturer):",
+    "FEEDBACK STYLE (supportive SPM teacher — easy for students to read):",
+    "- Follow STUDENT LANGUAGE LEVEL in your system instructions for feedback, modelAnswer, strengths, improvements, and markBreakdown reasons.",
     "- Length: 1–3 short sentences. No paragraphs, no padding.",
     "- Base feedback ONLY on matchedIdeas + missingIdeas; do not introduce new ideas not in the breakdown.",
     "- Full marks: briefly confirm the matched key points; improvements MUST be [].",
     "- Partial marks: one sentence on what was correct, then state what is missing.",
     "- Zero/low marks: say it's too vague or incorrect, then give the correct key idea in one short line.",
     "- Use the student's own wording first, with the SPM term in parentheses, e.g. 'thin wall (one-cell-thick epithelium)'.",
-    "- Avoid: 'scientifically accurate', 'appropriate for SPM', 'as per the literature', 'accepted in SPM marking scheme' (unless an official scheme is provided). Prefer 'valid Biology point', 'SPM-style answer'.",
+    "- Avoid stiff examiner phrases like 'scientifically accurate', 'as per the literature', 'accepted in SPM marking scheme' (unless an official scheme is provided). Prefer plain praise or plain correction.",
     "- NEVER include 'Model answer:' inside feedback — modelAnswer is a separate field.",
     "- Never print internal labels or warning text in feedback (e.g., '[Low-context-warning]', '[TEXTBOOK CONTEXT]'); confidence is handled in metadata.",
     "- 'strengths' = brief correct points (mirror matchedIdeas); 'improvements' = brief missing/wrong points (mirror missingIdeas, or [] if full marks).",
@@ -1294,7 +1375,7 @@ async function gradeWithQwen(params: {
     `Detected student-answer language: ${answerLanguage.toUpperCase()}`,
     `Detected question type: ${questionType.toUpperCase()}`,
     `Detected student-answer style: ${answerStyle.toUpperCase()}`,
-    `Style mismatch flag: ${styleMismatch ? "TRUE (apply feature+function rule strictly)" : "FALSE"}`,
+    `Style mismatch flag: ${styleMismatch ? "TRUE (strict depth / feature-function rules apply only when enabled above)" : "FALSE"}`,
     `Subject: ${params.subject?.trim() || "General"}`,
     `Rubric version: ${params.rubricVersion}`,
     `Max score: ${params.maxScore}`,
@@ -1317,13 +1398,44 @@ async function gradeWithQwen(params: {
     .filter((line): line is string => Boolean(line))
     .join("\n\n");
 
+  const fairnessBlock = [
+    "FAIRNESS CHECK (perform mentally before you lock score, matchedIdeas, missingIdeas, and feedback):",
+    "- Match the student answer to the EXACT command of the question (what it truly asks for). If they already satisfied that demand in simple words, give full credit for it.",
+    "- Do NOT penalise for missing extra textbook detail unless the question command (e.g. Explain, Discuss, List three) clearly requires those separate points.",
+    "- Retrieved context is evidence only — never invent mark rows purely because a chunk mentions a fact the question did not ask for.",
+    "CONTRADICTION CHECK:",
+    "- missingIdeas MUST NOT contain any point that the student already wrote, including paraphrases (e.g. grow/form/develop pollen tube; reaction rate ≈ speed of reaction; provides energy ≈ gives energy).",
+    "- If unsure whether a phrase counts as the same idea, favour the student and omit it from missingIdeas.",
+  ].join("\n");
+
+  const mcqLetterExplain = isMcqLetterOnlyExplanationRequest(
+    params.question,
+    params.studentAnswer,
+    params.maxScore,
+  )
+    ? [
+        "SPECIAL CASE — SPM OBJECTIVE (MCQ): The student answer is ONLY one letter A–D.",
+        "markBreakdown: use exactly 1 row. idea: one short line naming the correct letter and the gist of that option (from the option lines). marks: 1. awarded: true iff the student's letter equals the correct letter; otherwise awarded false. score must be 0 or 1 accordingly.",
+        "FEEDBACK (override generic 1–3 sentence brevity for this case only), plain text inside the JSON string, no bullets:",
+        "  If the student's letter is WRONG: write 4–6 short sentences in simple words Form 4/5 can follow. (1) State clearly that their letter is incorrect. (2) Explain WHY that chosen option fails the stem (wrong fact, irrelevant, or misread). (3) State the CORRECT letter and quote a key phrase from that option line. (4) Explain WHY the correct option answers the question.",
+        "  If the student's letter is RIGHT: write 2–3 short simple sentences confirming correctness and why that option fits the stem.",
+        "  If the question text includes 'Jawapan:' / 'Answer:' with a letter, treat that as the keyed answer unless it clearly contradicts the stem.",
+        "modelAnswer: one line — correct letter, closing parenthesis, then a brief reason.",
+        "strengths and improvements: one short phrase each; may echo the above.",
+      ].join("\n")
+    : null;
+
   const userPrompt = [
     inputBlock,
-    ...getSubjectSpecificRubric(params.subject),
+    ...legacyGradingRubricHints(params.subject),
     gradingRules,
     questionTypeRules,
-    `FINAL CHECK: ${languageDirective} Re-read every sentence and rewrite any in the wrong language.`,
-  ].join("\n\n");
+    fairnessBlock,
+    mcqLetterExplain,
+    `FINAL CHECK: ${languageDirective} Simplify any wording that sounds too advanced for Form 4/5. Re-read every sentence and rewrite any in the wrong language.`,
+  ]
+    .filter((line): line is string => Boolean(line))
+    .join("\n\n");
 
   const payload = {
     model: config.model,
@@ -1363,17 +1475,39 @@ async function gradeWithQwen(params: {
 
   const content = parsedResponse?.choices?.[0]?.message?.content;
   const rawModelReply = messageContentToString(content).trim();
-  const parsed = parseGradeResponse(rawModelReply, params.maxScore);
+  const parsed = parseGradeResponse(rawModelReply, params.maxScore, {
+    feedbackMaxSentences: mcqLetterExplain ? 8 : undefined,
+  });
   const enforced = enforceFeatureFunctionRule(parsed, {
-    explainExpected,
+    explainExpected: featureFunctionMode,
     studentAnswer: params.studentAnswer,
     maxScore: params.maxScore,
   });
   const roleRuleEnforced = enforceDiagramRoleFeedbackRule(enforced, {
     question: params.question,
     maxScore: params.maxScore,
+    feedbackMaxSentences: mcqLetterExplain ? 8 : undefined,
   });
   return { parsed: roleRuleEnforced, model: config.model };
+}
+
+function briefIdeaFeedback(
+  score: number,
+  maxScore: number,
+  matched: string[],
+  missing: string[],
+  language: AnswerLanguage,
+): string {
+  const m = matched.filter(Boolean);
+  const miss = missing.filter(Boolean);
+  if (language === "malay") {
+    if (score >= maxScore) return `Betul (${score}/${maxScore}). Poin utama: ${m.slice(0, 4).join("; ")}.`.trim();
+    if (miss.length === 0) return `Markah ${score}/${maxScore}.`;
+    return `Markah ${score}/${maxScore}. Sudah ada: ${m.slice(0, 3).join("; ") || "(tiada)"}. Perlu tambah atau jelas: ${miss.slice(0, 3).join("; ")}.`.trim();
+  }
+  if (score >= maxScore) return `Correct (${score}/${maxScore}). Main points: ${m.slice(0, 4).join("; ")}.`.trim();
+  if (miss.length === 0) return `Score ${score}/${maxScore}.`;
+  return `Score ${score}/${maxScore}. You already gave: ${m.slice(0, 3).join("; ") || "(see your answer)"}. Still add or clarify: ${miss.slice(0, 3).join("; ")}.`.trim();
 }
 
 export async function gradeSubmission(input: GradeSubmissionInput): Promise<GradeSubmissionResult> {
@@ -1382,10 +1516,29 @@ export async function gradeSubmission(input: GradeSubmissionInput): Promise<Grad
   if (!question) throw new Error("question is required");
   if (!studentAnswer) throw new Error("studentAnswer is required");
 
+  const questionAnalysis = input.questionAnalysis ?? analyzeQuestion(question, input.subject?.trim() ?? null);
+
   const maxScoreRaw = typeof input.maxScore === "number" ? input.maxScore : Number.NaN;
-  const maxScore = Number.isFinite(maxScoreRaw) ? Math.max(1, Math.floor(maxScoreRaw)) : 10;
+  const clientMaxScore = Number.isFinite(maxScoreRaw) ? Math.max(1, Math.floor(maxScoreRaw)) : 10;
   const rubricVersion = input.rubricVersion?.trim() || "v1";
   const submissionId = input.submissionId?.trim() || `sub-${Date.now()}-${randomUUID().slice(0, 8)}`;
+
+  const savedRubricSkipInfer = typeof input.rubricId === "string" && input.rubricId.trim().length > 0;
+  const mcqLetterSkipInfer = isMcqLetterOnlyExplanationRequest(question, studentAnswer, clientMaxScore);
+  const scoreAdjustment = savedRubricSkipInfer
+    ? {
+        originalMaxScore: clientMaxScore,
+        adjustedMaxScore: clientMaxScore,
+        maxScoreAdjustedReason: "Saved rubric supplied; maxScore inference skipped.",
+      }
+    : mcqLetterSkipInfer
+    ? {
+        originalMaxScore: clientMaxScore,
+        adjustedMaxScore: clientMaxScore,
+        maxScoreAdjustedReason: "MCQ letter-only explanation; maxScore inference skipped.",
+      }
+    : inferAdjustedMaxScore(question, clientMaxScore, questionAnalysis);
+  const maxScore = scoreAdjustment.adjustedMaxScore;
 
   let diagramContextStructured: DiagramContext | undefined;
   let diagramContextWarning: string | undefined;
@@ -1435,7 +1588,7 @@ export async function gradeSubmission(input: GradeSubmissionInput): Promise<Grad
 
   const contextAudit = await auditRetrievedContext(question, retrieval.chunks);
   const filteredChunks = filterChunksByAudit(retrieval.chunks, contextAudit.relevantChunkIds);
-  const effectiveChunks = filteredChunks.length > 0 ? filteredChunks : retrieval.chunks.slice(0, 2);
+  const effectiveChunks = filteredChunks.length > 0 ? filteredChunks : [];
   const context = buildGradingContextFromChunks(question, effectiveChunks);
 
   const rawLowConfidence = !contextAudit.isSufficientContext || filteredChunks.length === 0;
@@ -1448,20 +1601,101 @@ export async function gradeSubmission(input: GradeSubmissionInput): Promise<Grad
     submissionId,
     originalCount: retrieval.chunks.length,
     filteredCount: filteredChunks.length,
+    effectiveChunkCount: effectiveChunks.length,
     relevanceScore: contextAudit.relevanceScore,
     isSufficientContext: contextAudit.isSufficientContext,
     isCoreTopic,
     lowConfidence,
+    originalMaxScore: scoreAdjustment.originalMaxScore,
+    adjustedMaxScore: maxScore,
+    maxScoreAdjustedReason: scoreAdjustment.maxScoreAdjustedReason,
   });
 
-  const usePipelineV2 = (process.env["RAG_GRADE_PIPELINE"] || "").trim().toLowerCase() === "v2";
+  const pipelineEnv = (process.env["RAG_GRADE_PIPELINE"] || "v2").trim().toLowerCase();
+  const usePipelineV2 = !["v1", "legacy", "off", "false", "0"].includes(pipelineEnv);
   if (usePipelineV2) {
     const gradedV2 = await gradeWithPipelineV2({
       ...input,
       question,
       studentAnswer,
       maxScore,
+      questionAnalysis,
+      mergedGradingContextText: context.mergedContextText,
+      auditedRetrievedChunks: effectiveChunks,
+      pipelineContextAudit: contextAudit,
+      gradingLowConfidence: lowConfidence,
+      gradingContextWarning: warning,
     });
+
+    // Pipeline v2 already reconciles marks; second pass inflated partial transport answers.
+    const v2Reconciled = {
+      missingIdeas: gradedV2.missingIdeas,
+      matchedIdeas: gradedV2.matchedIdeas,
+      markBreakdown: gradedV2.markBreakdown,
+      score: gradedV2.score,
+      contradictionCheckPassed: gradedV2.contradictionCheckPassed,
+    };
+
+    const scoreConsistency = applyScoreConsistencyRules({
+      score: v2Reconciled.score,
+      maxScore,
+      markBreakdown: v2Reconciled.markBreakdown ?? gradedV2.markBreakdown,
+      missingIdeas: v2Reconciled.missingIdeas,
+      studentAnswer,
+      questionAnalysis,
+    });
+    const finalScoreV2 = scoreConsistency.score;
+
+    const retrievalConfidence = computeRetrievalConfidence({
+      audit: contextAudit,
+      approvedChunkCount: filteredChunks.length,
+      lowConfidenceFlag: lowConfidence,
+    });
+
+    const answerLangV2 = detectAnswerLanguage(studentAnswer);
+    const mcqLetterV2 = isMcqLetterOnlyExplanationRequest(question, studentAnswer, maxScore);
+    let feedbackOut = sanitizeFeedback(gradedV2.feedback, { maxSentences: mcqLetterV2 ? 8 : undefined });
+
+    const topicV2 = validateTopicConsistency({
+      question,
+      studentAnswer,
+      feedback: feedbackOut,
+      modelAnswer: gradedV2.modelAnswer,
+      missingIdeas: v2Reconciled.missingIdeas,
+      matchedIdeas: v2Reconciled.matchedIdeas,
+      rubricIdeas: gradedV2.rubricIdeas,
+      markBreakdown: v2Reconciled.markBreakdown ?? gradedV2.markBreakdown,
+      score: finalScoreV2,
+      maxScore,
+      language: answerLangV2,
+    });
+    feedbackOut = topicV2.feedback;
+    const modelAnswerOut = topicV2.modelAnswer ?? gradedV2.modelAnswer;
+
+    if (process.env.NODE_ENV === "development") {
+      const bd: MarkBreakdownItem[] = (v2Reconciled.markBreakdown ?? gradedV2.markBreakdown ?? []) as MarkBreakdownItem[];
+      console.info("[rag][grade] v2 diagnostics", {
+        submissionId,
+        question: question.slice(0, 200),
+        commandWord: questionAnalysis.commandWord,
+        questionType: questionAnalysis.questionType,
+        originalMaxScore: scoreAdjustment.originalMaxScore,
+        adjustedMaxScore: maxScore,
+        maxScoreAdjustedReason: scoreAdjustment.maxScoreAdjustedReason,
+        retrievalChunkCount: retrieval.chunks.length,
+        auditApprovedChunkCount: filteredChunks.length,
+        effectiveChunkCount: effectiveChunks.length,
+        pipelineUsedAuditedContext: gradedV2.usedAuditedContext === true,
+        rubricPointCount: bd.length,
+        studentIdeasDetected: gradedV2.studentIdeasDetected,
+        matchedRubricIds: bd.filter((r) => r.awarded && r.rubricId).map((r) => r.rubricId),
+        missingRubricIds: bd.filter((r) => !r.awarded && r.rubricId).map((r) => r.rubricId),
+        contradictionCheckPassed: v2Reconciled.contradictionCheckPassed,
+        topicConsistencyPassed: topicV2.topicConsistencyPassed,
+        scoreAfterConsistency: finalScoreV2,
+        retrievalConfidence,
+      });
+    }
 
     await ragDb.insert(ragGradingResultsTable).values({
       submissionId,
@@ -1469,23 +1703,34 @@ export async function gradeSubmission(input: GradeSubmissionInput): Promise<Grad
       subject: input.subject?.trim() || null,
       form: input.form?.trim() || null,
       rubricVersion,
-      score: gradedV2.score,
+      score: finalScoreV2,
       maxScore,
-      feedback: gradedV2.feedback,
+      feedback: feedbackOut,
     });
 
     return {
       submissionId,
-      score: gradedV2.score,
+      score: finalScoreV2,
       maxScore,
-      feedback: gradedV2.feedback,
+      feedback: feedbackOut,
       model: gradedV2.model,
-      modelAnswer: gradedV2.modelAnswer,
-      matchedIdeas: gradedV2.matchedIdeas,
-      missingIdeas: gradedV2.missingIdeas,
-      markBreakdown: gradedV2.markBreakdown,
-      strengths: gradedV2.strengths,
-      improvements: gradedV2.improvements,
+      modelAnswer: modelAnswerOut,
+      matchedIdeas: v2Reconciled.matchedIdeas,
+      missingIdeas: v2Reconciled.missingIdeas,
+      markBreakdown: v2Reconciled.markBreakdown ?? gradedV2.markBreakdown,
+      strengths: v2Reconciled.matchedIdeas.length > 0 ? v2Reconciled.matchedIdeas : gradedV2.strengths,
+      improvements: finalScoreV2 === maxScore ? [] : v2Reconciled.missingIdeas,
+      originalMaxScore: scoreAdjustment.originalMaxScore,
+      adjustedMaxScore: maxScore,
+      maxScoreAdjustedReason: scoreAdjustment.maxScoreAdjustedReason,
+      studentIdeasDetected: gradedV2.studentIdeasDetected,
+      rubricIdeas: gradedV2.rubricIdeas,
+      acceptedConcepts: gradedV2.acceptedConcepts,
+      contradictionCheckPassed: v2Reconciled.contradictionCheckPassed,
+      topicConsistencyPassed: topicV2.topicConsistencyPassed,
+      topicConsistencyWarning: topicV2.topicConsistencyWarning,
+      questionAnalysis,
+      retrievalConfidence,
       diagramContext,
       diagramContextStructured,
       diagramContextWarning,
@@ -1507,10 +1752,89 @@ export async function gradeSubmission(input: GradeSubmissionInput): Promise<Grad
     maxScore,
     rubricVersion,
     warning,
+    questionAnalysis,
   });
 
-  const adjustedScore = graded.parsed.score;
-  const adjustedFeedback = sanitizeFeedback(graded.parsed.feedback);
+  const mcqLetterExplainMode = isMcqLetterOnlyExplanationRequest(question, studentAnswer, maxScore);
+  const answerLang = detectAnswerLanguage(studentAnswer);
+  const studentIdeasList = await extractStudentIdeas(question, studentAnswer, answerLang);
+  const studentIdeaStrings = studentIdeasList.map((i) => i.idea);
+
+  const reconciled = fixMissingIdeasAgainstStudentAnswer({
+    studentAnswer,
+    missingIdeas: graded.parsed.missingIdeas ?? [],
+    matchedIdeas: graded.parsed.matchedIdeas ?? [],
+    markBreakdown: graded.parsed.markBreakdown,
+    score: graded.parsed.score,
+    maxScore,
+  });
+
+  const scoreConsistencyV1 = applyScoreConsistencyRules({
+    score: reconciled.score,
+    maxScore,
+    markBreakdown: reconciled.markBreakdown ?? graded.parsed.markBreakdown,
+    missingIdeas: reconciled.missingIdeas,
+    studentAnswer,
+    questionAnalysis,
+  });
+  const finalScore = scoreConsistencyV1.score;
+  const finalMatched = reconciled.matchedIdeas;
+  const finalMissing = reconciled.missingIdeas;
+  const finalBreakdown = reconciled.markBreakdown ?? graded.parsed.markBreakdown;
+  const modelFeedback = sanitizeFeedback(graded.parsed.feedback, {
+    maxSentences: mcqLetterExplainMode ? 8 : undefined,
+  });
+  const finalFeedback = reconciled.contradictionCheckPassed
+    ? modelFeedback
+    : briefIdeaFeedback(finalScore, maxScore, finalMatched, finalMissing, answerLang);
+
+  const retrievalConfidenceV1 = computeRetrievalConfidence({
+    audit: contextAudit,
+    approvedChunkCount: filteredChunks.length,
+    lowConfidenceFlag: lowConfidence,
+  });
+
+  const rubricIdeaStrings = (finalBreakdown ?? []).map((r) => r.idea);
+  const acceptedConceptsV1 = (finalBreakdown ?? []).map((r) => ({
+    rubricIdea: r.idea,
+    acceptedPhrases: [] as string[],
+  }));
+
+  let feedbackV1 = finalFeedback;
+  let modelAnswerV1 = graded.parsed.modelAnswer;
+  const topicV1 = validateTopicConsistency({
+    question,
+    studentAnswer,
+    feedback: feedbackV1,
+    modelAnswer: modelAnswerV1,
+    missingIdeas: finalMissing,
+    matchedIdeas: finalMatched,
+    rubricIdeas: rubricIdeaStrings,
+    markBreakdown: finalBreakdown,
+    score: finalScore,
+    maxScore,
+    language: answerLang,
+  });
+  feedbackV1 = topicV1.feedback;
+  modelAnswerV1 = topicV1.modelAnswer ?? modelAnswerV1;
+
+  if (process.env.NODE_ENV === "development") {
+    console.info("[rag][grade] v1 diagnostics", {
+      submissionId,
+      question: question.slice(0, 200),
+      commandWord: questionAnalysis.commandWord,
+      questionType: questionAnalysis.questionType,
+      originalMaxScore: scoreAdjustment.originalMaxScore,
+      adjustedMaxScore: maxScore,
+      maxScoreAdjustedReason: scoreAdjustment.maxScoreAdjustedReason,
+      retrievalChunkCount: retrieval.chunks.length,
+      auditApprovedChunkCount: filteredChunks.length,
+      effectiveChunkCount: effectiveChunks.length,
+      contradictionCheckPassed: reconciled.contradictionCheckPassed,
+      topicConsistencyPassed: topicV1.topicConsistencyPassed,
+      retrievalConfidence: retrievalConfidenceV1,
+    });
+  }
 
   await ragDb.insert(ragGradingResultsTable).values({
     submissionId,
@@ -1518,23 +1842,34 @@ export async function gradeSubmission(input: GradeSubmissionInput): Promise<Grad
     subject: input.subject?.trim() || null,
     form: input.form?.trim() || null,
     rubricVersion,
-    score: adjustedScore,
+    score: finalScore,
     maxScore,
-    feedback: adjustedFeedback,
+    feedback: feedbackV1,
   });
 
   return {
     submissionId,
-    score: adjustedScore,
+    score: finalScore,
     maxScore,
-    feedback: adjustedFeedback,
+    feedback: feedbackV1,
     model: graded.model,
-    modelAnswer: graded.parsed.modelAnswer,
-    matchedIdeas: graded.parsed.matchedIdeas,
-    missingIdeas: graded.parsed.missingIdeas,
-    markBreakdown: graded.parsed.markBreakdown,
-    strengths: graded.parsed.strengths,
-    improvements: graded.parsed.improvements,
+    modelAnswer: modelAnswerV1,
+    matchedIdeas: finalMatched,
+    missingIdeas: finalMissing,
+    markBreakdown: finalBreakdown,
+    strengths: finalMatched.length > 0 ? finalMatched : graded.parsed.strengths,
+    improvements: finalScore === maxScore ? [] : finalMissing,
+    originalMaxScore: scoreAdjustment.originalMaxScore,
+    adjustedMaxScore: maxScore,
+    maxScoreAdjustedReason: scoreAdjustment.maxScoreAdjustedReason,
+    studentIdeasDetected: studentIdeaStrings,
+    rubricIdeas: rubricIdeaStrings,
+    acceptedConcepts: acceptedConceptsV1,
+    contradictionCheckPassed: reconciled.contradictionCheckPassed,
+    topicConsistencyPassed: topicV1.topicConsistencyPassed,
+    topicConsistencyWarning: topicV1.topicConsistencyWarning,
+    questionAnalysis,
+    retrievalConfidence: retrievalConfidenceV1,
     diagramContext,
     diagramContextStructured,
     diagramContextWarning,

@@ -23,7 +23,8 @@ export const ragTextbookChunksTable = pgTable("rag_textbook_chunks", {
   conceptTitle: varchar("concept_title", { length: 255 }),
   conceptSummary: text("concept_summary"),
   keywords: text("keywords"),
-  chapter: varchar("chapter", { length: 120 }),
+  /** e.g. "Chapter 1: Introduction to Biology" or "Bab 2: Sel" — set per chunk at ingest */
+  chapter: varchar("chapter", { length: 512 }),
   sourceName: varchar("source_name", { length: 255 }),
   pageStart: integer("page_start"),
   pageEnd: integer("page_end"),

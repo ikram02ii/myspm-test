@@ -1,0 +1,789 @@
+﻿[dotenv@17.3.1] injecting env (39) from .env -- tip: ≡ƒöÉ prevent building .env in docker: https://dotenvx.com/prebuild
+{
+  "id": 4,
+  "paperId": "kmj-chemistry-1",
+  "subject": "Chemistry",
+  "form": "Form 4 & 5",
+  "title": "KMJ Chemistry 1"
+}
+--- CHUNKS ---
+
+### chunk_index=0 chunk_id=chunk-1
+conceptTitle: Concept 1
+content:
+Kimia 2 0 Kupasan Mutu Jawapan SPM 2024
+
+Kimia 2 1 Kupasan Mutu Jawapan SPM 2024
+4541/2 KIMIA KERTAS 2
+1.0 INSTRUMEN PENTAKSIRAN
+Kod Mata Pelajaran : 4541/2
+Bentuk Ujian : Subjektif
+Markah : 100 markah
+Masa : 2 jam 30 minit
+1.1 REKA BENTUK INSTRUMEN PENTAKSIRAN
+Kertas soalan ini mengandungi tiga bahagian: Bahagian A, Bahagian B
+dan Bahagian C.
+Bahagian A : Mengandungi 8 soalan. Semua soalan wajib dijawab.
+Bahagian ini memperuntukkan 60 markah.
+Bahagian B : Mengandungi 2 soalan. Calon dikehendaki menjawab
+satu soalan.
+Bahagian ini memperuntukkan 20 markah.
+Bahagian C : Mengandungi 1 soalan sahaja.
+Calon wajib menjawab soalan ini.
+Bahagian ini memperuntukkan 20 markah.
+
+Kimia 2 2 Kupasan Mutu Jawapan SPM 2024
+2.0 PRESTASI CALON
+2.1 PRESTASI CALON BAHAGIAN A
+2.1.1 Prestasi Keseluruhan
+Pada keseluruhannya, calon memahami kehendak soalan yang
+dikemukakan tetapi tidak berupaya memberikan jawapan berdasarkan
+konsep kimia yang tepat dan mengikut kehendak soalan.
+2.1.2 PRESTASI MENGIKUT KUMPULAN CALON
+Kumpulan Prestasi Tinggi
+Calon dapat memberikan jawapan yang tepat dan ringkas. Calon dapat
+menyatakan konsep asas kimia, definisi, menamakan, melukis,
+membandingkan, menulis persamaan kimia s
+
+### chunk_index=1 chunk_id=chunk-2
+conceptTitle: Concept 2
+content:
+N CALON
+Kumpulan Prestasi Tinggi
+Calon dapat memberikan jawapan yang tepat dan ringkas. Calon dapat
+menyatakan konsep asas kimia, definisi, menamakan, melukis,
+membandingkan, menulis persamaan kimia seimbang dan boleh
+menunjukkan langkah-langkah pengiraan, membuat keputusan serta
+memberi justifikasi. Persembahan jawapan adalah sangat baik dari
+segi pengetahuan, kefahaman aplikasi, analisis dan mereka cipta.
+Jawapan yang dinyatakan adalah sistematik dan menepati kehendak
+tugasan yang diberikan di mana ianya adalah tepat, jelas dan ditulis
+secara kemas dan teratur. Kemahiran berfikir mereka adalah baik dan
+dapat menjawab soalan Kemahiran Berfikir Aras Tinggi (KBAT).
+Kumpulan Prestasi Sederhana
+Calon memberikan jawapan yang kurang tepat atau kurang lengkap
+dalam menyatakan konsep asas kimia, definisi, menamakan, melukis,
+dapat membandingkan, menulis persamaan kimia seimbang dan dapat
+menunjukkan langkah-langkah pengiraan, membuat keputusan dan
+memberi justifikasi. Jawapan yang memerlukan pengetahuan dan
+kefahaman di peringkat asas masih menepati dengan kehendak
+tugasan soalan.
+
+Kimia 2 3 Kupasan Mutu Jawapan SPM 2024
+2.2 KUPASAN JAWAPAN BAHAGIAN A
+Soalan 1 (a)
+Calon dikehendaki menyat
+
+### chunk_index=2 chunk_id=chunk-3
+conceptTitle: Concept 3
+content:
+pengetahuan dan
+kefahaman di peringkat asas masih menepati dengan kehendak
+tugasan soalan.
+
+Kimia 2 3 Kupasan Mutu Jawapan SPM 2024
+2.2 KUPASAN JAWAPAN BAHAGIAN A
+Soalan 1 (a)
+Calon dikehendaki menyatakan maksud kala.
+Contoh Jawapan Calon Prestasi Tinggi
+Calon dapat menyatakan maksud kala dengan betul.
+Contoh Jawapan Calon Prestasi Sederhana
+Calon tidak dapat menyatakan maksud kala dengan tepat kerana menggunakan
+perkataan susunan bagi menggantikan baris.
+
+Kimia 2 4 Kupasan Mutu Jawapan SPM 2024
+Soalan 1 (b)
+Calon dikehendaki memberikan satu sebab mengapa unsur tersebut ditempatkan
+dalam Kala 3.
+Contoh Jawapan Calon Prestasi Tinggi
+Calon dapat menjawab dengan tepat dan memenuhi kehendak soalan.
+Contoh Jawapan Calon Prestasi Sederhana
+Calon tidak dapat menjawab dengan tepat.
+
+Kimia 2 5 Kupasan Mutu Jawapan SPM 2024
+Soalan 1 (c) (i)
+Calon dikehendaki menyatakan satu kegunaan argon, Ar dalam kehidupan harian.
+Contoh Jawapan Calon Prestasi Tinggi
+Calon dapat menyatakan tentang satu kegunaan argon dalam kehidupan harian
+dengan tepat.
+Contoh Jawapan Calon Prestasi Sederhana
+Calon tidak dapat menjawab dengan tepat.
+
+### chunk_index=3 chunk_id=chunk-4
+conceptTitle: Concept 1
+content:
+Kimia 2 6 Kupasan Mutu Jawapan SPM 2024
+Soalan 1 (c) (ii)
+Calon dikehendaki menyatakan jenis zarah yang wujud dalam argon, Ar.
+Contoh Jawapan Calon Prestasi Tinggi
+Calon dapat memberikan jawapan dengan tepat.
+Contoh Jawapan Calon Prestasi Sederhana
+Calon tidak dapat memberikan jawapan yang tepat.
+
+Kimia 2 7 Kupasan Mutu Jawapan SPM 2024
+Soalan 1 (d)
+Calon dikehendaki menyatakan perubahan jejari atom bagi unsur dalam kala 3
+daripada natrium, Na ke argon, Ar.
+Calon dikehendaki untuk menyatakan perubahan jejari atom bagi unsur dalam Kala 3
+daripada natrium, Na ke argon, Ar.
+Contoh Jawapan Calon Prestasi Tinggi
+Calon dapat menyatakan jawapan dengan tepat dengan menyatakan perubahan jejari
+atom bagi unsur dalam Kala 3 daripada natrium, Na ke argon, Ar.
+Contoh Jawapan Calon Prestasi Sederhana
+Calon tidak dapat memberikan jawapan dengan tepat.
+
+Kimia 2 8 Kupasan Mutu Jawapan SPM 2024
+Soalan 2 (a) (i)
+Calon dikehendaki menamakan tindak balas bagi menyediakan garam tak terlarutkan
+berdasarkan Rajah 2.
+Calon dikehendaki menyatakan maksud nombor proton.
+Contoh Jawapan Calon Prestasi Tinggi
+Calon dapat menyatakan maksud nombor proton dengan tepat.
+Contoh Jawapan Calon Prestasi Sederhana
+Calon
+
+### chunk_index=4 chunk_id=chunk-5
+conceptTitle: Concept 2
+content:
+ajah 2.
+Calon dikehendaki menyatakan maksud nombor proton.
+Contoh Jawapan Calon Prestasi Tinggi
+Calon dapat menyatakan maksud nombor proton dengan tepat.
+Contoh Jawapan Calon Prestasi Sederhana
+Calon tidak dapat menyatakan maksud nombor proton dengan tepat.
+Calon tidak dapat menyatakan maksud nombor proton dengan tepat.
+
+Kimia 2 9 Kupasan Mutu Jawapan SPM 2024
+Soalan 2 (a) (ii)
+Calon dikehendaki menyatakan jenis zarah subatom di dalam nukleus suatu atom.
+Contoh Jawapan Calon Prestasi Tinggi
+Calon memahami kehendak soalan dan dapat menyatakan jenis zarah subatom di
+dalam nukleus dengan tepat.
+Contoh Jawapan Calon Prestasi Sederhana
+Calon tidak mengeja istilah neutron dengan tepat.
+Soalan 2 (b) (i)
+Calon dikehendaki menulis susunan elektron bagi atom X.
+Calon dikehendaki menulis susunan elektron bagi atom X.
+Contoh Jawapan Calon Prestasi Tinggi
+Calon memahami kehendak soalan dan dapat menulis susunan elektron atom X
+dengan betul.
+Contoh Jawapan Calon Prestasi Sederhana
+Calon memahami kehendak soalan untuk menulis susunan elektron tetapi calon
+menulis susunan elektron bagi ion X.
+
+Kimia 2 10 Kupasan Mutu Jawapan SPM 2024
+Soalan 2 (b) (ii)
+Calon dikehendaki menulis formula bagi ion X.
+
+### chunk_index=5 chunk_id=chunk-6
+conceptTitle: Concept 3
+content:
+endak soalan untuk menulis susunan elektron tetapi calon
+menulis susunan elektron bagi ion X.
+
+Kimia 2 10 Kupasan Mutu Jawapan SPM 2024
+Soalan 2 (b) (ii)
+Calon dikehendaki menulis formula bagi ion X.
+Contoh Jawapan Calon Prestasi Tinggi
+Calon memahami kehendak soalan dan dapat menulis formula untuk ion X dengan
+cas yang betul.
+Contoh Jawapan Calon Prestasi Sederhana
+Calon tidak memahami kehendak soalan kerana menulis formula bagi anion.
+
+Kimia 2 11 Kupasan Mutu Jawapan SPM 2024
+Soalan 3 (a) (i)
+Calon dikehendaki memilih dua zarah yang merupakan isotop.
+Contoh Jawapan Calon Prestasi Tinggi
+Calon memahami kehendak soalan dan dapat memilih dua zarah yang merupakan
+isotop dengan betul.
+Contoh Jawapan Calon Prestasi Sederhana
+Calon dikehendaki menamakan superkonduktor yang digunakan dalam mesin MRI.
+Contoh Jawapan Calon Prestasi Tinggi
+Calon memahami kehendak soalan dan dapat memberikan nama superkonduktor
+dengan tepat.
+Contoh Jawapan Calon Prestasi Sederhana
+Calon memahami kehendak soalan tetapi calon menggunakan nama yang tidak tepat.
+
+### chunk_index=6 chunk_id=chunk-7
+conceptTitle: Concept 1
+content:
+Kimia 2 12 Kupasan Mutu Jawapan SPM 2024
+Soalan 3 (a) (ii)
+Calon dikehendaki menyatakan fungsi superkonduktor.
+Contoh Jawapan Calon Prestasi Tinggi
+Calon memahami kehendak soalan dan menyatakan satu fungsi superkonduktor
+dengan betul.
+Contoh Jawapan Calon Prestasi Sederhana
+Calon tidak dapat menyatakan fungsi superkonduktor itu dengan betul.
+Soalan 3 (a) (iii)
+Calon dikehendaki menyatakan satu sifat superkonduktor.
+Contoh Jawapan Calon Prestasi Tinggi
+Calon memahami kehendak soalan dan dapat menyatakan satu sifat superkonduktor
+itu dengan tepat.
+Contoh Jawapan Calon Prestasi Sederhana
+Calon tidak dapat menyatakan sifat superkonduktor dengan tepat.
+
+Kimia 2 13 Kupasan Mutu Jawapan SPM 2024
+Soalan 3 (b)
+Calon dikehendaki mencadangkan satu jenis kaca yang tidak retak apabila suhu
+berubah dengan mendadak dan memberikan dua sifat kaca itu.
+Contoh Jawapan Calon Prestasi Tinggi
+Calon dapat mencadangkan jenis kaca dengan betul dan memberikan dua penjelasan
+berdasarkan sifat khusus kaca dengan tepat.
+Contoh Jawapan Calon Prestasi Sederhana
+Calon boleh mencadangkan jenis kaca dengan betul tetapi hanya memberikan satu
+sifat kaca dengan tepat.
+Calon dapat mencadangkan jenis kaca dengan betul t
+
+### chunk_index=7 chunk_id=chunk-8
+conceptTitle: Concept 2
+content:
+tepat.
+Contoh Jawapan Calon Prestasi Sederhana
+Calon boleh mencadangkan jenis kaca dengan betul tetapi hanya memberikan satu
+sifat kaca dengan tepat.
+Calon dapat mencadangkan jenis kaca dengan betul tetapi hanya memberikan satu
+sifat kaca dengan tepat.
+
+Kimia 2 14 Kupasan Mutu Jawapan SPM 2024
+Soalan 4 (a) (i)
+Calon dikehendaki menyatakan warna larutan kuprum(II) sulfat.
+Contoh Jawapan Calon Prestasi Tinggi
+Calon dapat memberikan jawapan yang tepat.
+Contoh Jawapan Calon Prestasi Sederhana
+Calon tidak dapat menyatakan warna larutan kuprum(II) sulfat dengan tepat.
+Calon memberikan warna bagi logam kuprum.
+
+Kimia 2 15 Kupasan Mutu Jawapan SPM 2024
+Soalan 4 (a) (ii)
+Calon dikehendaki menyatakan perubahan warna larutan kuprum(II) sulfat di akhir
+eksperimen dan memberikan satu sebab.
+Contoh Jawapan Calon Prestasi Tinggi
+Calon dapat menjawab dengan tepat, dengan menyatakan perubahan warna larutan
+kuprum(II) sulfat di akhir eksperimen serta memberikan satu sebab dengan tepat.
+Contoh Jawapan Calon Prestasi Sederhana
+Calon menyatakan perubahan warna larutan kuprum(II) sulfat di akhir eksperimen
+dengan betul tetapi tidak dapat menyatakan satu sebab dengan tepat.
+
+Kimia 2 16 Kupasan Mutu Jawap
+
+### chunk_index=8 chunk_id=chunk-9
+conceptTitle: Concept 3
+content:
+lon Prestasi Sederhana
+Calon menyatakan perubahan warna larutan kuprum(II) sulfat di akhir eksperimen
+dengan betul tetapi tidak dapat menyatakan satu sebab dengan tepat.
+
+Kimia 2 16 Kupasan Mutu Jawapan SPM 2024
+Soalan 4 (b)
+Calon dikehendaki menghitung haba penyesaran dalam eksperimen itu.
+Contoh Jawapan Calon Prestasi Tinggi
+Calon dapat menunjukkan langkah-langkah pengiraan dalam menghitung haba
+penyesaran dan memberikan jawapan berserta unit dengan betul.
+
+Kimia 2 17 Kupasan Mutu Jawapan SPM 2024
+Contoh Jawapan Calon Prestasi Sederhana
+Calon dapat menunjukkan langkah-langkah pengiraan dengan tepat namun menulis
+jawapan akhir, iaitu haba penyesaran dengan kurang tepat tanpa menulis tanda
+negatif (-).
+
+Kimia 2 18 Kupasan Mutu Jawapan SPM 2024
+Soalan 4 (c)
+Calon dikehendaki meramalkan perubahan suhu dalam eksperimen apabila
+magnesium diganti dengan zink.
+Contoh Jawapan Calon Prestasi Tinggi
+Calon dapat meramalkan perubahan suhu dengan tepat.
+Contoh Jawapan Calon Prestasi Sederhana
+Calon dapat meramalkan perubahan suhu dengan kurang tepat. Calon menyatakan
+jawapan secara umum.
+
+### chunk_index=9 chunk_id=chunk-10
+conceptTitle: Concept 1
+content:
+Kimia 2 19 Kupasan Mutu Jawapan SPM 2024
+Soalan 5 (a) (i)
+Calon dikehendaki menyatakan jenis ikatan dalam molekul klorin.
+Contoh Jawapan Calon Prestasi Tinggi
+Calon menyatakan jenis ikatan dalam molekul klorin dengan tepat.
+Contoh Jawapan Calon Prestasi Sederhana
+Calon tidak menyatakan jenis ikatan dengan tepat.
+
+Kimia 2 20 Kupasan Mutu Jawapan SPM 2024
+Soalan 5 (a) (ii)
+Calon dikehendaki menyatakan bagaimana ikatan kovalen dalam klorin terbentuk.
+Contoh Jawapan Calon Prestasi Tinggi
+Calon dapat menyatakan bagaimana ikatan kovalen dalam klorin terbentuk dengan
+betul
+Contoh Jawapan Calon Prestasi Sederhana
+Calon dapat menyatakan bagaimana ikatan kovalen dalam klorin terbentuk namun
+tidak dapat mengaitkannya dengan pembentukan susunan elektron yang stabil dalam
+klorin.
+
+Kimia 2 21 Kupasan Mutu Jawapan SPM 2024
+Soalan 5 (a) (iii)
+Calon dikehendaki menerangkan perbezaan takat didih antara klorin dan etanol.
+Contoh Jawapan Calon Prestasi Tinggi
+\
+Calon menerangkan perbezaan takat didih antara klorin dan etanol dengan betul.
+Contoh Jawapan Calon Prestasi Sederhana
+Calon tidak dapat membandingkan daya tarikan antara zarah bagi klorin dan etanol
+dengan tepat tetapi dapat menerangkan perbez
+
+### chunk_index=10 chunk_id=chunk-11
+conceptTitle: Concept 2
+content:
+ra klorin dan etanol dengan betul.
+Contoh Jawapan Calon Prestasi Sederhana
+Calon tidak dapat membandingkan daya tarikan antara zarah bagi klorin dan etanol
+dengan tepat tetapi dapat menerangkan perbezaan dari segi tenaga haba yang
+diperlukan bagi mengatasi daya tarikan.
+
+Kimia 2 22 Kupasan Mutu Jawapan SPM 2024
+Soalan 5 (b)
+Calon dikehendaki mencadangkan bagaimana pengguna itu dapat mengatasi
+masalah tersebut dan memberikan satu sebab.
+Contoh Jawapan Calon Prestasi Tinggi
+Calon memberi cadangan yang tepat bagi mengatasi masalah tersebut serta
+memberikan sebab yang betul berdasarkan konsep ikatan hidrogen.
+Contoh Jawapan Calon Prestasi Sederhana
+Calon memberikan cadangan yang betul tetapi menyatakan sebab yang kurang tepat.
+
+Kimia 2 23 Kupasan Mutu Jawapan SPM 2024
+Soalan 5 (c)
+Calon dikehendaki melukis ion ammonium dan melabel ikatan datif itu.
+Contoh Jawapan Calon Prestasi Tinggi
+Calon dapat melukis ion ammonium dan melabel ikatan datif dengan tepat.
+Contoh Jawapan Calon Prestasi Sederhana
+Calon melukis ion ammonium yang tidak lengkap tanpa kurungan dan cas bagi ion
+tetapi dapat melabel ikatan datif dengan tepat.
+
+Kimia 2 24 Kupasan Mutu Jawapan SPM 2024
+Soalan 6 (a)
+Calon dikehen
+
+### chunk_index=11 chunk_id=chunk-12
+conceptTitle: Concept 3
+content:
+rhana
+Calon melukis ion ammonium yang tidak lengkap tanpa kurungan dan cas bagi ion
+tetapi dapat melabel ikatan datif dengan tepat.
+
+Kimia 2 24 Kupasan Mutu Jawapan SPM 2024
+Soalan 6 (a)
+Calon dikehendaki menuliskan formula am bagi alkohol.
+Contoh Jawapan Calon Prestasi Tinggi
+Calon dapat menulis formula am bagi alkohol dengan betul.
+Contoh Jawapan Calon Prestasi Sederhana
+Calon tidak dapat menulis formula am bagi alkohol dengan tepat.
+
+Kimia 2 25 Kupasan Mutu Jawapan SPM 2024
+Soalan 6 (b)
+Calon dikehendaki menyatakan nama bagi alkohol X.
+Contoh Jawapan Calon Prestasi Tinggi
+Calon menyatakan nama bagi alkohol X dengan betul.
+Contoh Jawapan Calon Prestasi Sederhana
+Calon membuat kesilapan dalam mengenal pasti alkohol X berdasarkan maklumat
+dalam carta alir yang diberikan.
+
+Kimia 2 26 Kupasan Mutu Jawapan SPM 2024
+Soalan 6 (c)
+Calon dikehendaki menyatakan nama bagi tindak balas I dan tindak balas II.
+Contoh Jawapan Calon Prestasi Tinggi
+Calon memahami carta alir penukaran sebatian karbon dan dapat menyatakan nama
+bagi tindak balas I dan tindak balas II dengan betul.
+Contoh Jawapan Calon Prestasi Sederhana
+Calon menyatakan nama bagi tindak balas II dengan betul tetapi calon tidak dapa
+
+### chunk_index=12 chunk_id=chunk-13
+conceptTitle: Concept 4
+content:
+dan dapat menyatakan nama
+bagi tindak balas I dan tindak balas II dengan betul.
+Contoh Jawapan Calon Prestasi Sederhana
+Calon menyatakan nama bagi tindak balas II dengan betul tetapi calon tidak dapat
+mengenal pasti tindak balas I berdasarkan maklumat yang diberikan dengan betul.
+
+### chunk_index=13 chunk_id=chunk-14
+conceptTitle: Concept 1
+content:
+Kimia 2 27 Kupasan Mutu Jawapan SPM 2024
+Soalan 6 (d)
+Calon dikehendaki menyatakan nama sebatian Y yang terhasil.
+Contoh Jawapan Calon Prestasi Tinggi
+Calon menyatakan nama sebatian Y yang terhasil berdasarkan tindak balas I dalam
+carta alir dengan tepat.
+Contoh Jawapan Calon Prestasi Sederhana
+Calon memahami jenis tindak balas yang berlaku tetapi tidak menamakan sebatian Y
+dengan betul. Calon menyatakan siri homolog bagi sebatian Y.
+
+Kimia 2 28 Kupasan Mutu Jawapan SPM 2024
+Soalan 6 (e) (i)
+Calon dikehendaki menulis persamaan kimia bagi pembentukan asid etanoik dalam
+tindak balas I.
+Contoh Jawapan Calon Prestasi Tinggi
+Calon menulis persamaan kimia seimbang dengan formula kimia bahan tindak balas
+dan hasil tindak balas yang betul.
+Contoh Jawapan Calon Prestasi Sederhana
+Calon menulis formula kimia bagi bahan tindak balas dengan betul tetapi formula
+bagi salah satu hasil tindak balas yang dinyatakan adalah tidak betul.
+
+Kimia 2 29 Kupasan Mutu Jawapan SPM 2024
+Soalan 6 (e) (ii)
+Calon dikehendaki menghitung jisim asid etanoik yang terhasil.
+Contoh Jawapan Calon Prestasi Tinggi
+Calon dapat menulis langkah-langkah penghitungan yang betul untuk menentukan
+jisim asid etanoik berserta un
+
+### chunk_index=14 chunk_id=chunk-15
+conceptTitle: Concept 2
+content:
+ikehendaki menghitung jisim asid etanoik yang terhasil.
+Contoh Jawapan Calon Prestasi Tinggi
+Calon dapat menulis langkah-langkah penghitungan yang betul untuk menentukan
+jisim asid etanoik berserta unit yang betul.
+
+Kimia 2 30 Kupasan Mutu Jawapan SPM 2024
+Contoh Jawapan Calon Prestasi Sederhana
+Calon dapat menulis langkah-langkah penghitungan dengan betul bagi menentukan
+jisim asid etanoik namun membuat kesilapan dalam menghitung jisim molekul relatif
+bagi asid etanoik dan menyebabkan jisim yang diperolehi tidak tepat.
+
+Kimia 2 31 Kupasan Mutu Jawapan SPM 2024
+Soalan 7 (a) (i)
+Calon dikehendaki menyatakan jenis tindak balas pempolimeran bagi pembentukan
+polimer.
+Contoh Jawapan Calon Prestasi Tinggi
+Calon dapat memberikan jawapan yang tepat, dengan menyatakan jenis tindak balas
+pempolimeran bagi pembentukan polimer dengan betul.
+Contoh Jawapan Calon Prestasi Sederhana
+Calon menyatakan jenis tindak balas pempolimeran bagi pembentukan polimer
+dengan kurang tepat. Calon menyatakan jenis pempolimeran yang lain.
+
+Kimia 2 32 Kupasan Mutu Jawapan SPM 2024
+Soalan 7(a) (ii)
+Calon dikehendaki menyatakan satu kegunaan lain bagi polistirena.
+Contoh Jawapan Calon Prestasi Tinggi
+Calon dapat mem
+
+### chunk_index=15 chunk_id=chunk-16
+conceptTitle: Concept 3
+content:
+empolimeran yang lain.
+
+Kimia 2 32 Kupasan Mutu Jawapan SPM 2024
+Soalan 7(a) (ii)
+Calon dikehendaki menyatakan satu kegunaan lain bagi polistirena.
+Contoh Jawapan Calon Prestasi Tinggi
+Calon dapat memberikan jawapan yang tepat, dengan menyatakan satu kegunaan
+lain bagi polistirena.
+Contoh Jawapan Calon Prestasi Sederhana
+Calon tidak memahami soalan apabila menyatakan satu kegunaan lain bagi
+polistirena yang kurang tepat.
+
+Kimia 2 33 Kupasan Mutu Jawapan SPM 2024
+Soalan 7 (a) (iii)
+Calon dikehendaki untuk menulis persamaan tindak balas pempolimeran bagi
+pembentukan polistirena.
+Contoh Jawapan Calon Prestasi Tinggi
+Calon dapat menulis persamaan seimbang bagi tindak balas pempolimeran yang
+merangkumi formula bahan tindak balas dan formula hasil tindak balas bagi
+pembentukan polistirena dengan betul.
+Contoh Jawapan Calon Prestasi Sederhana
+Calon menulis persamaan tindak balas pempolimeran bagi pembentukan polistirena
+dengan kurang tepat di mana formula bagi polimer adalah tidak tepat.
+
+Kimia 2 34 Kupasan Mutu Jawapan SPM 2024
+Soalan 7 (a) (iv)
+Calon dikehendaki untuk menghitung jisim molekul relatif monomer.
+Contoh Jawapan Calon Prestasi Tinggi
+Calon dapat menghitung jisim molekul rela
+
+### chunk_index=16 chunk_id=chunk-17
+conceptTitle: Concept 4
+content:
+ia 2 34 Kupasan Mutu Jawapan SPM 2024
+Soalan 7 (a) (iv)
+Calon dikehendaki untuk menghitung jisim molekul relatif monomer.
+Contoh Jawapan Calon Prestasi Tinggi
+Calon dapat menghitung jisim molekul relatif monomer dengan tepat.
+Contoh Jawapan Calon Prestasi Sederhana
+Calon dapat menghitung jisim molekul relatif monomer dengan tepat berserta unit
+namun jisim molekul relatif tiada unit.
+
+### chunk_index=17 chunk_id=chunk-18
+conceptTitle: Concept 1
+content:
+Kimia 2 35 Kupasan Mutu Jawapan SPM 2024
+Soalan 7 (b) (i)
+
+Kimia 2 36 Kupasan Mutu Jawapan SPM 2024
+Calon dikehendaki untuk mengenal pasti jenis bahan tambah X dan Y.
+Contoh Jawapan Calon Prestasi Tinggi
+Calon dapat mengenal pasti jenis bahan tambah X dan Y dengan tepat.
+Contoh Jawapan Calon Prestasi Sederhana
+Calon dapat mengenal pasti jenis bahan tambah X dengan tepat namun tidak dapat
+mengenal pasti bahan tambah Y dengan tepat.
+
+Kimia 2 37 Kupasan Mutu Jawapan SPM 2024
+Soalan 7 (b) (ii)
+Calon dikehendaki untuk menyatakan satu contoh bagi bahan kimia Z.
+Contoh Jawapan Calon Prestasi Tinggi
+Calon dapat menyatakan satu contoh bagi bahan kimia Z dengan tepat.
+Contoh Jawapan Calon Prestasi Sederhana
+Calon tidak dapat menyatakan satu contoh bagi bahan kimia Z dengan tepat.
+
+Kimia 2 38 Kupasan Mutu Jawapan SPM 2024
+Soalan 7 (c)
+Calon dikehendaki mewajarkan situasi produk kosmetik yang tidak melalui ujian
+farmaseutikal dan tidak mendapat kelulusan Kementerian Kesihatan Malaysia menjadi
+lambakan di pasaran, tetapi produk tersebut masih mendapat sambutan hangat dalam
+kalangan pengguna serta memberikan satu sebab.
+Contoh Jawapan Calon Prestasi Tinggi
+Calon dapat mewajarkan dan memberi seba
+
+### chunk_index=18 chunk_id=chunk-19
+conceptTitle: Concept 2
+content:
+akan di pasaran, tetapi produk tersebut masih mendapat sambutan hangat dalam
+kalangan pengguna serta memberikan satu sebab.
+Contoh Jawapan Calon Prestasi Tinggi
+Calon dapat mewajarkan dan memberi sebab dengan tepat.
+Contoh Jawapan Calon Prestasi Sederhana
+Calon dapat mewajarkan namun memberi sebab yang kurang tepat.
+
+Kimia 2 39 Kupasan Mutu Jawapan SPM 2024
+Soalan 8 (a) (i)
+Calon dikehendaki menyatakan maksud nilai pH.
+Contoh Jawapan Calon Prestasi Tinggi
+Calon dapat menyatakan maksud nilai pH dengan tepat.
+Contoh Jawapan Calon Prestasi Sederhana
+Calon tidak dapat menyatakan maksud nilai pH dengan tepat.
+
+Kimia 2 40 Kupasan Mutu Jawapan SPM 2024
+Soalan 8 (a) (ii)
+Calon dikehendaki menerangkan sebab nilai pH berbeza bagi asid HB dan asid HA.
+Contoh Jawapan Calon Prestasi Tinggi
+Calon dapat menerangkan perbezaan asid HB dan asid HA dengan betul.
+Contoh Jawapan Calon Prestasi Sederhana
+Calon tidak menggunakan istilah yang tepat bagi membezakan asid kuat dan asid
+lemah.
+
+Kimia 2 41 Kupasan Mutu Jawapan SPM 2024
+Soalan 8 (a) (iii)
+Calon dikehendaki menghitung isi padu gas hidrogen yang terhasil
+Contoh Jawapan Calon Prestasi Tinggi
+Calon dapat menunjukkan langkah-langkah pengiraan dan me
+
+### chunk_index=19 chunk_id=chunk-20
+conceptTitle: Concept 3
+content:
+Mutu Jawapan SPM 2024
+Soalan 8 (a) (iii)
+Calon dikehendaki menghitung isi padu gas hidrogen yang terhasil
+Contoh Jawapan Calon Prestasi Tinggi
+Calon dapat menunjukkan langkah-langkah pengiraan dan memberikan jawapan
+dengan unit yang betul
+
+Kimia 2 42 Kupasan Mutu Jawapan SPM 2024
+Contoh Jawapan Calon Prestasi Sederhana
+Calon menunjukkan langkah-langkah pengiraan yang betul tetapi unit bagi isi padu
+gas yang dinyatakan adalah tidak tepat.
+
+Kimia 2 43 Kupasan Mutu Jawapan SPM 2024
+Soalan 8 (b)
+
+Kimia 2 44 Kupasan Mutu Jawapan SPM 2024
+Calon dikehendaki menerangkan perbezaan kekuatan alkali bagi larutan X dan larutan
+alkali Y.
+Contoh Jawapan Calon Prestasi Tinggi
+Calon dapat menerangkan perbezaan kekuatan alkali bagi larutan X dan larutan Y
+dengan betul.
+Contoh Jawapan Calon Prestasi Sederhana
+Calon tidak dapat menerangkan perbezaan kekuatan alkali bagi larutan X dan larutan
+Y dengan tepat.
+
+### chunk_index=20 chunk_id=chunk-21
+conceptTitle: Application of Neutralisation in Pain Relief
+content:
+Soalan 8(c) requires candidates to propose a substitute for substance R and outline a treatment to alleviate pain using neutralisation. High-performing candidates correctly apply neutralisation (e.g., using mild alkali like calcium carbonate or sodium hydrogen carbonate to neutralise excess stomach acid causing discomfort). This tests understanding of real-world acidΓÇôbase applications, not just theory. Neutralisation must be explicitly linked to symptom relief (e.g., reducing acidity ΓåÆ reducing irritation ΓåÆ reducing pain/swelling). Candidates must name appropriate chemicals with correct spelling and justify the choice via reaction logic.
+
+### chunk_index=21 chunk_id=chunk-22
+conceptTitle: SPM Answering Techniques for Section A
+content:
+Section 2.3 outlines critical answering techniques for SPM Chemistry Section A. Candidates must read questions carefully, use precise chemical terminology (e.g., 'neutralisation', not 'cancellation'), spell chemical names correctly (e.g., 'calcium carbonate', not 'calciun carbonat'), and apply foundational skills: balancing equations, mole ratio usage, correct units, and accurate periodic table knowledge. Over-answering is discouraged ΓÇö responses must match mark allocation to avoid contradictory statements that cost marks. Emphasis is placed on conceptual clarity over verbosity.
+
+### chunk_index=22 chunk_id=chunk-23
+conceptTitle: TeacherΓÇÖs Role in SPM Chemistry Preparation
+content:
+Guidelines for teachers stress holistic pedagogy: covering all syllabus topics, prioritising fundamental concepts (mol, gas volume, mass relationships), enforcing correct spelling of chemical terms and proper symbol/ion formula usage (e.g., Ca┬▓Γü║, not Ca+2), and employing varied-difficulty questions. Crucially, teachers are advised to reference the 'Kupasan Mutu Jawapan SPM' to identify common misconceptions and model high-scoring responses ΓÇö especially for application-based questions like neutralisation in medical contexts.
+
+### chunk_index=23 chunk_id=chunk-24
+conceptTitle: Prestasi Calon dalam Bahagian B SPM Kimia
+content:
+Prestasi calon Bahagian B menunjukkan pemahaman umum terhadap kehendak soalan tetapi kegagalan konsisten dalam mengaplikasikan konsep kimia secara tepat. Kumpulan prestasi tinggi menunjukkan penguasaan mendalam: jawapan spesifik, rajah lengkap & berlabel, langkah pengiraan terperinci dengan unit betul, serta persamaan kimia seimbang dan tepat. Mereka juga cekap dalam soalan KBAT. Sebaliknya, kumpulan sederhana sering memberi jawapan umum, rajah tidak lengkap, unit salah, gagal tunjuk nisbah mol, dan menulis persamaan kimia/ion/setengah persamaan yang tidak seimbang atau bercanggah.
+
+### chunk_index=24 chunk_id=chunk-25
+conceptTitle: Konsep Kadar Tindak Balas (Soalan 9a(i))
+content:
+Soalan 9(a)(i) menguji dua kemahiran asas: (1) menyatakan maksud kadar tindak balas ΓÇö iaitu perubahan kuantiti bahan (reaktan atau hasil) per unit masa, dan (2) menulis persamaan kimia seimbang yang mewakili tindak balas tersebut. Calon prestasi tinggi melakukannya dengan tepat; calon sederhana sering gagal definisi walaupun dapat menulis persamaan seimbang ΓÇö menunjukkan hafalan prosedur tanpa pemahaman konseptual. Definisi mesti menyertakan unsur 'perubahan kuantiti' dan 'unit masa', bukan sekadar 'kelajuan tindak balas'.
+
+### chunk_index=25 chunk_id=chunk-26
+conceptTitle: Kadar Tindak Balas Purata dari Graf (Soalan 9a(ii))
+content:
+Soalan 9(a)(ii) menuntut pengiraan kadar tindak balas purata: (a) dalam minit ketiga ΓÇö iaitu perubahan kuantiti (cth: isi padu gas/kekeruhan) dibahagi selang masa 1 minit (antara t=2 dan t=3), dan (b) bagi keseluruhan tindak balas ΓÇö jumlah perubahan dibahagi jumlah masa. Jawapan mesti disertai unit yang betul (cth: cm┬│/min atau g/s). Calon prestasi tinggi menunjukkan langkah jelas dan unit konsisten; calon sederhana kerap mengabaikan unit atau salah mengira selang masa ΓÇö misalnya menggunakan t=0 hingga t=3 untuk 'minit ketiga', bukan t=2 ke t=3.
+
+### chunk_index=26 chunk_id=chunk-27
+conceptTitle: Concept 1
+content:
+Kimia 2 51 Kupasan Mutu Jawapan SPM 2024
+Contoh Jawapan Calon Prestasi Sederhana
+Calon hanya dapat menentukan kadar tindak balas purata bagi keseluruhan tindak
+balas berserta unit yang betul tetapi kadar tindak balas purata dalam minit ketiga yang
+salah.
+
+Kimia 2 52 Kupasan Mutu Jawapan SPM 2024
+Soalan 9 (b)(i)
+Calon dikehendaki membandingkan kadar tindak balas antara eksperimen I dan II
+serta eksperimen II dan III dan menerangkan berdasarkan teori perlanggaran.
+
+Kimia 2 53 Kupasan Mutu Jawapan SPM 2024
+Contoh Jawapan Calon Prestasi Tinggi
+Calon memahami kehendak soalan dengan membuat perbandingan kadar tindak
+balas antara eksperimen I dan II serta eksperimen II dan III. Calon juga dapat
+mengenal pasti faktor yang mempengaruhi kadar tindak balas dan menerangkan
+menggunakan teori pelanggaran dengan betul.
+
+Kimia 2 54 Kupasan Mutu Jawapan SPM 2024
+Contoh Jawapan Calon Prestasi Sederhana
+Eksperimen I dan Eksperimen II
+Eksperimen II dan Eksperimen III
+Calon dapat membandingkan kadar tindak balas eksperimen I dan II serta eksperimen
+II dan III, namun calon memberi penerangan yang tidak lengkap.
+
+Kimia 2 55 Kupasan Mutu Jawapan SPM 2024
+Soalan 9 (b)(ii)
+Calon dikehendaki menyatakan perub
+
+### chunk_index=27 chunk_id=chunk-28
+conceptTitle: Concept 2
+content:
+balas eksperimen I dan II serta eksperimen
+II dan III, namun calon memberi penerangan yang tidak lengkap.
+
+Kimia 2 55 Kupasan Mutu Jawapan SPM 2024
+Soalan 9 (b)(ii)
+Calon dikehendaki menyatakan perubahan pada kadar tindak balas berserta dengan
+alasan dan mencadangkan satu nama bagi asid kuat diprotik.
+Contoh Jawapan Calon Prestasi Tinggi
+Calon menyatakan perubahan pada kadar tindak balas serta alasan yang tepat dan
+dapat mencadangkan nama asid kuat diprotik dengan betul.
+Contoh Jawapan Calon Prestasi Sederhana
+Calon memahami kehendak soalan dengan menyatakan perubahan pada kadar
+tindak balas dan boleh mencadangkan nama asid kuat diprotik tetapi alasan yang
+diberikan adalah tidak tepat
+
+Kimia 2 56 Kupasan Mutu Jawapan SPM 2024
+Soalan 10 (a)
+Calon dikehendaki menyatakan maksud tindak balas redoks, menentukan agen
+pengoksidaan dan agen penurunan serta menyatakan warna bagi larutan kuprum(II)
+nitrat.
+
+Kimia 2 57 Kupasan Mutu Jawapan SPM 2024
+Contoh Jawapan Calon Prestasi Tinggi
+Calon menyatakan maksud tindak balas redoks dengan betul, menyatakan agen
+pengoksidaan dan agen penurunan serta warna larutan kuprum(II) nitrat dengan
+tepat.
+Contoh Jawapan Calon Prestasi Sederhana
+Calon dapat
+
+### chunk_index=28 chunk_id=chunk-29
+conceptTitle: Concept 3
+content:
+atakan maksud tindak balas redoks dengan betul, menyatakan agen
+pengoksidaan dan agen penurunan serta warna larutan kuprum(II) nitrat dengan
+tepat.
+Contoh Jawapan Calon Prestasi Sederhana
+Calon dapat menyatakan maksud tindak balas redok serta warna larutan kuprum(II)
+nitrat dengan betul tetapi tidak dapat mengenal pasti agen pengoksidaan dan agen
+penurunan dengan betul.
+
+Kimia 2 58 Kupasan Mutu Jawapan SPM 2024
+Soalan 10 (b)
+Calon dikehendaki mengenal pasti terminal negatif dan terminal positif serta menulis
+persamaan ion keseluruhan dan notasi sel bagi sel kimia itu.
+
+Kimia 2 59 Kupasan Mutu Jawapan SPM 2024
+Contoh Jawapan Calon Prestasi Tinggi
+Calon dapat mengenal pasti terminal negatif dan terminal positif dengan tepat serta
+menulis persamaan ion keseluruhan dan notasi sel dengan betul.
+Contoh Jawapan Calon Prestasi Sederhana
+Calon dapat mengenal pasti terminal negatif dan terminal positif serta dapat menulis
+persamaan ion keseluruhan dengan betul tetapi tidak dapat menulis notasi sel dengan
+tepat.
+
+### chunk_index=29 chunk_id=chunk-30
+conceptTitle: Ion present in aqueous copper(II) chloride solution
+content:
+In aqueous copper(II) chloride (CuClΓéé), the compound dissociates completely into its constituent ions: Cu┬▓Γü║(aq) and ClΓü╗(aq). These are the only mobile ions present in the solution and participate in electrolysis. Candidates must recognise that the solid ionic lattice (Cu┬▓Γü║ClΓü╗Γéé) breaks down in water to form hydrated cations and anions ΓÇö unlike the solid state, where ions are fixed and non-conductive. Confusion arises when candidates incorrectly list formula units (e.g., 'CuClΓéé') or undissociated entities instead of individual ions.
+
+### chunk_index=30 chunk_id=chunk-31
+conceptTitle: Half-equation at the anode for copper(II) chloride electrolysis (Set I & III)
+content:
+For Set I (inert electrodes, e.g., carbon), the anode half-equation is: 2ClΓü╗(aq) ΓåÆ ClΓéé(g) + 2eΓü╗. For Set III (copper electrodes), oxidation of the copper anode occurs: Cu(s) ΓåÆ Cu┬▓Γü║(aq) + 2eΓü╗. This distinction hinges on electrode reactivity: inert anodes allow anion oxidation (ClΓü╗), while reactive metal anodes dissolve preferentially. Candidates must correctly assign equations based on electrode material ΓÇö a common error is applying the same equation across all sets without considering electrode composition.
+
+### chunk_index=31 chunk_id=chunk-32
+conceptTitle: Observation of solution colour change during electrolysis of CuClΓéé (Set I vs Set III)
+content:
+In Set I (inert electrodes), the blue colour of Cu┬▓Γü║(aq) fades gradually as Cu┬▓Γü║ is reduced at the cathode and ClΓü╗ oxidised at the anode ΓÇö no new Cu┬▓Γü║ is generated, so [Cu┬▓Γü║] decreases. In Set III (copper electrodes), the blue colour remains unchanged because Cu┬▓Γü║ lost at the cathode is replenished by dissolution of the copper anode (Cu ΓåÆ Cu┬▓Γü║ + 2eΓü╗), maintaining constant ion concentration. Accurate observation requires linking electrode behaviour to ion balance and visual cues (intensity/fading of blue hue).
+
+### chunk_index=32 chunk_id=chunk-33
+conceptTitle: Products formed at the anode in different electrolytic setups (Set I, II, III) and effect of concentration change
+content:
+At the anode: Set I (inert, 0.001 mol dmΓü╗┬│ CuClΓéé) yields ClΓéé(g); Set II (inert, dilute NaΓééSOΓéä) yields OΓéé(g) from OHΓü╗ oxidation; Set III (copper electrodes) yields Cu┬▓Γü║(aq) via anode dissolution. When Set I concentration increases to 1.0 mol dmΓü╗┬│ CuClΓéé, ClΓü╗ oxidation remains dominant (high [ClΓü╗] favours ClΓéé over OΓéé), so ClΓéé(g) still forms. The key principle is selective discharge: higher concentration and lower discharge potential favour ClΓü╗ over OHΓü╗ at inert anodes ΓÇö a critical SPM concept tested in comparative analysis.
+
+### chunk_index=33 chunk_id=chunk-34
+conceptTitle: SPM Chemistry Answering Strategies for Candidates
+content:
+Candidates must read questions carefully and answer only what is asked. Correct spelling of chemical substances, reactions, and processes is essential. Use precise keywords and appropriate terminology per question demand. Master foundational skills: mole concept, balanced chemical equations, Periodic Table, atomic structure diagrams, electron arrangements, energy profiles, energy levels, and graph sketching. For calculations, always balance the equation first, calculate moles, show mole ratios, and state final answers with correct units. Responses should match mark allocationΓÇöavoid over-answering to prevent contradictory facts. Know reactant/product formulae to write balanced equations. When choosing between options (e.g., 'which is more suitable?'), select correctly first; subsequent marks depend on explanation aligned with that choice. Prioritise one essay question confidently.
+
+### chunk_index=34 chunk_id=chunk-35
+conceptTitle: TeacherΓÇÖs Role in SPM Chemistry Preparation
+content:
+Teachers must ensure teaching covers all syllabus topics to build conceptual mastery. Emphasise core chemistry concepts and numerical problem-solvingΓÇöespecially mole calculations, gas volumes, and mass relationships. Reinforce correct spelling of chemical names, processes, reaction types, and apparatus labels. Always use precise terminology and clarify conceptual meanings during instruction. Employ accurate command words (e.g., 'explain', 'compare', 'deduce') in formative assessments. Stress correct elemental symbols and ionic formulae notation. Assign tasks with varied cognitive demandΓÇölow to high difficulty. Highlight lab workΓÇÖs role in developing observational, inferential, and experimental reasoning skills, including functional apparatus diagramming. Regularly consult Kupasan Mutu Jawapan SPM to align instruction with examiner expectations and common student misconceptions.
+
+### chunk_index=35 chunk_id=chunk-36
+conceptTitle: Prestasi Calon dalam Konsep Bahan Buatan dalam Industri
+content:
+Secara keseluruhan, calon memahami kehendak soalan dengan baik namun tidak dapat memberikan jawapan berdasarkan konsep kimia yang melibatkan Bahan Buatan dalam Industri secara tepat dan mengikut kehendak soalan. Ini menunjukkan jurang antara pemahaman literal dan penguasaan konseptual aplikatif, khususnya dalam konteks bahan fotokromik dan bahan komposit ΓÇö dua topik utama dalam Bahagian C SPM Kimia.
+
+### chunk_index=36 chunk_id=chunk-37
+conceptTitle: Kaca Fotokromik: Bahan dan Mekanisme Penyerapan UV
+content:
+Soalan 11(a) mengkehendaki calon menyatakan bahan dalam tingkap kaca fotokromik yang mengurangkan sinaran UV serta menerangkan mekanismenya. Jawapan cemerlang menyertakan bahan seperti perak klorida (AgCl) atau perak halida yang mengalami fotolisis di bawah cahaya UV membentuk atom perak (gelap), dan kembali ke keadaan asal apabila cahaya berkurang. Ketidakmampuan menerangkan mekanisme ini ΓÇö walaupun menyebut bahan ΓÇö menyebabkan kehilangan markah penting.
+
+### chunk_index=37 chunk_id=chunk-38
+conceptTitle: Bahan Komposit: Jenis dan Komponen Asal
+content:
+Soalan 11(b) menguji pengenalan jenis bahan komposit A, B, dan C serta penyataan komponen asal salah satu daripadanya. Contoh jawapan cemerlang menyatakan jenis (misalnya: komposit serat kacaΓÇôepoksi), lalu menyebut komponen seperti matriks polimer (epoksi) dan penguat (serat kaca). Calon prestasi sederhana hanya menyatakan jenis satu komposit tanpa menyebut komponen asal secara spesifik ΓÇö menunjukkan kelemahan dalam dekonstruksi struktur bahan komposit.
+
+### chunk_index=38 chunk_id=chunk-39
+conceptTitle: Effectiveness of Detergents in Hard Water
+content:
+Soalan 11(c) requires candidates to select the more effective cleaning agent for laundering in hard water (air liat) and explain correctly. High-performing candidates identify detergent (not soap) as superior because its sulfonate or sulfate head groups do not form insoluble scum with Ca┬▓Γü║/Mg┬▓Γü║ ions present in hard water, unlike carboxylate-based soaps which precipitate as calcium/magnesium stearates. This distinction is essential for SPM Chemistry ΓÇö testing applied knowledge of surfactant chemistry and water hardness implications.
+
+### chunk_index=39 chunk_id=chunk-40
+conceptTitle: Soap Preparation from Waste Oil Using Alkali
+content:
+Soalan 11(d) asks candidates to suggest an alkali for producing 'sabun buku' (bar soap) from used cooking oil and explain the method. High-performing responses correctly propose sodium hydroxide (NaOH) ΓÇö the standard alkali for hot saponification ΓÇö and outline core steps: mixing waste oil with concentrated NaOH solution, heating under reflux or controlled boiling, stirring until saponification completes (formation of glycerol and soap), then salting out with NaCl, cooling, and moulding. Emphasis on alkali choice and process logic reflects SPM practical chemistry expectations.
+
+### chunk_index=40 chunk_id=chunk-41
+conceptTitle: Strategi Jawab Bahagian C Kimia SPM
+content:
+4.3.1 Calon diingatkan untuk membaca soalan dengan teliti dan hanya menjawab yang berkaitan; menggunakan ejaan betul bagi nama bahan, tindak balas dan proses kimia; menerapkan kata kunci dan istilah tepat mengikut kehendak soalan; menguasai konsep asas seperti siri homolog, kumpulan berfungsi, formula struktur dan persamaan kimia seimbang; menamakan sebatian karbon mengikut tatacara IUPAC; serta memberi fokus pada soalan Bahagian C yang melibatkan pelbagai aras kesukaran dan soalan mereka cipta (eksperimen). Kemahiran proses sains juga ditekankan.
+
+### chunk_index=41 chunk_id=chunk-42
+conceptTitle: Peranan Guru dalam Persediaan Bahagian C
+content:
+4.3.2 Guru diminta memastikan PdP merangkumi semua tajuk sukatan, terutama konsep asas sebatian karbon; menekankan ejaan betul nama bahan, proses, tindak balas dan label radas; menggunakan istilah tepat dengan makna jelas; memilih kata tugas sesuai semasa penilaian; melatih penulisan formula kimia dan struktur secara betul; memberi tugasan berpelbagai aras kesukaran; serta menekankan amali sains untuk membangunkan kemahiran membuat inferens, pemerhatian, huraian eksperimen dan melukis rajah susunan radas yang berfungsi dan berlabel.
+
+--- total chunks: 42 ---

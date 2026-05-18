@@ -3,8 +3,15 @@ import { and, desc, eq } from "drizzle-orm";
 import { ragDb, ragPastPaperChunksTable, ragPastPapersTable, ragRubricsTable } from "../../lib/ragDb";
 import { cosineSimilarity, embedText, embedTexts } from "./embeddingsService";
 import type { Rubric, RubricIdea, RubricSource } from "./types";
+import { formatSpmStudentFriendlyRulesBlock } from "./spmStudentLanguage";
+import { pastPaperFormWhereClause } from "./pastPaperFormFilter";
+import { buildCategoryRubricPromptInstructions } from "./gradingCategoryMarking";
+import { refineRubricIdeas } from "./rubricRefinement";
+import { analyzeQuestion } from "./questionAnalysisService";
+import { buildRubricStructureHintLines, type RubricStructureContext } from "./rubricStructureHints";
+import type { QuestionAnalysis } from "./types";
 
-type QuestionType =
+export type QuestionType =
   | "state"
   | "name"
   | "list"
@@ -26,6 +33,14 @@ type RubricRequest = {
   form?: string;
   maxScore: number;
   questionType: QuestionType;
+  /** When true, skip vector nearest-neighbour rubric reuse (reduces wrong-topic rubrics). */
+  skipNearestCachedRubric?: boolean;
+  /** When true, build new rubrics from audited excerpt and/or question only — do not pull unrelated past-paper snippets from DB. */
+  useAuditContextOnly?: boolean;
+  /** Audited retrieval text (merged blocks) for rubric LLM; may be empty. */
+  auditedContextExcerpt?: string | null;
+  /** Optional pre-computed question shape (avoids re-analysis). */
+  questionAnalysis?: QuestionAnalysis | null;
 };
 
 type QwenConfig = { apiKey: string; baseUrl: string; model: string };
@@ -106,23 +121,50 @@ function parseRubricIdeas(text: string): RubricIdea[] {
         const marks = Number.isFinite(marksRaw) ? Math.max(0, Math.round(marksRaw)) : 0;
         if (marks <= 0) return null;
         const kindRaw = typeof row["kind"] === "string" ? row["kind"].trim().toLowerCase() : "";
-        const kind =
+        const kind: RubricIdea["kind"] =
           kindRaw === "feature" ||
           kindRaw === "function" ||
           kindRaw === "point" ||
           kindRaw === "step" ||
-          kindRaw === "comparison"
-            ? kindRaw
+          kindRaw === "comparison" ||
+          kindRaw === "knowledge" ||
+          kindRaw === "explanation" ||
+          kindRaw === "example" ||
+          kindRaw === "use" ||
+          kindRaw === "calculation" ||
+          kindRaw === "definition"
+            ? (kindRaw as RubricIdea["kind"])
             : "point";
         const id = typeof row["id"] === "string" && row["id"].trim().length > 0 ? row["id"].trim() : `i${idx + 1}`;
         const linkedToId =
           typeof row["linkedToId"] === "string" && row["linkedToId"].trim().length > 0
             ? row["linkedToId"].trim()
             : undefined;
-        const keywords = Array.isArray(row["keywords"])
+        const keywordsRaw = Array.isArray(row["keywords"])
           ? row["keywords"].filter((v): v is string => typeof v === "string").map((v) => v.trim()).filter(Boolean)
-          : undefined;
-        return { id, idea, marks, kind, linkedToId, keywords } as RubricIdea;
+          : [];
+        const acceptedConcepts = Array.isArray(row["acceptedConcepts"])
+          ? row["acceptedConcepts"].filter((v): v is string => typeof v === "string").map((v) => v.trim()).filter(Boolean)
+          : [];
+        const openEndedRaw = row["openEnded"];
+        const openEnded =
+          typeof openEndedRaw === "boolean"
+            ? openEndedRaw
+            : typeof openEndedRaw === "string"
+              ? /^(true|yes|1)$/i.test(openEndedRaw)
+              : false;
+        const item: RubricIdea = {
+          id,
+          idea,
+          marks,
+          kind,
+        };
+        if (linkedToId) item.linkedToId = linkedToId;
+        if (keywordsRaw.length > 0) item.keywords = [...new Set(keywordsRaw)];
+        if (acceptedConcepts.length > 0) item.acceptedConcepts = [...new Set(acceptedConcepts)];
+        if (openEnded) item.openEnded = true;
+        // requiresCausalLink is applied only after refineRubricIdeas(); ignore LLM default here.
+        return item;
       })
       .filter((v): v is RubricIdea => v != null);
   } catch {
@@ -179,6 +221,50 @@ function normalizeRubricIdeas(ideas: RubricIdea[], maxScore: number): RubricIdea
   return scaled;
 }
 
+function structureContextForQuestion(
+  question: string,
+  subject?: string | null,
+  existing?: QuestionAnalysis | null,
+): RubricStructureContext {
+  if (existing) {
+    return {
+      questionType: existing.questionType,
+      commandWord: existing.commandWord,
+      isCompoundQuestion: existing.isCompoundQuestion,
+      expectedAnswerStyle: existing.expectedAnswerStyle,
+    };
+  }
+  const a = analyzeQuestion(question, subject);
+  return {
+    questionType: a.questionType,
+    commandWord: a.commandWord,
+    isCompoundQuestion: a.isCompoundQuestion,
+    expectedAnswerStyle: a.expectedAnswerStyle,
+  };
+}
+
+function resolveStructureContext(
+  question: string,
+  subject?: string | null,
+  input?: RubricStructureContext | QuestionAnalysis | null,
+): RubricStructureContext {
+  if (!input) return structureContextForQuestion(question, subject);
+  if ("topicKeywords" in input) return structureContextForQuestion(question, subject, input);
+  return input;
+}
+
+/** Refine + rescale rubric mark points for grading or persistence. */
+export function finalizeRubricIdeas(
+  ideas: RubricIdea[],
+  question: string,
+  maxScore: number,
+  structureContext?: RubricStructureContext | QuestionAnalysis | null,
+  subject?: string | null,
+): RubricIdea[] {
+  const ctx = resolveStructureContext(question, subject, structureContext);
+  return normalizeRubricIdeas(refineRubricIdeas(ideas, question, maxScore, ctx), maxScore);
+}
+
 async function qwenBuildRubric(params: {
   question: string;
   subject: string;
@@ -186,15 +272,32 @@ async function qwenBuildRubric(params: {
   maxScore: number;
   questionType: QuestionType;
   pastPaperContext?: string;
+  structureContext?: RubricStructureContext | null;
 }): Promise<RubricIdea[]> {
   const config = resolveQwenConfig();
   const url = `${config.baseUrl}/chat/completions`;
+  const categoryLines = buildCategoryRubricPromptInstructions(params.question);
+  const structureCtx =
+    params.structureContext ?? structureContextForQuestion(params.question, params.subject);
+  const structureLines = buildRubricStructureHintLines(structureCtx, params.maxScore);
   const system = [
     "You build strict JSON rubrics for Malaysian SPM grading.",
-    "Return JSON only: { \"ideas\": [{ \"id\": string, \"idea\": string, \"marks\": number, \"kind\": \"feature|function|point|step|comparison\", \"linkedToId\"?: string, \"keywords\"?: string[] }] }.",
+    formatSpmStudentFriendlyRulesBlock(),
+    "Each \"idea\" string must be short, plain, and readable by Form 4/5 students (classroom wording, not abstract examiner notes).",
+    "Return JSON only: { \"ideas\": [{ \"id\": string, \"idea\": string, \"marks\": number, \"kind\": \"feature|function|point|step|comparison|knowledge|explanation|example|use|calculation|definition\", \"linkedToId\"?: string, \"keywords\"?: string[], \"acceptedConcepts\"?: string[], \"openEnded\"?: boolean, \"requiresCausalLink\"?: boolean }] }.",
+    "Each rubric row is a MARKING POINT (one examinable idea), not a full model paragraph.",
+    "For open-ended stems (examples, uses, properties, advantages, disadvantages, suggestions, applications), phrase the idea as a CATEGORY check (e.g. 'Any valid example of …') and set openEnded=true; list acceptedConcepts as examples of valid wording, not as an exclusive list, unless the stem is explicitly context-bound (based on the diagram/text/experiment/table/graph/passage).",
+    "Retrieved textbook or past-paper text is illustrative only — never the only acceptable wording unless the stem binds to that source.",
     "Total marks across ideas MUST equal maxScore exactly.",
-    "Use SPM level, concise wording, no university depth.",
-    "For explain/describe questions: split into feature + function pairs where suitable.",
+    "Use SPM syllabus depth only — never A-Level or university depth.",
+    "For explain/describe/cause-effect questions: split mechanism into atomic marking points; do not merge two different scientific ideas into one row unless the stem clearly asks for a single broad point.",
+    "Correct SPM-level paraphrases should be accepted. Do not require exact textbook phrasing or repeated context already stated in the question stem (e.g. 'when temperature increases').",
+    "For function/purpose stems: main-purpose wording at SPM level is sufficient. Do NOT require advanced mechanism details unless the stem explicitly asks (e.g. osmosis, water potential, concentration, isotonic/hypertonic/hypotonic).",
+    "For sequence/history/evolution stems (e.g. model development from X to Y), include one markable stage point per key stage/scientist where expected.",
+    "Default requiresCausalLink to false for all ideas. Only set requiresCausalLink=true for genuinely ambiguous isolated keywords (e.g. a lone word with no mechanism).",
+    "For EVERY idea, set \"keywords\" to an array of 4–8 short synonym or paraphrase phrases Malaysian SPM students might write (same scientific meaning, different wording).",
+    ...structureLines,
+    ...categoryLines,
   ].join("\n");
 
   const user = [
@@ -204,7 +307,22 @@ async function qwenBuildRubric(params: {
     `Max score: ${params.maxScore}`,
     `Question: ${params.question}`,
     params.pastPaperContext ? `Past-paper reference context:\n${params.pastPaperContext}` : null,
-    "Build mark-point ideas that an SPM examiner would use.",
+    "Build mark-point ideas an SPM examiner would use, but phrase every idea in simple student-friendly language.",
+    structureLines.join("\n"),
+    categoryLines.length > 0
+      ? "Follow all CONTEXT-BOUND / OPEN-CATEGORY rubric rules in the system message. Past-paper context is illustrative, not a mandatory answer list unless the stem is explicitly context-bound."
+      : null,
+    params.questionType === "identify" ||
+    params.questionType === "name" ||
+    params.questionType === "state"
+      ? "If the question only asks which/what/name/type and the answer is essentially one correct term (or one short phrase), use ONE rubric idea worth maxScore marks. Do NOT split background text from the stem into separate mark ideas the student must repeat."
+      : null,
+    /\b(function|purpose|role|fungsi|tujuan|peranan)\b/i.test(params.question)
+      ? "If the student's answer gives the core purpose correctly (e.g., protection/safety for PPE; food/energy/support for biological substrates), award the main purpose mark even if they omit extra advanced details."
+      : null,
+    /\b(evolution|development|history|sequence|from\s+.+\s+to)\b/i.test(params.question)
+      ? "For brief but valid stage mentions, include acceptedConcepts so short wording still matches (e.g., Dalton solid sphere; Thomson electrons/plum pudding; Rutherford nucleus/empty space; Bohr shells/energy levels)."
+      : null,
   ]
     .filter((line): line is string => Boolean(line))
     .join("\n\n");
@@ -246,7 +364,7 @@ async function qwenBuildRubric(params: {
     throw new Error(`Rubric JSON parse failed: ${rawReply.slice(0, 500)}`);
   }
   const ideas = parseRubricIdeas(JSON.stringify(parsed?.ideas ?? []));
-  return normalizeRubricIdeas(ideas, params.maxScore);
+  return finalizeRubricIdeas(ideas, params.question, params.maxScore, structureCtx, params.subject);
 }
 
 function toRubric(row: {
@@ -275,6 +393,29 @@ function toRubric(row: {
     source: (row.source as RubricSource) ?? "llm_generated",
     sourceRef: row.sourceRef ?? undefined,
   };
+}
+
+export async function getRubricById(rubricId: string): Promise<Rubric | null> {
+  const id = rubricId.trim();
+  if (!id) return null;
+  const rows = await ragDb
+    .select({
+      rubricId: ragRubricsTable.rubricId,
+      questionHash: ragRubricsTable.questionHash,
+      subject: ragRubricsTable.subject,
+      form: ragRubricsTable.form,
+      questionText: ragRubricsTable.questionText,
+      questionType: ragRubricsTable.questionType,
+      maxScore: ragRubricsTable.maxScore,
+      ideas: ragRubricsTable.ideas,
+      embedding: ragRubricsTable.embedding,
+      source: ragRubricsTable.source,
+      sourceRef: ragRubricsTable.sourceRef,
+    })
+    .from(ragRubricsTable)
+    .where(eq(ragRubricsTable.rubricId, id))
+    .limit(1);
+  return rows.length > 0 ? toRubric(rows[0]) : null;
 }
 
 async function findNearestCachedRubric(params: RubricRequest): Promise<Rubric | null> {
@@ -321,7 +462,7 @@ async function findNearestCachedRubric(params: RubricRequest): Promise<Rubric | 
 
 async function findPastPaperContext(params: RubricRequest): Promise<{ snippets: string[]; sourceRef?: string } | null> {
   const subject = params.subject?.trim() || "General";
-  const form = params.form?.trim() || "General";
+  const formClause = pastPaperFormWhereClause(params.form);
   const rows = await ragDb
     .select({
       paperId: ragPastPapersTable.paperId,
@@ -330,7 +471,11 @@ async function findPastPaperContext(params: RubricRequest): Promise<{ snippets: 
     })
     .from(ragPastPaperChunksTable)
     .innerJoin(ragPastPapersTable, eq(ragPastPaperChunksTable.pastPaperDbId, ragPastPapersTable.id))
-    .where(and(eq(ragPastPapersTable.subject, subject), eq(ragPastPapersTable.form, form)))
+    .where(
+      formClause
+        ? and(eq(ragPastPapersTable.subject, subject), formClause)
+        : eq(ragPastPapersTable.subject, subject),
+    )
     .orderBy(desc(ragPastPapersTable.uploadedAt))
     .limit(120);
 
@@ -350,7 +495,12 @@ async function saveRubric(params: RubricRequest & {
   const form = params.form?.trim() || "General";
   const qHash = questionHash(subject, form, params.maxScore, params.question);
   const rubricId = `rub-${Date.now()}-${randomUUID().slice(0, 8)}`;
-  const ideas = normalizeRubricIdeas(params.ideas, params.maxScore);
+  const structureCtx = structureContextForQuestion(
+    params.question,
+    params.subject,
+    params.questionAnalysis ?? null,
+  );
+  const ideas = finalizeRubricIdeas(params.ideas, params.question, params.maxScore, structureCtx, params.subject);
   await ragDb.insert(ragRubricsTable).values({
     rubricId,
     questionHash: qHash,
@@ -379,6 +529,32 @@ async function saveRubric(params: RubricRequest & {
   };
 }
 
+export async function saveGeneratedRubric(params: {
+  question: string;
+  subject?: string | null;
+  form?: string | null;
+  maxScore: number;
+  questionType?: QuestionType;
+  ideas: RubricIdea[];
+  source?: RubricSource;
+  sourceRef?: string;
+}): Promise<Rubric> {
+  const question = params.question.trim();
+  const maxScore = Math.max(1, Math.floor(params.maxScore));
+  const questionEmbedding = await embedText(question);
+  return saveRubric({
+    question,
+    subject: params.subject?.trim() || "General",
+    form: params.form?.trim() || "General",
+    maxScore,
+    questionType: params.questionType ?? "general",
+    ideas: params.ideas,
+    source: params.source ?? "llm_generated",
+    sourceRef: params.sourceRef,
+    questionEmbedding,
+  });
+}
+
 export async function getOrCreateRubric(params: RubricRequest): Promise<Rubric> {
   const subject = params.subject?.trim() || "General";
   const form = params.form?.trim() || "General";
@@ -403,10 +579,54 @@ export async function getOrCreateRubric(params: RubricRequest): Promise<Rubric> 
     .limit(1);
   if (exact.length > 0) return toRubric(exact[0]);
 
-  const nearest = await findNearestCachedRubric(params);
-  if (nearest) return nearest;
+  if (!params.skipNearestCachedRubric) {
+    const nearest = await findNearestCachedRubric(params);
+    if (nearest) return nearest;
+  }
 
   const questionEmbedding = await embedText(params.question);
+  const structureCtx = resolveStructureContext(params.question, subject, params.questionAnalysis ?? null);
+
+  if (params.useAuditContextOnly) {
+    const excerpt = params.auditedContextExcerpt?.trim();
+    if (excerpt && excerpt.length > 0) {
+      const ideas = await qwenBuildRubric({
+        question: params.question,
+        subject,
+        form,
+        maxScore: params.maxScore,
+        questionType: params.questionType,
+        pastPaperContext: `[AUDITED RETRIEVAL — approved chunks only]\n${excerpt}`,
+        structureContext: structureCtx,
+      });
+      return saveRubric({
+        ...params,
+        subject,
+        form,
+        ideas,
+        source: "llm_generated",
+        sourceRef: undefined,
+        questionEmbedding,
+      });
+    }
+    const ideas = await qwenBuildRubric({
+      question: params.question,
+      subject,
+      form,
+      maxScore: params.maxScore,
+      questionType: params.questionType,
+      structureContext: structureCtx,
+    });
+    return saveRubric({
+      ...params,
+      subject,
+      form,
+      ideas,
+      source: "llm_generated",
+      questionEmbedding,
+    });
+  }
+
   const past = await findPastPaperContext(params);
   if (past) {
     const ideas = await qwenBuildRubric({
@@ -416,6 +636,7 @@ export async function getOrCreateRubric(params: RubricRequest): Promise<Rubric> 
       maxScore: params.maxScore,
       questionType: params.questionType,
       pastPaperContext: past.snippets.join("\n\n---\n\n"),
+      structureContext: structureCtx,
     });
     return saveRubric({
       ...params,
@@ -434,6 +655,7 @@ export async function getOrCreateRubric(params: RubricRequest): Promise<Rubric> 
     form,
     maxScore: params.maxScore,
     questionType: params.questionType,
+    structureContext: structureCtx,
   });
   return saveRubric({
     ...params,

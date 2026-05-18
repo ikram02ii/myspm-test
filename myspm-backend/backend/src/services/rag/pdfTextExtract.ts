@@ -33,3 +33,25 @@ export async function extractPdfText(pdfPath: string): Promise<string> {
   const pages = await extractPdfPages(pdfPath);
   return pages.map((page) => page.text).join("\n\n");
 }
+
+/** Extract full text from an in-memory PDF (API uploads). */
+export async function extractTextFromPdfBuffer(buffer: Buffer): Promise<string> {
+  if (!buffer || buffer.length === 0) {
+    throw new Error("Missing PDF buffer");
+  }
+
+  const parser = new PDFParse({ data: buffer });
+  let parsedText = "";
+  try {
+    const parsed = await parser.getText();
+    parsedText = parsed.text ?? "";
+  } finally {
+    await parser.destroy();
+  }
+
+  const cleaned = cleanText(parsedText);
+  if (!cleaned) {
+    throw new Error("PDF extraction produced empty text");
+  }
+  return cleaned;
+}

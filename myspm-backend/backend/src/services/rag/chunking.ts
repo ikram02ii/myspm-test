@@ -1,3 +1,6 @@
+import { cleanText } from "./pdfTextExtract";
+
+export { cleanText };
 export const DEFAULT_CHUNK_SIZE = 1200;
 export const DEFAULT_CHUNK_OVERLAP = 200;
 
@@ -6,10 +9,6 @@ export type RagChunk = {
   index: number;
   content: string;
 };
-
-export function cleanText(raw: string): string {
-  return raw.replace(/\r/g, "\n").replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim();
-}
 
 export function normalizeChunkConfig(
   chunkSizeChars?: number,

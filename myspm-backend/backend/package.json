@@ -15,7 +15,8 @@
     "ingest:past-paper-qa": "tsx ./scripts/ingestPastPaperQa.ts",
     "extract:pdf-text": "tsx ./scripts/extractPastPaperPdfText.ts",
     "typecheck:libs": "tsc -b tsconfig.workspace.json",
-    "typecheck": "npm run typecheck:libs && tsc -p tsconfig.json --noEmit"
+    "typecheck": "npm run typecheck:libs && tsc -p tsconfig.json --noEmit",
+    "test:grading-regression": "cross-env NODE_ENV=development tsx ./scripts/runGradingRegression.ts"
   },
   "dependencies": {
     "@workspace/api-zod": "workspace:*",

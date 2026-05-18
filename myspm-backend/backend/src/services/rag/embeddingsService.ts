@@ -35,7 +35,16 @@ function resolveEmbedConfig(): EmbedConfig {
   return { apiKey, baseUrl, model };
 }
 
-const MAX_BATCH = 16;
+/** DashScope / Qwen embedding API rejects input batches larger than 10. */
+function resolveEmbeddingMaxBatch(): number {
+  const raw = process.env["QWEN_EMBEDDING_MAX_BATCH"]?.trim();
+  if (!raw) return 10;
+  const n = Number.parseInt(raw, 10);
+  if (!Number.isFinite(n)) return 10;
+  return Math.max(1, Math.min(10, n));
+}
+
+const MAX_BATCH = resolveEmbeddingMaxBatch();
 
 export async function embedTexts(texts: string[]): Promise<number[][]> {
   const cleaned = texts.map((t) => (t ?? "").trim()).filter((t) => t.length > 0);
