@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Animated,
+  Image,
   Modal,
   Pressable,
   ScrollView,
@@ -20,6 +21,15 @@ import { colors } from "../constants/colors";
 import { fonts } from "../constants/fonts";
 import { theme } from "../constants/palette";
 import { MathLineChart } from "../components/math/MathLineChart";
+import { AnimalCellDiagramWithLabels } from "../components/biology/AnimalCellDiagramWithLabels";
+import { LabeledAnimalCellDiagram } from "../components/biology/LabeledAnimalCellDiagram";
+import { MathFormattedText } from "../components/math/MathFormattedText";
+import {
+  inferOrganelleHighlights,
+  isBiologySubject,
+  shouldShowLabeledCellDiagram,
+} from "../utils/biologyDiagramHighlights";
+import { isMatrixOnlyOption } from "../utils/parseMatrixNotation";
 import type { PracticeStackParamList } from "../navigation/PracticeStack";
 import {
   fetchPracticeSetDetail,
@@ -298,7 +308,7 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
         subject,
         form,
         topK: 8,
-        maxScore: 5,
+        maxScore: q.maxMarks && q.maxMarks >= 1 ? q.maxMarks : 5,
       });
       const score = Number(result?.score);
       const maxScore = Number(result?.maxScore);
@@ -501,8 +511,13 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
             transform: [{ translateY: questionLift }],
           }}
         >
-          <Text style={styles.diffChip}>{q.difficulty}</Text>
-          <Text style={styles.questionText}>{q.questionText}</Text>
+          <View style={styles.chipRow}>
+            <Text style={styles.diffChip}>{q.difficulty}</Text>
+            {!isMcq && q.maxMarks != null && q.maxMarks >= 1 ? (
+              <Text style={styles.markChip}>{q.maxMarks} mark{q.maxMarks === 1 ? "" : "s"}</Text>
+            ) : null}
+          </View>
+          <MathFormattedText textStyle={styles.questionText}>{q.questionText}</MathFormattedText>
           {q.diagram?.type === "line-chart" ? (
             <View style={styles.diagramWrap}>
               <MathLineChart
@@ -515,6 +530,27 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
               />
             </View>
           ) : null}
+          {isBiologySubject(routeSubject) && shouldShowLabeledCellDiagram(q.questionText) ? (
+            <View style={styles.diagramWrap}>
+              {q.diagramImageUrl ? (
+                <AnimalCellDiagramWithLabels
+                  imageUrl={q.diagramImageUrl}
+                  highlights={inferOrganelleHighlights(q.questionText)}
+                />
+              ) : (
+                <LabeledAnimalCellDiagram highlights={inferOrganelleHighlights(q.questionText)} />
+              )}
+            </View>
+          ) : q.diagramImageUrl ? (
+            <View style={styles.diagramWrap}>
+              <Image
+                source={{ uri: q.diagramImageUrl }}
+                style={styles.scienceDiagramImage}
+                resizeMode="contain"
+                accessibilityLabel="Educational diagram for this question"
+              />
+            </View>
+          ) : null}
 
       {isMcq && multiSelect ? (
         <Text style={styles.multiHint}>Select all answers that apply.</Text>
@@ -523,6 +559,7 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
       {isMcq && q.options.length > 0 ? (
         <View style={styles.optionsGrid}>
           {q.options.map((opt, i) => {
+            const matrixOption = isMatrixOnlyOption(opt);
             const on = selected.has(i);
             const isCorrectOption = correctIndices.has(i);
             let border = "rgba(15, 23, 42, 0.12)";
@@ -544,6 +581,7 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
                 key={i}
                 style={[
                   styles.optionTile,
+                  matrixOption && styles.optionTileMatrix,
                   {
                     borderColor: border,
                     backgroundColor: bg,
@@ -553,9 +591,9 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
                 onPress={() => !showFeedback && onToggleOption(i)}
                 disabled={showFeedback}
               >
-                <Text style={styles.optionTileLabel} numberOfLines={4}>
+                <MathFormattedText textStyle={styles.optionTileLabel} matrixCompact>
                   {opt}
-                </Text>
+                </MathFormattedText>
               </Pressable>
             );
           })}
@@ -731,13 +769,23 @@ const styles = StyleSheet.create({
     borderRadius: 3,
     backgroundColor: BRAND,
   },
+  chipRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 10,
+  },
   diffChip: {
-    alignSelf: "flex-start",
     fontSize: 11,
     fontFamily: fonts.bold,
     color: BRAND,
     textTransform: "capitalize",
-    marginBottom: 10,
+  },
+  markChip: {
+    fontSize: 11,
+    fontFamily: fonts.bold,
+    color: colors.textSecondary,
   },
   questionText: {
     fontSize: 18,
@@ -748,6 +796,14 @@ const styles = StyleSheet.create({
   },
   diagramWrap: {
     marginBottom: 16,
+  },
+  scienceDiagramImage: {
+    width: "100%",
+    height: 280,
+    borderRadius: 12,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "rgba(15, 23, 42, 0.08)",
   },
   optionsGrid: {
     flexDirection: "row",
@@ -764,6 +820,10 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     justifyContent: "center",
     alignItems: "center",
+  },
+  optionTileMatrix: {
+    minHeight: 108,
+    paddingVertical: 10,
   },
   optionTileLabel: {
     fontSize: 14,

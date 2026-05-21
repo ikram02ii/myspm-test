@@ -13,6 +13,17 @@ function normalizeAiText(s: string): string {
 }
 
 /** Keep EN and BM on separate lines; collapse spaces only within each line. */
+function parseMarkahFromBlock(lines: string[]): number | undefined {
+  for (const line of lines) {
+    const m = line.match(/^(?:Markah|Marks?)\s*[:：]\s*(\d{1,2})\b/i);
+    if (m) {
+      const n = Number(m[1]);
+      if (Number.isFinite(n) && n >= 1 && n <= 20) return n;
+    }
+  }
+  return undefined;
+}
+
 export function formatBilingualQuestionStem(raw: string): string {
   let s = normalizeNewlines(raw.trim());
   s = s.replace(/(EN:\s*[^\n]+?)\s+(BM:)/gi, "$1\n$2");
@@ -23,7 +34,13 @@ export function formatBilingualQuestionStem(raw: string): string {
     .join("\n");
 }
 
-function letterToIndex(letter: string): number | null {
+/** Strip LLM diagram flag from displayed stem (same tokens as backend extractQuestionStems). */
+const MCQ_DIAGRAM_FLAG_LINE =
+  /^\s*(?:Perlu rajah|Diagram needed|Need diagram|Rajah diperlukan)\s*:\s*(?:ya|tidak|yes|no|y|n)\b[^\n]*$/gim;
+
+function stripDiagramFlagFromStem(raw: string): string {
+  return raw.replace(MCQ_DIAGRAM_FLAG_LINE, "").replace(/\n{3,}/g, "\n\n").trim();
+}
   const L = letter.trim().toUpperCase();
   if (!/^[A-D]$/.test(L)) return null;
   return L.charCodeAt(0) - 65;
@@ -77,13 +94,15 @@ export function parseAiGeneratedMcqAnswer(answer: string): PracticeSetQuestion[]
     const block = b.body.trim();
     if (!block) continue;
 
-    const correctMatch = block.match(/(?:Jawapan|Answer)\s*[:.)-]?\s*([A-D])/i);
+    const correctMatch = block.match(
+      /(?:Jawapan(?:\s+betul)?|Answer|Correct answer|Correct Answer)\s*[:.)-]?\s*([A-Da-d])\b/i,
+    );
     if (!correctMatch) continue;
     const correctLetter = correctMatch[1].toUpperCase();
 
     const optionsByLetter: Partial<Record<"A" | "B" | "C" | "D", string>> = {};
     const optRegex =
-      /(?:^|\n)\s*([A-D])\s*[\).:-]\s*([\s\S]*?)(?=\n\s*[A-D]\s*[\).:-]|\n\s*(?:Jawapan|Answer|Penjelasan|Explanation)\s*:|$)/gi;
+      /(?:^|\n)\s*([A-Da-d])\s*[\).:\-]\s*([\s\S]*?)(?=\n\s*[A-Da-d]\s*[\).:\-]|\n\s*(?:Jawapan|Answer|Penjelasan|Explanation|Correct answer)\s*:|$)/gi;
     let optMatch: RegExpExecArray | null;
     let firstOptionIndex = -1;
     while ((optMatch = optRegex.exec(block))) {
@@ -99,7 +118,7 @@ export function parseAiGeneratedMcqAnswer(answer: string): PracticeSetQuestion[]
     const explanation = explMatch ? explMatch[1].trim().replace(/\s+/g, " ") : null;
 
     const qStemRaw = firstOptionIndex >= 0 ? block.slice(0, firstOptionIndex) : block;
-    const qStem = formatBilingualQuestionStem(qStemRaw);
+    const qStem = formatBilingualQuestionStem(stripDiagramFlagFromStem(qStemRaw));
 
     const gradeQuestion = buildQuestionForGrade(qStem, options);
     const correctIndex = letterToIndex(correctLetter);
@@ -157,15 +176,33 @@ export function parseAiGeneratedOpenEnded(
       .filter(Boolean);
     if (lines.length === 0) continue;
 
-    // Keep question stem as first non-empty line, answer/rubric as explanation.
+    const markahIndex = lines.findIndex((line) => /^(?:Markah|Marks?)\s*[:：]/i.test(line));
     const answerLabelIndex = lines.findIndex((line) =>
       /^(jawapan|answer|model answer|marking points?|rubric|skema)\s*:/i.test(line),
     );
-    const questionLines = answerLabelIndex > 0 ? lines.slice(0, answerLabelIndex) : [lines[0]];
-    const explanationLines = answerLabelIndex >= 0 ? lines.slice(answerLabelIndex) : lines.slice(1);
+    const stemEnd =
+      markahIndex >= 0
+        ? markahIndex
+        : answerLabelIndex > 0
+          ? answerLabelIndex
+          : lines.length;
+    const questionLines = lines.slice(0, stemEnd > 0 ? stemEnd : 1);
+    const explanationStart =
+      markahIndex >= 0 && answerLabelIndex > markahIndex
+        ? answerLabelIndex
+        : answerLabelIndex >= 0
+          ? answerLabelIndex
+          : stemEnd < lines.length
+            ? stemEnd
+            : 1;
+    const explanationLines = lines.slice(explanationStart);
+    const maxMarks = parseMarkahFromBlock(lines);
     const questionText = formatBilingualQuestionStem(questionLines.join("\n"));
     const explanation = explanationLines.join("\n").trim() || null;
     if (!questionText) continue;
+
+    const markLine = maxMarks != null ? `Markah: ${maxMarks}\n` : "";
+    const questionForGrade = `${questionText}\n${markLine}`.trim();
 
     out.push({
       id: out.length + 1,
@@ -176,7 +213,8 @@ export function parseAiGeneratedOpenEnded(
       options: [],
       correctAnswer: "",
       explanation,
-      questionForGrade: questionText,
+      questionForGrade,
+      maxMarks,
     });
   }
 

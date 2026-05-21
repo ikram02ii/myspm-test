@@ -50,6 +50,9 @@ export type RetrievedChunk = {
   chapter?: string;
   pageStart?: number;
   pageEnd?: number;
+  /** From past-paper ingest when available. */
+  maxMarks?: number;
+  questionRef?: string;
 };
 
 export type RetrieveChunksResult = {

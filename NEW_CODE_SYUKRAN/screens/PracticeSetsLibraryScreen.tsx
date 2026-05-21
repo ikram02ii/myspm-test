@@ -10,6 +10,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
 } from "react-native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
@@ -52,107 +53,180 @@ const AnimatedLinearGradient = Animated.createAnimatedComponent(LinearGradient);
 
 type Props = NativeStackScreenProps<PracticeStackParamList, "PracticeLibrary">;
 
-const AI_TOPIC_OPTIONS_BY_SUBJECT: Record<string, string[]> = {
-  math: [
-    "Chapter 1: Quadratic Functions and Equations in One Variable",
-    "Chapter 2: Number Bases",
-    "Chapter 3: Logical Reasoning",
-    "Chapter 4: Operations on Sets",
-    "Chapter 5: Network in Graph Theory",
-    "Chapter 6: Linear Inequalities in Two Variables",
-    "Chapter 7: Graphs of Motion",
-    "Chapter 8: Measures of Dispersion for Ungrouped Data",
-    "Chapter 9: Probability of Combined Events",
-    "Chapter 10: Consumer Mathematics: Financial Management",
-  ],
-  addmath: [
-    "Chapter 1: Functions",
-    "Chapter 2: Quadratic Functions",
-    "Chapter 3: Systems of Equations",
-    "Chapter 4: Indices, Surds and Logarithms",
-    "Chapter 5: Progressions",
-    "Chapter 6: Linear Law",
-    "Chapter 7: Coordinate Geometry",
-    "Chapter 8: Vectors",
-    "Chapter 9: Solution of Triangles",
-    "Chapter 10: Index Numbers",
-  ],
-  biology: [
-    "Chapter 1: Introduction to Biology and Laboratory Rules",
-    "Chapter 2: Cell Biology and Organization",
-    "Chapter 3: Movement of Substances Across a Plasma Membrane",
-    "Chapter 4: Chemical Composition in a Cell",
-    "Chapter 5: Metabolism and Enzymes",
-    "Chapter 6: Cell Division",
-    "Chapter 7: Cellular Respiration",
-    "Chapter 8: Respiratory Systems in Humans and Animals",
-    "Chapter 9: Nutrition and the Human Digestive System",
-    "Chapter 10: Transport in Humans and Animals",
-    "Chapter 11: Immunity in Humans",
-    "Chapter 12: Coordination and Response in Humans",
-    "Chapter 13: Homeostasis and the Human Urinary System",
-    "Chapter 14: Support and Movement in Humans and Animals",
-    "Chapter 15: Sexual Reproduction, Development, and Growth in Humans and Animals",
-  ],
-  physics: [
-    "Chapter 1: Measurement",
-    "Chapter 2: Force and Motion I",
-    "Chapter 3: Gravitation",
-    "Chapter 4: Heat",
-    "Chapter 5: Waves",
-    "Chapter 6: Light and Optics",
-  ],
-  chemistry: [
-    "Chapter 1: Introduction to Chemistry",
-    "Chapter 2: Matter and the Atomic Structure",
-    "Chapter 3: The Mole Concept, Chemical Formula and Equations",
-    "Chapter 4: The Periodic Table of Elements",
-    "Chapter 5: Chemical Bond",
-    "Chapter 6: Acid, Base and Salt",
-    "Chapter 7: Rate of Reaction",
-    "Chapter 8: Manufactured Substances in Industry",
-  ],
-  science: [
-    "Chapter 1: Safety Measures in Laboratory",
-    "Chapter 2: Emergency Help",
-    "Chapter 3: Techniques of Measuring the Parameters of Body Health",
-    "Chapter 4: Green Technology for Environmental Sustainability",
-    "Chapter 5: Genetics",
-    "Chapter 6: Support, Movement and Growth",
-    "Chapter 7: Body Coordination",
-    "Chapter 8: Elements and Substances",
-    "Chapter 9: Chemicals in Industry",
-    "Chapter 10: Chemicals in Medicine and Health",
-    "Chapter 11: Force and Motion",
-    "Chapter 12: Nuclear Energy",
-  ],
-  history: [
-    "Bab 1: Warisan Negara Bangsa",
-    "Bab 2: Kebangkitan Nasionalisme",
-    "Bab 3: Konflik Dunia dan Pendudukan Jepun di Negara Kita",
-    "Bab 4: Era Peralihan Kuasa British di Negara Kita",
-    "Bab 5: Persekutuan Tanah Melayu 1948",
-    "Bab 6: Ancaman Komunis dan Perisytiharan Darurat",
-    "Bab 7: Usaha ke Arah Kemerdekaan",
-    "Bab 8: Pilihan Raya",
-    "Bab 9: Perlembagaan Persekutuan Tanah Melayu 1957",
-    "Bab 10: Pemasyhuran Kemerdekaan",
-  ],
-  bm: [
-    "Karangan",
-    "Rumusan",
-    "Pemahaman",
-    "Tatabahasa",
-    "Novel",
-  ],
-  english: [
-    "Reading comprehension",
-    "Essay writing",
-    "Grammar",
-    "Summary writing",
-    "Literature",
-  ],
+type AiFormLevel = 4 | 5;
+
+type AiTopicsByForm = {
+  form4: string[];
+  form5: string[];
 };
+
+const AI_TOPIC_OPTIONS_BY_SUBJECT_AND_FORM: Record<string, AiTopicsByForm> = {
+  math: {
+    form4: [
+      "Chapter 1: Quadratic Functions and Equations in One Variable",
+      "Chapter 2: Number Bases",
+      "Chapter 3: Logical Reasoning",
+      "Chapter 4: Operations on Sets",
+      "Chapter 5: Network in Graph Theory",
+      "Chapter 6: Linear Inequalities in Two Variables",
+      "Chapter 7: Graphs of Motion",
+      "Chapter 8: Measures of Dispersion for Ungrouped Data",
+      "Chapter 9: Probability of Combined Events",
+      "Chapter 10: Consumer Mathematics: Financial Management",
+    ],
+    form5: [
+      "Chapter 1: Variation",
+      "Chapter 2: Matrices",
+      "Chapter 3: Consumer Mathematics: Insurance",
+      "Chapter 4: Consumer Mathematics: Taxation",
+      "Chapter 5: Congruency, Enlargement and Combined Transformations",
+      "Chapter 6: Ratios and Graphs of Trigonometric Functions",
+      "Chapter 7: Measures of Dispersion for Grouped Data",
+      "Chapter 8: Mathematical Modeling",
+    ],
+  },
+  addmath: {
+    form4: [
+      "Chapter 1: Functions",
+      "Chapter 2: Quadratic Functions",
+      "Chapter 3: Systems of Equations",
+    ],
+    form5: [
+      "Chapter 1: Circular Measure",
+      "Chapter 2: Differentiation",
+      "Chapter 3: Integration",
+      "Chapter 4: Permutation and Combination",
+      "Chapter 5: Probability Distribution",
+      "Chapter 6: Trigonometric Functions",
+      "Chapter 7: Linear Programming",
+      "Chapter 8: Kinematics of Linear Motion",
+    ],
+  },
+  biology: {
+    form4: [
+      "Chapter 1: Introduction to Biology and Laboratory Rules",
+      "Chapter 2: Cell Biology and Organization",
+      "Chapter 3: Movement of Substances Across a Plasma Membrane",
+      "Chapter 4: Chemical Composition in a Cell",
+      "Chapter 5: Metabolism and Enzymes",
+      "Chapter 6: Cell Division",
+      "Chapter 7: Cellular Respiration",
+      "Chapter 8: Respiratory Systems in Humans and Animals",
+    ],
+    form5: [
+      "Chapter 1: Organisation of Plant Tissues and Growth",
+      "Chapter 2: Leaf Structure and Function",
+      "Chapter 3: Nutrition in Plants",
+      "Chapter 4: Transport in Plants",
+      "Chapter 5: Response in Plants",
+      "Chapter 6: Sexual Reproduction in Flowering Plants",
+      "Chapter 7: Adaptations of Plants in Different Habitats",
+      "Chapter 8: Biodiversity",
+      "Chapter 9: Ecosystems",
+      "Chapter 10: Environmental Sustainability",
+      "Chapter 11: Inheritance",
+      "Chapter 12: Variation",
+      "Chapter 13: Genetic Technology",
+    ],
+  },
+  physics: {
+    form4: [
+      "Chapter 1: Measurement",
+      "Chapter 2: Force and Motion I",
+      "Chapter 3: Gravitation",
+      "Chapter 4: Heat",
+    ],
+    form5: [
+      "Chapter 1: Force and Motion II",
+      "Chapter 2: Pressure",
+      "Chapter 3: Electricity",
+      "Chapter 4: Electromagnetism",
+      "Chapter 5: Electronics",
+      "Chapter 6: Nuclear Physics",
+      "Chapter 7: Quantum Physics",
+    ],
+  },
+  chemistry: {
+    form4: [
+      "Chapter 1: Introduction to Chemistry",
+      "Chapter 2: Matter and the Atomic Structure",
+      "Chapter 3: The Mole Concept, Chemical Formula and Equations",
+      "Chapter 4: The Periodic Table of Elements",
+      "Chapter 5: Chemical Bond",
+      "Chapter 6: Acid, Base and Salt",
+      "Chapter 7: Rate of Reaction",
+      "Chapter 8: Manufactured Substances in Industry",
+    ],
+    form5: [
+      "Chapter 1: Redox Equilibrium",
+      "Chapter 2: Carbon Compound",
+      "Chapter 3: Thermochemistry",
+      "Chapter 4: Polymer",
+      "Chapter 5: Consumer and Industrial Chemistry",
+    ],
+  },
+  science: {
+    form4: [
+      "Chapter 1: Safety Measures in Laboratory",
+      "Chapter 2: Emergency Help",
+      "Chapter 3: Techniques of Measuring the Parameters of Body Health",
+      "Chapter 4: Green Technology for Environmental Sustainability",
+      "Chapter 5: Genetics",
+      "Chapter 6: Support, Movement and Growth",
+    ],
+    form5: [
+      "Chapter 1: Microorganisms",
+      "Chapter 2: Nutrition and Food Technology",
+      "Chapter 3: Sustainability of the Environment",
+      "Chapter 4: Rate of Reaction",
+      "Chapter 5: Carbon Compounds",
+      "Chapter 6: Electrochemistry",
+      "Chapter 7: Light and Optics",
+      "Chapter 8: Force and Pressure",
+      "Chapter 9: Space Technology",
+    ],
+  },
+  history: {
+    form4: [
+      "Bab 1: Warisan Negara Bangsa",
+      "Bab 2: Kebangkitan Nasionalisme",
+      "Bab 3: Konflik Dunia dan Pendudukan Jepun di Negara Kita",
+      "Bab 4: Era Peralihan Kuasa British di Negara Kita",
+      "Bab 5: Persekutuan Tanah Melayu 1948",
+    ],
+    form5: [
+      "Bab 1: Kedaulatan Negara",
+      "Bab 2: Perlembagaan Persekutuan",
+      "Bab 3: Raja Berperlembagaan dan Demokrasi Berparlimen",
+      "Bab 4: Sistem Persekutuan",
+      "Bab 5: Pembentukan Malaysia",
+      "Bab 6: Cabaran Selepas Pembentukan Malaysia",
+      "Bab 7: Membina Kesejahteraan Negara",
+      "Bab 8: Membina Kemakmuran Negara",
+      "Bab 9: Dasar Luar Malaysia",
+      "Bab 10: Kecemerlangan Malaysia di Persada Dunia",
+    ],
+  },
+  bm: {
+    form4: ["Karangan", "Rumusan", "Pemahaman", "Tatabahasa", "Novel"],
+    form5: ["Karangan", "Rumusan", "Pemahaman", "Tatabahasa", "Novel"],
+  },
+  english: {
+    form4: ["Reading comprehension", "Essay writing", "Grammar", "Summary writing", "Literature"],
+    form5: ["Reading comprehension", "Essay writing", "Grammar", "Summary writing", "Literature"],
+  },
+};
+
+function aiTopicsForSubjectAndForm(subjectKey: string, form: AiFormLevel): string[] {
+  const entry = AI_TOPIC_OPTIONS_BY_SUBJECT_AND_FORM[subjectKey];
+  if (!entry) return [];
+  return form === 4 ? entry.form4 : entry.form5;
+}
+
+function subjectHasAiTopicCatalog(subjectKey: string): boolean {
+  const entry = AI_TOPIC_OPTIONS_BY_SUBJECT_AND_FORM[subjectKey];
+  return Boolean(entry && (entry.form4.length > 0 || entry.form5.length > 0));
+}
 
 function normalizeAiTopicSubjectKey(input: string | null | undefined): string | null {
   const raw = input?.trim().toLowerCase();
@@ -171,18 +245,51 @@ function normalizeAiTopicSubjectKey(input: string | null | undefined): string | 
   if (compact === "bm" || compact === "bahasamelayu" || compact === "malay") return "bm";
   if (compact === "english" || compact === "eng") return "english";
 
-  return AI_TOPIC_OPTIONS_BY_SUBJECT[compact] ? compact : null;
+  return subjectHasAiTopicCatalog(compact) ? compact : null;
 }
+
+type RagGeneratedImage = {
+  url: string;
+  prompt: string;
+  questionIndex?: number;
+};
 
 type RagGenerateResponse = {
   answer: string;
   sources?: unknown;
   diagram?: MathLineDiagram;
   diagrams?: MathLineDiagram[];
+  generatedImages?: RagGeneratedImage[];
 };
+
+function isScienceDiagramSubject(subject: string): boolean {
+  return /^(biology|chemistry|physics|science)$/i.test(subject.trim());
+}
 
 function hasRenderableDiagram(diagram: MathLineDiagram | undefined): diagram is MathLineDiagram {
   return diagram?.type === "line-chart" && Array.isArray(diagram.points) && diagram.points.length >= 2;
+}
+
+function attachGeneratedImagesToQuestions(
+  questions: PracticeSetQuestion[],
+  generatedImages: RagGeneratedImage[] | undefined,
+): PracticeSetQuestion[] {
+  const images = generatedImages?.filter((img) => img.url?.trim()) ?? [];
+  if (images.length === 0 || questions.length === 0) return questions;
+
+  const byIndex = new Map<number, string>();
+  images.forEach((img, i) => {
+    const qIdx =
+      typeof img.questionIndex === "number" && Number.isInteger(img.questionIndex) && img.questionIndex > 0
+        ? img.questionIndex
+        : i + 1;
+    if (!byIndex.has(qIdx)) byIndex.set(qIdx, img.url);
+  });
+
+  return questions.map((question, i) => {
+    const url = byIndex.get(question.sortOrder) ?? byIndex.get(i + 1);
+    return url ? { ...question, diagramImageUrl: url } : question;
+  });
 }
 
 function attachDiagramsToQuestions(
@@ -225,7 +332,7 @@ function favouriteKey(f: MobileSubjectFavourite): string {
 }
 
 type SubjectTile = MobileSubjectFavourite & {
-  topicKey?: keyof typeof AI_TOPIC_OPTIONS_BY_SUBJECT;
+  topicKey?: keyof typeof AI_TOPIC_OPTIONS_BY_SUBJECT_AND_FORM;
 };
 
 const CHAPTER_SUBJECT_TILES: SubjectTile[] = [
@@ -238,11 +345,13 @@ const CHAPTER_SUBJECT_TILES: SubjectTile[] = [
   { code: "history", name: "Sejarah", topicKey: "history" },
 ];
 
-function getSubjectTileTopicKey(tile: SubjectTile | undefined): keyof typeof AI_TOPIC_OPTIONS_BY_SUBJECT | null {
+function getSubjectTileTopicKey(
+  tile: SubjectTile | undefined,
+): keyof typeof AI_TOPIC_OPTIONS_BY_SUBJECT_AND_FORM | null {
   if (!tile) return null;
   if (tile.topicKey) return tile.topicKey;
   const key = normalizeAiTopicSubjectKey(tile.code) ?? normalizeAiTopicSubjectKey(tile.name);
-  return key && AI_TOPIC_OPTIONS_BY_SUBJECT[key] ? key : null;
+  return key && subjectHasAiTopicCatalog(key) ? key : null;
 }
 
 function withChapterSubjectTiles(items: MobileSubjectFavourite[]): SubjectTile[] {
@@ -260,6 +369,8 @@ function withChapterSubjectTiles(items: MobileSubjectFavourite[]): SubjectTile[]
 
 export default function PracticeSetsLibraryScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
+  const { height: windowHeight } = useWindowDimensions();
+  const aiModalScrollMaxHeight = Math.max(220, windowHeight * 0.52);
   const webTopPadding = Platform.OS === "web" ? 67 : 0;
   const [sets, setSets] = useState<PracticeSetSummary[]>([]);
   const [favourites, setFavourites] = useState<MobileSubjectFavourite[]>([]);
@@ -279,6 +390,7 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
   const [aiGenerating, setAiGenerating] = useState(false);
   const [metaFormLevel, setMetaFormLevel] = useState<string>("Form 4");
   const [aiModalOpen, setAiModalOpen] = useState(false);
+  const [aiFormLevel, setAiFormLevel] = useState<AiFormLevel>(4);
   const [aiMode, setAiMode] = useState<"general" | "topic">("general");
   const [aiTopic, setAiTopic] = useState("");
   const [aiTopicDropdownOpen, setAiTopicDropdownOpen] = useState(false);
@@ -462,12 +574,10 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
     return favouriteKey(favouriteTiles[0]);
   }, [favouriteTiles, activeSubjectCode]);
 
-  const aiTopicOptions = useMemo(() => {
+  const aiTopicSubjectKey = useMemo(() => {
     const activeFavourite = favouriteTiles.find((f) => favouriteKey(f) === selectedSubjectKey);
     const explicitTopicKey = getSubjectTileTopicKey(activeFavourite);
-    if (explicitTopicKey) {
-      return AI_TOPIC_OPTIONS_BY_SUBJECT[explicitTopicKey];
-    }
+    if (explicitTopicKey) return explicitTopicKey;
 
     const candidates = [
       selectedSubjectKey,
@@ -478,13 +588,18 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
 
     for (const candidate of candidates) {
       const key = normalizeAiTopicSubjectKey(candidate);
-      if (key && AI_TOPIC_OPTIONS_BY_SUBJECT[key]) {
-        return AI_TOPIC_OPTIONS_BY_SUBJECT[key];
-      }
+      if (key && subjectHasAiTopicCatalog(key)) return key;
     }
 
-    return [];
+    return null;
   }, [favouriteTiles, selectedSubjectKey]);
+
+  const aiTopicOptions = useMemo(() => {
+    if (!aiTopicSubjectKey) return [];
+    return aiTopicsForSubjectAndForm(aiTopicSubjectKey, aiFormLevel);
+  }, [aiTopicSubjectKey, aiFormLevel]);
+
+  const aiFormLevelLabel = `Form ${aiFormLevel}`;
 
   useEffect(() => {
     if (aiMode !== "topic") return;
@@ -499,7 +614,7 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
       setAiTopic(firstTopic);
       setAiTopicDropdownOpen(false);
     }
-  }, [aiMode, aiTopic, aiTopicOptions]);
+  }, [aiMode, aiTopic, aiTopicOptions, aiFormLevel]);
 
   const visibleSets = useMemo(() => {
     if (favouriteTiles.length === 0) {
@@ -532,6 +647,7 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
 
   const openAiGenerateModal = () => {
     setAiTopicDropdownOpen(false);
+    setAiFormLevel(metaFormLevel === "Form 5" ? 5 : 4);
     setAiModalOpen(true);
   };
 
@@ -541,8 +657,8 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
     const selectedTopic = aiMode === "topic" ? aiTopic.trim() : "";
     const topicPart =
       selectedTopic.length > 0
-        ? ` focused on topic: ${selectedTopic}`
-        : "";
+        ? ` focused on topic: ${selectedTopic} (${aiFormLevelLabel})`
+        : ` for ${aiFormLevelLabel}`;
     const historyKey = questionHistoryKey(subject, selectedTopic, aiQuestionType);
     const recentQuestions = aiQuestionHistoryRef.current.get(historyKey) ?? [];
     const avoidInstructions =
@@ -567,11 +683,19 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
         ? ""
         : `Each question stem must be bilingual on two separate lines: first line "EN: ...", second line "BM: ..." (BM must start on a new line, not the same line as EN). `;
 
+    const diagramHint = isScienceDiagramSubject(subject)
+      ? " After each BM: line, output exactly one line Perlu rajah: Ya or Perlu rajah: Tidak (Ya only when a diagram truly helps that question). "
+      : " ";
+
+    const matrixFormatHint = isMathSubject
+      ? " For matrix MCQ options, write each matrix as one token in semicolon row form, e.g. [3 2; 1 4] (rows separated by ;, entries by spaces). "
+      : " ";
+
     if (aiQuestionType === "mcq") {
-      return `Generate ${aiQuestionCount} SPM ${subject} ${questionTypeLabel} questions${topicPart}. ${variationInstructions} ${graphInstructions}${bilingualStemRule}Include A-D options, Jawapan and Penjelasan.`;
+      return `Generate ${aiQuestionCount} SPM ${subject} MCQ (A-D) objective questions${topicPart}. ${variationInstructions} ${graphInstructions}${bilingualStemRule}${diagramHint}${matrixFormatHint}Use exact format: Soalan 1, then EN: and BM: stems on separate lines, then A. B. C. D. options, then Jawapan: (one letter A-D only), then Penjelasan:. Do not use Markah or Marking points. Repeat for Soalan 2, 3, etc.`;
     }
 
-    return `Generate ${aiQuestionCount} SPM ${subject} subjective questions${topicPart}. ${variationInstructions} ${graphInstructions}${bilingualStemRule}Use this exact format for every item: Soalan 1, then the question stem on the next line, then Jawapan: with a concise model answer, then Marking points: with brief marking points. Repeat as Soalan 2, Soalan 3, and so on.`;
+    return `Generate ${aiQuestionCount} SPM ${subject} subjective questions${topicPart}. ${variationInstructions} ${graphInstructions}${bilingualStemRule}Use past-paper excerpts to calibrate marks per question. For each item: Soalan N, bilingual stem (EN: then BM: on new line), Markah: <integer> (match typical mark weight from retrieved past papers for similar question type), Jawapan:, then Marking points: as bullet scheme. Repeat for Soalan 2, 3, etc.`;
   };
 
   const runAiGenerate = async () => {
@@ -597,13 +721,17 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
           query: buildAiQuery(backendSubject),
           subject: backendSubject,
           topK: 8,
+          generateImage: isScienceDiagramSubject(backendSubject),
         },
       );
 
       if (aiQuestionType === "mcq") {
-        const parsed = attachDiagramsToQuestions(
-          parseAiGeneratedMcqAnswer(result.answer),
-          result.diagrams ?? (result.diagram ? [result.diagram] : []),
+        const parsed = attachGeneratedImagesToQuestions(
+          attachDiagramsToQuestions(
+            parseAiGeneratedMcqAnswer(result.answer),
+            result.diagrams ?? (result.diagram ? [result.diagram] : []),
+          ),
+          result.generatedImages,
         );
         if (parsed.length === 0) {
           showToast("AI did not return parseable MCQ questions. Try again.");
@@ -615,14 +743,17 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
           title: "AI Practice",
           questions: parsed,
           subject: backendSubject,
-          formLevel: metaFormLevel,
+          formLevel: aiFormLevelLabel,
         });
         return;
       }
 
-      const parsedOpen = attachDiagramsToQuestions(
-        parseAiGeneratedOpenEnded(result.answer, "short"),
-        result.diagrams ?? (result.diagram ? [result.diagram] : []),
+      const parsedOpen = attachGeneratedImagesToQuestions(
+        attachDiagramsToQuestions(
+          parseAiGeneratedOpenEnded(result.answer, "short"),
+          result.diagrams ?? (result.diagram ? [result.diagram] : []),
+        ),
+        result.generatedImages,
       );
       if (parsedOpen.length === 0) {
         showToast("AI did not return parseable questions. Try again.");
@@ -635,7 +766,7 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
         title: "AI Practice",
         questions: parsedOpen,
         subject: backendSubject,
-        formLevel: metaFormLevel,
+        formLevel: aiFormLevelLabel,
       });
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Failed to generate questions.");
@@ -856,11 +987,46 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
       <Modal transparent visible={aiModalOpen} animationType="fade" onRequestClose={() => setAiModalOpen(false)}>
         <Pressable style={styles.modalBackdrop} onPress={() => !aiGenerating && setAiModalOpen(false)}>
           <Pressable
-            style={[styles.modalCard, { paddingBottom: insets.bottom + 16 }]}
+            style={[styles.modalCard, styles.aiModalCard, { paddingBottom: insets.bottom + 12 }]}
             onPress={(e) => e.stopPropagation()}
           >
             <Text style={styles.modalTitle}>Generate AI questions</Text>
-            <Text style={styles.modalHint}>Choose mode, question type, and how many questions.</Text>
+            <Text style={styles.modalHint}>Choose form, mode, question type, and how many questions.</Text>
+
+            <ScrollView
+              style={[styles.aiModalScroll, { maxHeight: aiModalScrollMaxHeight }]}
+              contentContainerStyle={styles.aiModalScrollContent}
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator
+              nestedScrollEnabled
+            >
+            <Text style={styles.fieldLabel}>Form</Text>
+            <View style={styles.choiceRow}>
+              <Pressable
+                style={[styles.choiceChip, aiFormLevel === 4 && styles.choiceChipActive]}
+                onPress={() => {
+                  setAiFormLevel(4);
+                  setAiTopicDropdownOpen(false);
+                }}
+                disabled={aiGenerating}
+              >
+                <Text style={[styles.choiceChipText, aiFormLevel === 4 && styles.choiceChipTextActive]}>
+                  Form 4
+                </Text>
+              </Pressable>
+              <Pressable
+                style={[styles.choiceChip, aiFormLevel === 5 && styles.choiceChipActive]}
+                onPress={() => {
+                  setAiFormLevel(5);
+                  setAiTopicDropdownOpen(false);
+                }}
+                disabled={aiGenerating}
+              >
+                <Text style={[styles.choiceChipText, aiFormLevel === 5 && styles.choiceChipTextActive]}>
+                  Form 5
+                </Text>
+              </Pressable>
+            </View>
 
             <Text style={styles.fieldLabel}>Mode</Text>
             <View style={styles.choiceRow}>
@@ -905,7 +1071,13 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
                   />
                 </Pressable>
 
-                {aiTopicDropdownOpen ? (
+                {aiTopicOptions.length === 0 ? (
+                  <Text style={styles.modalEmpty}>
+                    No topics for {aiFormLevelLabel} and this subject yet.
+                  </Text>
+                ) : null}
+
+                {aiTopicDropdownOpen && aiTopicOptions.length > 0 ? (
                   <View style={styles.topicDropdownMenu}>
                     <ScrollView nestedScrollEnabled style={styles.topicDropdownScroll}>
                       {aiTopicOptions.map((topic) => (
@@ -972,27 +1144,30 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
                 </Pressable>
               ))}
             </View>
+            </ScrollView>
 
-            <Pressable
-              style={({ pressed }) => [styles.generateActionBtn, pressed && styles.generateActionBtnPressed]}
-              onPress={() => void runAiGenerate()}
-              disabled={aiGenerating}
-            >
-              <LinearGradient
-                colors={["#F15A29", "#5B2EFF"]}
-                start={{ x: 0, y: 0.5 }}
-                end={{ x: 1, y: 0.5 }}
-                style={styles.generateActionBtnGrad}
+            <View style={styles.aiModalFooter}>
+              <Pressable
+                style={({ pressed }) => [styles.generateActionBtn, pressed && styles.generateActionBtnPressed]}
+                onPress={() => void runAiGenerate()}
+                disabled={aiGenerating}
               >
-                <Text style={styles.generateActionBtnText}>
-                  {aiGenerating ? "Generating..." : "Generate"}
-                </Text>
-              </LinearGradient>
-            </Pressable>
+                <LinearGradient
+                  colors={["#F15A29", "#5B2EFF"]}
+                  start={{ x: 0, y: 0.5 }}
+                  end={{ x: 1, y: 0.5 }}
+                  style={styles.generateActionBtnGrad}
+                >
+                  <Text style={styles.generateActionBtnText}>
+                    {aiGenerating ? "Generating..." : "Generate"}
+                  </Text>
+                </LinearGradient>
+              </Pressable>
 
-            <Pressable style={styles.modalClose} onPress={() => !aiGenerating && setAiModalOpen(false)}>
-              <Text style={styles.modalCloseText}>Close</Text>
-            </Pressable>
+              <Pressable style={styles.modalClose} onPress={() => !aiGenerating && setAiModalOpen(false)}>
+                <Text style={styles.modalCloseText}>Close</Text>
+              </Pressable>
+            </View>
           </Pressable>
         </Pressable>
       </Modal>
@@ -1174,6 +1349,23 @@ const styles = StyleSheet.create({
     paddingTop: 20,
     maxHeight: "72%",
   },
+  aiModalCard: {
+    maxHeight: "90%",
+  },
+  aiModalScroll: {
+    flexGrow: 0,
+    flexShrink: 1,
+  },
+  aiModalScrollContent: {
+    paddingBottom: 4,
+  },
+  aiModalFooter: {
+    flexShrink: 0,
+    paddingTop: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: "rgba(15, 23, 42, 0.08)",
+    backgroundColor: "#FFFFFF",
+  },
   modalTitle: {
     fontSize: 18,
     fontFamily: fonts.bold,
@@ -1206,9 +1398,9 @@ const styles = StyleSheet.create({
     marginVertical: 20,
   },
   modalClose: {
-    marginTop: 12,
+    marginTop: 4,
     alignSelf: "center",
-    paddingVertical: 12,
+    paddingVertical: 10,
   },
   modalCloseText: {
     fontSize: 15,
@@ -1321,7 +1513,6 @@ const styles = StyleSheet.create({
     fontFamily: fonts.bold,
   },
   generateActionBtn: {
-    marginTop: 14,
     borderRadius: 12,
     overflow: "hidden",
   },

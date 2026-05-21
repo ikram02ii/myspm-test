@@ -1,5 +1,16 @@
 import { chatCompletion, generateImage } from "./llmProvider";
+import {
+  generateEducationalDiagramsForAnswer,
+  isScienceDiagramSubject,
+  shouldGenerateEducationalDiagrams,
+} from "./educationalDiagramService";
+import {
+  buildPastPaperMarksGuidance,
+  isMcqGenerationQuery,
+  isSubjectiveGenerationQuery,
+} from "../rag/pastPaperMarksHints";
 import { retrieveChunks } from "../rag/retrievalService";
+import type { RetrievedChunk } from "../rag/types";
 import { enrichMathAnswerWithSvg } from "./mathSvg";
 
 export type GenerateRagInput = {
@@ -34,6 +45,7 @@ export type GenerateRagResult = {
   generatedImages: Array<{
     url: string;
     prompt: string;
+    questionIndex?: number;
   }>;
 };
 
@@ -79,7 +91,26 @@ For every soalan stem (except pure-BM-only subjects like Sejarah), use bilingual
 EN: <stem in English>
 BM: <same meaning in Bahasa Melayu>
 The BM line MUST start on a new line immediately after the EN line. Never place EN and BM on the same line.
-Then A–D (option text may stay in English only if clearer; do not duplicate four long bilingual blocks).`;
+Then A–D (option text may stay in English only if clearer; do not duplicate four long bilingual blocks).
+
+When generating subjective / structured (non-MCQ) SPM questions, use this EXACT layout for EVERY item:
+
+Soalan 1
+EN: <stem in English>
+BM: <same meaning in Bahasa Melayu — new line after EN>
+Markah: <positive integer total marks for this question>
+Jawapan: <concise model answer>
+Marking points:
+- <point 1>
+- <point 2>
+
+Soalan 2
+... (same pattern)
+
+Rules for Markah::
+- Calibrate each Markah: using mark weights in the provided past-paper excerpts (e.g. [3 marks], 4 markah, similar question depth).
+- Do not copy whole questions from context; invent new stems with similar mark allocation.
+- Marking points must be checkable and sum logically to Markah: (scheme style like SPM mark schemes).`;
 
 const LANGUAGE_RULE_DEFAULT =
   "Respond in the same language as the user's request (Bahasa Melayu or English) unless asked otherwise.";
@@ -118,6 +149,50 @@ Each soalan stem must be bilingual on two lines:
 EN: <English stem>
 BM: <Bahasa Melayu stem — new line, not same line as EN>
 Then A–D, Jawapan:, Penjelasan:.`;
+}
+
+function formatGeneratorContextBlock(chunk: RetrievedChunk, index: number): string {
+  const meta: string[] = [];
+  if (chunk.sourceType === "past_paper") {
+    if (chunk.questionRef) meta.push(`ref=${chunk.questionRef}`);
+    if (typeof chunk.maxMarks === "number") meta.push(`stored marks=${chunk.maxMarks}`);
+  }
+  const header = meta.length > 0 ? `[${index}] (${meta.join(", ")})\n` : `[${index}]\n`;
+  return `${header}${chunk.content}`;
+}
+
+function mcqFormatReminder(query: string, subject?: string | null): string {
+  if (!isMcqGenerationQuery(query)) return "";
+  const isScience = Boolean(subject && isScienceDiagramSubject(subject));
+  const scienceDiagramRule = isScience
+    ? `
+
+Science diagram rule: After the BM: line and BEFORE the first A. option line, add exactly one line in this exact form (choose one):
+Perlu rajah: Tidak
+or
+Perlu rajah: Ya
+Use Ya only if a diagram genuinely helps answer that question (e.g. apparatus, cell structure, circuit, ray diagram, molecular structure shown in the stem). Use Tidak for theory-only, calculations, periodic trends without a figure, or when the stem does not reference a diagram. Most questions should be Perlu rajah: Tidak.`
+    : "";
+  const mcqLine = isScience
+    ? "Soalan 1 → EN: / BM: (two lines) → Perlu rajah: Ya or Perlu rajah: Tidak → A. B. C. D. → Jawapan: <one letter> → Penjelasan:"
+    : "Soalan 1 → EN: / BM: (two lines) → A. B. C. D. → Jawapan: <one letter> → Penjelasan:";
+
+  return `
+
+The user wants objective MCQ (A–D) questions ONLY. Use the MCQ template from the system message:
+${mcqLine}
+Do NOT use Markah:, Marking points:, or essay-style model answers for MCQ.
+Output at least one full Soalan block before any other text.${scienceDiagramRule}`;
+}
+
+function subjectiveGenerationReminder(query: string, hits: RetrievedChunk[]): string {
+  if (!isSubjectiveGenerationQuery(query)) return "";
+  const marksGuide = buildPastPaperMarksGuidance(hits);
+  return `
+
+The user wants subjective (structured) questions. Use the subjective Soalan / EN / BM / Markah / Jawapan / Marking points template.
+Assign each Markah: from past-paper mark patterns in the excerpts — not arbitrary defaults.
+${marksGuide ? `\n${marksGuide}\n` : "\n(No past-paper mark samples in context — use typical SPM weights: 2–4 marks for short explain, 5–8 for KBAT/essay parts.)\n"}`;
 }
 
 function mathBilingualReminder(subject: string | null | undefined): string {
@@ -264,6 +339,32 @@ function lineDiagramFromQuery(query: string): GenerateRagDiagram | undefined {
   };
 }
 
+async function buildGeneratedImages(
+  input: GenerateRagInput,
+  answer: string,
+): Promise<GenerateRagResult["generatedImages"]> {
+  const subject = input.subject?.trim() ?? "";
+  if (!shouldGenerateEducationalDiagrams(subject, input.query, input.generateImage)) {
+    if (input.generateImage && input.imagePrompt?.trim()) {
+      const urls = await generateImage(input.imagePrompt.trim());
+      return urls.map((url) => ({ url, prompt: input.imagePrompt!.trim() }));
+    }
+    return [];
+  }
+
+  const diagrams = await generateEducationalDiagramsForAnswer({
+    subject,
+    query: input.query,
+    answer,
+    imagePrompt: input.imagePrompt,
+  });
+  return diagrams.map((d) => ({
+    url: d.url,
+    prompt: d.prompt,
+    questionIndex: d.questionIndex,
+  }));
+}
+
 function buildMathDiagrams(
   input: GenerateRagInput,
   answer: string,
@@ -293,7 +394,7 @@ export async function generateWithRag(
       { role: "system", content: systemPromptForSubject(input.subject) },
       {
         role: "user",
-        content: `${input.query}\n\n(Note: No knowledge-base chunks were retrieved. Answer from general knowledge and clearly label uncertainty.)${mathBilingualReminder(input.subject)}`,
+        content: `${input.query}\n\n(Note: No knowledge-base chunks were retrieved. Answer from general knowledge and clearly label uncertainty.)${mathBilingualReminder(input.subject)}${mcqFormatReminder(input.query, input.subject)}${subjectiveGenerationReminder(input.query, [])}`,
       },
     ], { subject: input.subject, query: input.query });
     const answerWithSvg = shouldPostProcessMathSvg(input.subject)
@@ -303,23 +404,13 @@ export async function generateWithRag(
     const answer = normalizeBilingualAnswer(answerRaw2);
     const diagrams = buildMathDiagrams(input, answer, diagramsFromBlock);
     const diagram = diagrams[0];
-    const generatedImages: GenerateRagResult["generatedImages"] = [];
-    if (input.generateImage) {
-      const prompt =
-        input.imagePrompt?.trim() ||
-        `Create a clean education-style diagram for this math question context: ${input.query}`;
-      const urls = await generateImage(prompt);
-      generatedImages.push(...urls.map((url) => ({ url, prompt })));
-    }
+    const generatedImages = await buildGeneratedImages(input, answer);
     return { answer, diagram, diagrams, sources: [], sourcePageImages: [], generatedImages };
   }
 
-  const contextBlocks = hits.map((h, i) => {
-    const n = i + 1;
-    return `[${n}]\n${h.content}`;
-  });
+  const contextBlocks = hits.map((h, i) => formatGeneratorContextBlock(h, i + 1));
 
-  const userContent = `Below are short excerpts from the syllabus/material (numbered for your use only; never show these numbers or any reference to them in your reply):\n\n${contextBlocks.join("\n\n---\n\n")}\n\nUser request:\n${input.query}\n\nFollow the Soalan / A–D / Jawapan: / Penjelasan: template from the system message.${mathBilingualReminder(input.subject)}`;
+  const userContent = `Below are short excerpts from the syllabus/material (numbered for your use only; never show these numbers or any reference to them in your reply):\n\n${contextBlocks.join("\n\n---\n\n")}\n\nUser request:\n${input.query}\n\nFollow the appropriate template from the system message (MCQ vs subjective).${mathBilingualReminder(input.subject)}${mcqFormatReminder(input.query, input.subject)}${subjectiveGenerationReminder(input.query, hits)}`;
 
   const answerRaw = await chatCompletion([
     { role: "system", content: systemPromptForSubject(input.subject) },
@@ -334,14 +425,7 @@ export async function generateWithRag(
   const diagram = diagrams[0];
 
   const sourcePageImages: GenerateRagResult["sourcePageImages"] = [];
-  const generatedImages: GenerateRagResult["generatedImages"] = [];
-  if (input.generateImage) {
-    const prompt =
-      input.imagePrompt?.trim() ||
-      `Create a clean education-style diagram for this ${input.subject ?? "SPM"} question context: ${input.query}`;
-    const urls = await generateImage(prompt);
-    generatedImages.push(...urls.map((url) => ({ url, prompt })));
-  }
+  const generatedImages = await buildGeneratedImages(input, answer);
 
   return {
     answer,

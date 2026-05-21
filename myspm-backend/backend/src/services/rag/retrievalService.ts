@@ -323,6 +323,8 @@ export async function retrieveChunks(input: RetrieveChunksInput): Promise<Retrie
             conceptSummary: ragPastPaperChunksTable.conceptSummary,
             keywords: ragPastPaperChunksTable.keywords,
             content: ragPastPaperChunksTable.content,
+            maxMarks: ragPastPaperChunksTable.maxMarks,
+            questionRef: ragPastPaperChunksTable.questionRef,
             uploadedAt: ragPastPapersTable.uploadedAt,
           })
           .from(ragPastPaperChunksTable)
@@ -351,6 +353,8 @@ export async function retrieveChunks(input: RetrieveChunksInput): Promise<Retrie
     pageStart: number | undefined,
     pageEnd: number | undefined,
     scoreBoost: number,
+    maxMarks?: number | null,
+    questionRef?: string | null,
   ): RetrievedChunk => {
     const retrievalText = [conceptTitle ?? "", conceptSummary ?? "", keywords ?? "", content]
       .filter(Boolean)
@@ -375,6 +379,8 @@ export async function retrieveChunks(input: RetrieveChunksInput): Promise<Retrie
       pageStart,
       pageEnd,
       content,
+      maxMarks: maxMarks ?? undefined,
+      questionRef: questionRef?.trim() || undefined,
     };
   };
 
@@ -395,6 +401,8 @@ export async function retrieveChunks(input: RetrieveChunksInput): Promise<Retrie
       row.pageStart ?? undefined,
       row.pageEnd ?? undefined,
       0,
+      null,
+      null,
     ),
   );
 
@@ -415,6 +423,8 @@ export async function retrieveChunks(input: RetrieveChunksInput): Promise<Retrie
       undefined,
       undefined,
       PAST_PAPER_RETRIEVAL_BOOST,
+      row.maxMarks,
+      row.questionRef,
     ),
   );
 
