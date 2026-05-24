@@ -2,6 +2,8 @@ import { Router, type IRouter } from "express";
 import multer from "multer";
 import OSS from "ali-oss";
 import { randomUUID } from "node:crypto";
+import { OCR_EXTRACTION_PROMPT } from "../services/rag/ocrTextNormalize";
+import { runOcrPostProcessPipeline } from "../services/rag/ocrPipelineService";
 
 const router: IRouter = Router();
 
@@ -196,8 +198,7 @@ async function qwenOcrFromImageBuffer(buffer: Buffer, mime: string): Promise<str
           { type: "image_url", image_url: { url: dataUrlForBuffer(buffer, mime) } },
           {
             type: "text",
-            text:
-              "Extract all visible text from this image. Return plain text only. Preserve line breaks where they reflect the layout. Do not add commentary.",
+            text: OCR_EXTRACTION_PROMPT,
           },
         ],
       },
@@ -265,11 +266,33 @@ async function qwenOcrFromImageBuffer(buffer: Buffer, mime: string): Promise<str
   throw lastError ?? new Error("OCR failed");
 }
 
-async function runScanPipeline(buffer: Buffer, mime: string, email: string): Promise<{ text: string }> {
+function ocrPostProcessEnabled(): boolean {
+  const v = (process.env["OCR_POST_PROCESS"] ?? "true").trim().toLowerCase();
+  return v !== "0" && v !== "false" && v !== "no" && v !== "off";
+}
+
+async function runScanPipeline(
+  buffer: Buffer,
+  mime: string,
+  email: string,
+  context?: { question?: string; subject?: string },
+): Promise<{ text: string; format: "plain"; validationWarning?: string }> {
   const oss = makeOssClient();
   await uploadScanImageToOss(oss, buffer, mime, email);
-  const text = await qwenOcrFromImageBuffer(buffer, mime);
-  return { text };
+  const rawOcr = await qwenOcrFromImageBuffer(buffer, mime);
+  if (!ocrPostProcessEnabled()) {
+    return { text: rawOcr.trim(), format: "plain" };
+  }
+  const processed = await runOcrPostProcessPipeline({
+    rawOcrText: rawOcr,
+    question: context?.question,
+    subject: context?.subject,
+  });
+  return {
+    text: processed.text,
+    format: processed.format,
+    validationWarning: processed.validationWarning,
+  };
 }
 
 router.post("/scan", upload.any(), async (req, res) => {
@@ -311,9 +334,21 @@ router.post("/scan", upload.any(), async (req, res) => {
     const email = bodyEmail || filesEmail || "unknown@local";
     const emailForStorage = email.includes("@") ? email : "unknown@local";
 
-    const { text } = await runScanPipeline(imageFile.buffer, mime, emailForStorage);
+    const question =
+      typeof (req.body as any)?.question === "string" ? (req.body as any).question.trim() : "";
+    const subject =
+      typeof (req.body as any)?.subject === "string" ? (req.body as any).subject.trim() : "";
+
+    const { text, format, validationWarning } = await runScanPipeline(imageFile.buffer, mime, emailForStorage, {
+      question: question || undefined,
+      subject: subject || undefined,
+    });
     console.log("[scan] ocr text", { length: text?.length ?? 0, preview: (text ?? "").slice(0, 200) });
-    return res.json({ text });
+    return res.json({
+      text,
+      format,
+      ...(validationWarning ? { validationWarning } : {}),
+    });
   } catch (e) {
     const err = e as any;
     const status = typeof err?.status === "number" && err.status >= 400 && err.status < 600 ? err.status : 502;

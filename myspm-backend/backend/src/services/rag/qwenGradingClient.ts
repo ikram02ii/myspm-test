@@ -4,7 +4,6 @@
  */
 
 import type { RubricIdeaKind, VerifierMode } from "./types";
-import { formatExaminerMarkingPriorityBlock } from "./gradingExaminerPolicy";
 import { formatSpmStudentFriendlyRulesBlock } from "./spmStudentLanguage";
 
 export type QwenGradingConfig = { apiKey: string; baseUrl: string; model: string };
@@ -79,11 +78,8 @@ export async function qwenGradingJson(system: string, user: string): Promise<any
 const VERIFIER_MODE_BLOCKS: Record<VerifierMode, string> = {
   meaning: [
     "Task: does the student idea carry the same scientific meaning as the rubric point regardless of wording?",
-    "The rubric is a marking guide — not an exhaustive list of allowed answers.",
-    "Award for correct concept in any phrasing, language, notation, or shorter SPM-style sentence.",
-    "Award valid scientific alternatives not named in the rubric if they satisfy the same mark point.",
-    "Do not require advanced terminology when the meaning is clear at Form 4/5 level.",
-    "Withhold only for factually wrong, contradictory, off-topic, or genuinely absent content.",
+    "Award for correct concept in any phrasing, language, or notation.",
+    "Withhold only for factually wrong, contradictory, or genuinely absent content.",
   ].join("\n"),
   membership: [
     "Task: is the student's answer a valid member of the category described by the rubric row keywords?",
@@ -105,14 +101,6 @@ const VERIFIER_MODE_BLOCKS: Record<VerifierMode, string> = {
     "Task: does this idea correctly describe the named item on this side of the comparison?",
     "Award only if the idea is correct AND applies to the right item.",
     "Withhold if the idea describes the other item even if correct.",
-  ].join("\n"),
-  sequence: [
-    "Task: sequence / order question — CORRECT ORDER IS REQUIRED unless the rubric row explicitly says otherwise.",
-    "For a rubric row at position N: award ONLY if that stage/level appears at position N in the student's ordered list (1st, 2nd, 3rd…).",
-    "If the student lists the right stages but in the wrong order, award FALSE for the misplaced stage(s).",
-    "If the rubric row requires the FULL sequence, every stage must appear in the correct order.",
-    "Accept arrows, numbering, commas, BM/EN, and short lists as valid formats — but order still matters.",
-    "Withhold if the stage is absent, scientifically wrong, too vague, or in the wrong position.",
   ].join("\n"),
   equation: [
     "Task: check ALL of the following and award only if ALL pass —",
@@ -139,8 +127,6 @@ const LEAD_BY_MODE: Record<VerifierMode, string> = {
     "Does this student idea correctly describe the item named on this side of the comparison? Answer with awarded true/false only — do NOT choose marks.",
   equation:
     "Does the student's equation satisfy ALL required species and balance conditions? Answer with awarded true/false only — do NOT choose marks.",
-  sequence:
-    "Does the student's answer satisfy this sequence mark point with the stage in the CORRECT POSITION? Answer with awarded true/false only — do NOT choose marks.",
 };
 
 export async function verifyBorderlineMeaningMatch(params: {
@@ -156,17 +142,12 @@ export async function verifyBorderlineMeaningMatch(params: {
   strictContextBound: boolean;
   openCategoryMarking: boolean;
   exampleUseCombo: boolean;
-  sequenceExpectedOrder?: string;
-  sequenceStudentOrder?: string;
-  sequencePositionIndex?: number;
 }): Promise<{ awarded: boolean; reason: string }> {
   const system = [
     "Verify a student response against a rubric marking point at SPM Form 4/5 level.",
-    formatExaminerMarkingPriorityBlock(),
     formatSpmStudentFriendlyRulesBlock(),
     "Return JSON only: { \"awarded\": boolean, \"reason\": string }.",
     "The reason must be one short plain sentence.",
-    "Prefer awarding when scientific meaning matches; do not require exact rubric wording.",
     VERIFIER_MODE_BLOCKS[params.mode],
     params.openCategoryMarking || params.strictContextBound
       ? "For open-category stems, award if scientifically valid at SPM level for the criterion — not only if wording matches one textbook example. For context-bound stems, the idea must fit the named diagram/text/experiment."
@@ -180,9 +161,8 @@ export async function verifyBorderlineMeaningMatch(params: {
 
   const userParts = [
     LEAD_BY_MODE[params.mode],
-    "Treat common SPM paraphrases, synonyms, and shorter answers as the same meaning when scientifically correct.",
+    "Treat common SPM paraphrases as the same meaning.",
     "For cause-effect science questions, do not require exact causal words like because/therefore if the student clearly states the correct scientific cause/effect idea.",
-    "If the student gives a valid alternative example or mechanism not listed in the rubric but correct for this mark point, award true.",
     "Do not require the student to repeat context already given in the question stem (for example 'when temperature increases') in every sentence.",
     params.openCategoryMarking && !params.strictContextBound
       ? "OPEN CATEGORY: award true for any correct SPM-level response fitting the rubric row."
@@ -196,18 +176,6 @@ export async function verifyBorderlineMeaningMatch(params: {
     params.mode === "membership" ? `Rubric row kind: ${params.rubricKind}` : null,
     params.mode === "membership" && (params.rubricKeywords?.length ?? 0) > 0
       ? `Category keywords: ${params.rubricKeywords!.join(" | ")}`
-      : null,
-    params.mode === "sequence"
-      ? "ORDER IS MANDATORY: wrong order = award false even if all stages are named."
-      : null,
-    params.sequenceExpectedOrder
-      ? `Expected sequence (rubric order): ${params.sequenceExpectedOrder}`
-      : null,
-    params.sequenceStudentOrder
-      ? `Student's sequence as detected: ${params.sequenceStudentOrder}`
-      : null,
-    params.sequencePositionIndex != null && params.sequencePositionIndex >= 0
-      ? `This rubric row is for position ${params.sequencePositionIndex + 1} in that sequence.`
       : null,
     `Question: ${params.question}`,
     `Rubric marking point: ${params.rubricIdea}`,

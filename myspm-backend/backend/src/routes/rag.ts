@@ -8,6 +8,8 @@ import { listTextbooks, registerTextbook } from "../services/rag/textbookService
 import { generateWithRag } from "../services/ai gen/generateFromRag";
 import { listTextbookChaptersForSubjectForm } from "../services/rag/textbookChaptersService";
 import { createRubricsFromTextbookChunks } from "../services/rag/rubricFromTextbookChunksService";
+import { gradeSpeakingPhase } from "../services/rag/speakingGradeService";
+import { transcribeSpeakingAudio } from "../services/rag/speakingTranscribeService";
 
 const router: IRouter = Router();
 const disableRagAuth = process.env["DISABLE_RAG_AUTH"] === "true";
@@ -21,6 +23,10 @@ const upload = multer({
 const gradeUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 20 * 1024 * 1024 },
+});
+const speakingUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 25 * 1024 * 1024 },
 });
 
 function imageBufferToDataUrl(buffer: Buffer, mime: string | undefined): string {
@@ -230,6 +236,12 @@ router.post("/generate", async (req, res) => {
       chapterFilter: chapterFilterRaw || null,
       chapterHint: chapterHintRaw || null,
       createOpenEndedRubrics: req.body?.createOpenEndedRubrics === true,
+      skipRetrieval: req.body?.skipRetrieval === true,
+      englishSpeaking: req.body?.englishSpeaking === true,
+      englishSpeakingPdfPath:
+        typeof req.body?.englishSpeakingPdfPath === "string"
+          ? req.body.englishSpeakingPdfPath.trim()
+          : undefined,
     });
 
     return res.json(result);
@@ -325,6 +337,49 @@ router.post("/grade", gradeUpload.single("diagramImage"), async (req, res) => {
 
     console.error("[rag] grade failed", error);
     return res.status(statusCode).json({ error: message });
+  }
+});
+
+router.post("/speaking/transcribe", speakingUpload.single("audio"), async (req, res) => {
+  try {
+    const file = req.file;
+    if (!file?.buffer?.length) {
+      return res.status(400).json({ error: "audio file is required" });
+    }
+    const result = await transcribeSpeakingAudio({
+      buffer: file.buffer,
+      mimeType: file.mimetype,
+      originalName: file.originalname,
+    });
+    return res.json(result);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to transcribe audio";
+    console.error("[rag] speaking transcribe failed", error);
+    return res.status(500).json({ error: message });
+  }
+});
+
+router.post("/speaking/grade", async (req, res) => {
+  try {
+    const phase = req.body?.phase === "speak" ? "speak" : "prepare";
+    const cueCard = typeof req.body?.cueCard === "string" ? req.body.cueCard : "";
+    const transcript = typeof req.body?.transcript === "string" ? req.body.transcript : "";
+    if (!cueCard.trim()) {
+      return res.status(400).json({ error: "cueCard is required" });
+    }
+    const result = await gradeSpeakingPhase({
+      phase,
+      cueCard,
+      transcript,
+      subject: typeof req.body?.subject === "string" ? req.body.subject : undefined,
+      form: typeof req.body?.form === "string" ? req.body.form : undefined,
+      durationSeconds: Number(req.body?.durationSeconds),
+    });
+    return res.json(result);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to grade speaking";
+    console.error("[rag] speaking grade failed", error);
+    return res.status(500).json({ error: message });
   }
 });
 

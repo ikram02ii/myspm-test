@@ -132,6 +132,14 @@ export default function PracticeSetDetailScreen({ navigation, route }: Props) {
             navigation.navigate("PracticeSession", {
               setId,
               title: title || "Practice",
+              subject: metaSubject,
+              formLevel: metaForm,
+              practiceMode: questions.some((item) => {
+                const t = (item.questionType ?? "").toLowerCase();
+                return t === "speaking_part1" || t === "speaking_part2" || t === "speaking_part3";
+              })
+                ? "speaking"
+                : undefined,
             })
           }
         >

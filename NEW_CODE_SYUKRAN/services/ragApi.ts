@@ -130,3 +130,44 @@ export async function ragApiPost<T>(endpoint: string, body: unknown): Promise<T>
   }
 }
 
+export async function ragApiPostFormData<T>(endpoint: string, formData: FormData): Promise<T> {
+  const token = await AsyncStorage.getItem(AUTH_TOKEN_STORAGE_KEY);
+  const prefix = await getMobileApiBaseUrlPrefix();
+  const url = `${prefix}/api${endpoint.startsWith("/") ? endpoint : `/${endpoint}`}`;
+
+  const t0 = Date.now();
+  const logId = networkLoggerStart({ method: "POST_FORMDATA", url, requestBody: "(form-data)" });
+
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: formData,
+    });
+
+    const rawText = await response.text();
+    const parsed = tryParseJson(rawText);
+    const data = (parsed ?? { error: truncateText(rawText) }) as T & { error?: string };
+
+    networkLoggerFinish(logId, {
+      durationMs: Date.now() - t0,
+      status: response.status,
+      responseBody: truncateText(rawText),
+    });
+
+    if (!response.ok) {
+      throw new Error(data.error ?? "Request failed");
+    }
+
+    return data;
+  } catch (error) {
+    networkLoggerFinish(logId, {
+      durationMs: Date.now() - t0,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
+  }
+}
+

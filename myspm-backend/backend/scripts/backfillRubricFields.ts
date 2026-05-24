@@ -6,7 +6,6 @@
  */
 
 import * as dotenv from "dotenv";
-import { eq } from "drizzle-orm";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ragDb, ragRubricsTable } from "../src/lib/ragDb";
@@ -56,7 +55,10 @@ async function main(): Promise<void> {
       clean += 1;
       continue;
     }
-    await ragDb.update(ragRubricsTable).set({ ideas: JSON.stringify(after) }).where(eq(ragRubricsTable.rubricId, row.rubricId));
+    await ragDb
+      .update(ragRubricsTable)
+      .set({ ideas: JSON.stringify(after) })
+      .where(ragRubricsTable.rubricId.eq(row.rubricId) as never);
     updated += 1;
   }
 

@@ -5,6 +5,7 @@ import * as ImageManipulator from "expo-image-manipulator";
 import { AUTH_USER_STORAGE_KEY } from "../constants/storageKeys";
 import { mobileApiPostFormData } from "./mobileApi";
 import { mobileApiGet } from "./mobileApi";
+import { DEFAULT_MOBILE_API_BASE_URL_PREFIX, getMobileApiBaseUrlPrefix } from "./mobileApiBaseUrl";
 import type { MobileAuthUser } from "./mobileAuth";
 
 const UPLOAD_MAX_WIDTH = 1280;
@@ -66,9 +67,17 @@ export type ScanHistoryResponse = {
   items: ScanHistoryItem[];
 };
 
-/** POST /api/scan success body (Qwen OCR text) */
+/** POST /api/scan success body (Qwen OCR + math/LaTeX cleanup) */
 export type AiScanOcrResult = {
   text: string;
+  format?: "plain";
+  validationWarning?: string;
+};
+
+export type AiScanOcrOptions = {
+  /** Current practice question — improves repair/validation when provided */
+  question?: string;
+  subject?: string;
 };
 
 async function getStoredUserEmail(): Promise<string | null> {
@@ -83,28 +92,36 @@ async function getStoredUserEmail(): Promise<string | null> {
   }
 }
 
-function getAiScanBaseUrl(): string | null {
+function getAiScanBaseUrlFromEnv(): string | null {
   const u = process.env.EXPO_PUBLIC_AI_SCAN_BASE_URL?.trim();
   return u && u.length > 0 ? u.replace(/\/$/, "") : null;
 }
 
+async function resolveAiScanBaseUrl(): Promise<string> {
+  const fromEnv = getAiScanBaseUrlFromEnv();
+  if (fromEnv) return fromEnv;
+  return await getMobileApiBaseUrlPrefix();
+}
+
 /**
- * POST image to main API `POST /api/scan` (multipart: image + email). Requires `auth_user` in AsyncStorage. Set EXPO_PUBLIC_AI_SCAN_BASE_URL in .env (base URL only, no /api).
+ * POST image to main API `POST /api/scan` (multipart: image + optional email).
+ * Uses EXPO_PUBLIC_AI_SCAN_BASE_URL when set, otherwise the same base URL as other mobile API calls.
  */
-export async function uploadScanImageWithAiTutor(photoUri: string): Promise<AiScanOcrResult> {
+export async function uploadScanImageWithAiTutor(
+  photoUri: string,
+  options?: AiScanOcrOptions,
+): Promise<AiScanOcrResult> {
   const email = await getStoredUserEmail();
-  if (!email) {
-    throw new Error("Sign in so your scan can be stored under your account (email required).");
-  }
 
   const form = new FormData();
-  form.append("email", email);
+  if (email) form.append("email", email);
+  const question = options?.question?.trim();
+  const subject = options?.subject?.trim();
+  if (question) form.append("question", question);
+  if (subject) form.append("subject", subject);
   await appendImageToFormData(form, photoUri);
 
-  const base = getAiScanBaseUrl();
-  if (!base) {
-    throw new Error("EXPO_PUBLIC_AI_SCAN_BASE_URL is not set");
-  }
+  const base = await resolveAiScanBaseUrl();
   const url = `${base}/api/scan`;
 
   const response = await fetch(url, { method: "POST", body: form });
@@ -125,7 +142,7 @@ export async function uploadScanImageWithAiTutor(photoUri: string): Promise<AiSc
 }
 
 export function isAiScanBackendConfigured(): boolean {
-  return getAiScanBaseUrl() != null;
+  return getAiScanBaseUrlFromEnv() != null || DEFAULT_MOBILE_API_BASE_URL_PREFIX.length > 0;
 }
 
 export async function uploadScanImage(photoUri: string): Promise<MobileScanUploadResponse> {

@@ -9,7 +9,7 @@ import { analyzeQuestion, mapAnalysisToRubricQuestionType } from "./questionAnal
 import { isLowQualityChunk } from "./retrievalService";
 import { buildRubricIdeasForQuestion, saveGeneratedRubric, type QuestionType } from "./rubricService";
 import { formatSpmStudentFriendlyRulesBlock } from "./spmStudentLanguage";
-import type { RubricIdea } from "./types";
+import type { Rubric, RubricIdea } from "./types";
 
 export type TextbookChunkRow = {
   textbookId: string;
@@ -74,51 +74,6 @@ function extractJsonObject(raw: string): string {
   const end = trimmed.lastIndexOf("}");
   if (start >= 0 && end > start) return trimmed.slice(start, end + 1);
   return trimmed;
-}
-
-function unescapeJsonString(value: string): string {
-  return value.replace(/\\n/g, "\n").replace(/\\"/g, '"').replace(/\\\\/g, "\\");
-}
-
-/** Recover question fields when the model returns truncated or slightly invalid JSON. */
-function parseQuestionGenerationPayload(
-  raw: string,
-  maxMarks: number,
-): { questionText: string; modelAnswer: string } {
-  const trimmed = raw.trim();
-  let parsed: Record<string, unknown> | null = null;
-  try {
-    parsed = JSON.parse(extractJsonObject(trimmed)) as Record<string, unknown>;
-  } catch {
-    parsed = null;
-  }
-
-  let questionTextRaw =
-    typeof parsed?.["questionText"] === "string" ? parsed["questionText"].trim() : "";
-  let modelAnswer =
-    typeof parsed?.["modelAnswer"] === "string" ? parsed["modelAnswer"].trim() : "";
-
-  if (!questionTextRaw) {
-    const questionMatch = trimmed.match(/"questionText"\s*:\s*"((?:[^"\\]|\\.)*)"/);
-    if (questionMatch?.[1]) questionTextRaw = unescapeJsonString(questionMatch[1]).trim();
-  }
-  if (!modelAnswer) {
-    const answerMatch = trimmed.match(/"modelAnswer"\s*:\s*"((?:[^"\\]|\\.)*)"/);
-    if (answerMatch?.[1]) modelAnswer = unescapeJsonString(answerMatch[1]).trim();
-  }
-
-  if (!questionTextRaw) {
-    throw new Error(`Question JSON parse failed: ${trimmed.slice(0, 300)}`);
-  }
-
-  const questionText = /\bmarks?\)|\bmarkah\)/i.test(questionTextRaw)
-    ? questionTextRaw
-    : `${questionTextRaw} (${maxMarks} marks)`;
-
-  return {
-    questionText,
-    modelAnswer: modelAnswer || "See marking rubric.",
-  };
 }
 
 function chunkSourceRef(textbookId: string, chunkId: string): string {
@@ -238,6 +193,17 @@ async function generateQuestionFromChunk(params: {
   commandHint?: string;
 }): Promise<{ questionText: string; modelAnswer: string }> {
   const { chunk, maxMarks } = params;
+  const system = [
+    "You write one short Malaysian SPM Form 4/5 exam-style subjective question from a single textbook excerpt.",
+    formatSpmStudentFriendlyRulesBlock(),
+    "Return JSON only: { \"questionText\": string, \"modelAnswer\": string }.",
+    "questionText must end with mark allocation, e.g. '(2 marks)' or '(2 markah)'.",
+    `maxMarks for the question must be ${maxMarks}.`,
+    "Ask only about facts and concepts present in the excerpt — do not require outside knowledge.",
+    "Use explain, describe, state, or why as appropriate to the excerpt (not MCQ).",
+    "modelAnswer: concise answer an examiner would expect (~maxMarks short points).",
+  ].join("\n");
+
   const user = [
     `Subject: ${chunk.subject}`,
     `Form: ${chunk.form}`,
@@ -251,48 +217,32 @@ async function generateQuestionFromChunk(params: {
     .filter((line): line is string => Boolean(line))
     .join("\n\n");
 
-  const baseRules = [
-    "You write one short Malaysian SPM Form 4/5 exam-style subjective question from a single textbook excerpt.",
-    formatSpmStudentFriendlyRulesBlock(),
-    'Return JSON only: { "questionText": string, "modelAnswer": string }.',
-    "questionText must end with mark allocation, e.g. '(2 marks)' or '(2 markah)'.",
-    `maxMarks for the question must be ${maxMarks}.`,
-    "Ask only about facts and concepts present in the excerpt — do not require outside knowledge.",
-    "Use explain, describe, state, or why as appropriate to the excerpt (not MCQ).",
-    "modelAnswer: at most 2 short sentences total (under 40 words). No numbered lists. Avoid unescaped double quotes inside strings.",
-  ];
+  const raw = await chatCompletion(
+    [
+      { role: "system", content: system },
+      { role: "user", content: user },
+    ],
+    { subject: chunk.subject, query: chunk.conceptTitle ?? chunk.content.slice(0, 80) },
+  );
 
-  let lastError: Error | null = null;
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    const system = [
-      ...baseRules,
-      attempt === 1
-        ? "RETRY: Keep modelAnswer to one brief sentence. Output compact valid JSON only."
-        : null,
-    ]
-      .filter((line): line is string => Boolean(line))
-      .join("\n");
-
-    try {
-      const raw = await chatCompletion(
-        [
-          { role: "system", content: system },
-          { role: "user", content: user },
-        ],
-        {
-          subject: chunk.subject,
-          query: chunk.conceptTitle ?? chunk.content.slice(0, 80),
-          maxTokens: 400,
-          temperature: attempt === 0 ? 0.45 : 0.2,
-        },
-      );
-      return parseQuestionGenerationPayload(raw, maxMarks);
-    } catch (err) {
-      lastError = err instanceof Error ? err : new Error(String(err));
-    }
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = JSON.parse(extractJsonObject(raw)) as Record<string, unknown>;
+  } catch {
+    throw new Error(`Question JSON parse failed: ${raw.slice(0, 300)}`);
   }
 
-  throw lastError ?? new Error("Failed to generate question from chunk");
+  const questionTextRaw = typeof parsed["questionText"] === "string" ? parsed["questionText"].trim() : "";
+  if (!questionTextRaw) throw new Error("LLM returned empty questionText");
+  const questionText = /\bmarks?\)|\bmarkah\)/i.test(questionTextRaw)
+    ? questionTextRaw
+    : `${questionTextRaw} (${maxMarks} marks)`;
+  const modelAnswer =
+    typeof parsed["modelAnswer"] === "string" && parsed["modelAnswer"].trim()
+      ? parsed["modelAnswer"].trim()
+      : "See marking rubric.";
+
+  return { questionText, modelAnswer };
 }
 
 async function createRubricForChunk(params: {
@@ -300,7 +250,7 @@ async function createRubricForChunk(params: {
   maxMarks: number;
   commandHint?: string;
 }): Promise<ChunkRubricResult> {
-  const { questionText } = await generateQuestionFromChunk(params);
+  const { questionText, modelAnswer } = await generateQuestionFromChunk(params);
   const analysis = analyzeQuestion(questionText, params.chunk.subject);
   const questionType = mapAnalysisToRubricQuestionType(analysis) as QuestionType;
   const ideas = await buildRubricIdeasForQuestion({

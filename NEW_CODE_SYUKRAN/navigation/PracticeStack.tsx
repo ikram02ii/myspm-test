@@ -18,8 +18,14 @@ export type PracticeStackParamList = {
     questionCount: number;
   };
   PracticeSession:
-    | { setId: number; title: string; subject?: string; formLevel?: string }
-    | { title: string; questions: PracticeSetQuestion[]; subject?: string; formLevel?: string };
+    | { setId: number; title: string; subject?: string; formLevel?: string; practiceMode?: "speaking" }
+    | {
+        title: string;
+        questions: PracticeSetQuestion[];
+        subject?: string;
+        formLevel?: string;
+        practiceMode?: "speaking";
+      };
 };
 
 const Stack = createNativeStackNavigator<PracticeStackParamList>();

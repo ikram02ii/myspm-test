@@ -28,6 +28,13 @@ import {
 } from "../services/mobilePracticeSets";
 import { ragApiPost } from "../services/ragApi";
 import { uploadScanImageWithAiTutor } from "../services/mobileScan";
+import { EnglishSpeakingPart1Exam } from "../components/EnglishSpeakingPart1Exam";
+import { EnglishSpeakingPart2Exam } from "../components/EnglishSpeakingPart2Exam";
+import { SpeakingFeedbackPanel } from "../components/SpeakingFeedbackPanel";
+import {
+  formatSpeakingGradeSummary,
+  type SpeakingGradeResponse,
+} from "../services/mobileSpeaking";
 
 const BRAND = theme.brand;
 
@@ -105,6 +112,11 @@ type QuestionMarkResult = {
   max: number;
 };
 
+function isSpeakingQuestionType(questionType: string | null | undefined): boolean {
+  const t = (questionType ?? "").toLowerCase();
+  return t === "speaking_part1" || t === "speaking_part2" || t === "speaking_part3";
+}
+
 function questionAllowsMultiSelect(q: PracticeSetQuestion, correct: Set<number>): boolean {
   const type = (q.questionType || "").toLowerCase();
   if (type.includes("multiple_answer") || type.includes("multiple_select") || type.includes("multi_select")) {
@@ -116,10 +128,17 @@ function questionAllowsMultiSelect(q: PracticeSetQuestion, correct: Set<number>)
 export default function PracticeSessionScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
   const routeParams = route.params as
-    | { setId: number; title: string; subject?: string; formLevel?: string }
-    | { title: string; questions: PracticeSetQuestion[]; subject?: string; formLevel?: string };
+    | { setId: number; title: string; subject?: string; formLevel?: string; practiceMode?: "speaking" }
+    | {
+        title: string;
+        questions: PracticeSetQuestion[];
+        subject?: string;
+        formLevel?: string;
+        practiceMode?: "speaking";
+      };
   const hasQuestions = "questions" in routeParams && Array.isArray(routeParams.questions);
   const initialQuestions = hasQuestions ? routeParams.questions : [];
+  const practiceMode = routeParams.practiceMode;
 
   const setId = "setId" in routeParams ? routeParams.setId : undefined;
   const { title } = routeParams;
@@ -139,7 +158,11 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
   const [aiFeedbackText, setAiFeedbackText] = useState<string | null>(null);
   const [openEndedAnswer, setOpenEndedAnswer] = useState("");
   const [ocrBusy, setOcrBusy] = useState(false);
+  const [ocrError, setOcrError] = useState<string | null>(null);
   const [openEndedMarkingBusy, setOpenEndedMarkingBusy] = useState(false);
+  const [speakingReadyForNext, setSpeakingReadyForNext] = useState(false);
+  const [speakingTranscript, setSpeakingTranscript] = useState<string | null>(null);
+  const [speakingMarkingText, setSpeakingMarkingText] = useState<string | null>(null);
 
   const questionFade = useRef(new Animated.Value(1)).current;
   const questionLift = useRef(new Animated.Value(0)).current;
@@ -172,11 +195,14 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
   useEffect(() => {
     if (hasQuestions) {
       // questions were passed via navigation params; skip fetching from API
+      skipQuestionEnterAnim.current = true;
+      questionFade.setValue(1);
+      questionLift.setValue(0);
       setLoading(false);
       return;
     }
     void load();
-  }, [load, hasQuestions]);
+  }, [load, hasQuestions, questionFade, questionLift]);
 
   useEffect(() => {
     navigation.setOptions({ title: title || "Practice" });
@@ -194,6 +220,16 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
       tension: 100,
     }).start();
   }, [index, questions.length, progressFillAnim]);
+
+  useEffect(() => {
+    setSpeakingReadyForNext(false);
+    setSpeakingTranscript(null);
+    setSpeakingMarkingText(null);
+    setOpenEndedAnswer("");
+    setShowFeedback(false);
+    setAiFeedbackText(null);
+    setOcrError(null);
+  }, [index, questions[index]?.id]);
 
   useEffect(() => {
     const current = questions[index];
@@ -247,8 +283,15 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
 
   const q = questions[index];
   const total = questions.length;
+  const speakingSubject = routeSubject ?? "English";
+  const speakingForm = routeFormLevel ?? "Form 4";
+  const isSpeakingQuestion =
+    practiceMode === "speaking" || (q ? isSpeakingQuestionType(q.questionType) : false);
+  const isSpeakingPart2 =
+    isSpeakingQuestion && (q?.questionType ?? "").toLowerCase() === "speaking_part2";
   const isMcq =
     q &&
+    !isSpeakingQuestion &&
     ((q.options?.length ?? 0) > 0 ||
       /multiple_choice|mcq|choice/i.test(q.questionType ?? ""));
 
@@ -348,6 +391,9 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
     setAiFeedbackText(null);
     setOpenEndedAnswer("");
     setOcrBusy(false);
+    setSpeakingReadyForNext(false);
+    setSpeakingTranscript(null);
+    setSpeakingMarkingText(null);
     if (index + 1 >= total) {
       setFinished(true);
       return;
@@ -356,6 +402,66 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
     setSelected(new Set());
     setShowFeedback(false);
   };
+
+  const recordSpeakingResult = useCallback(
+    (scoreRaw: number | undefined, maxRaw: number | undefined) => {
+      if (!q) return;
+      const max = Number.isFinite(maxRaw) ? Math.max(1, Math.round(maxRaw!)) : 10;
+      const earned = Number.isFinite(scoreRaw)
+        ? Math.max(0, Math.min(max, Math.round(scoreRaw!)))
+        : 0;
+      setQuestionResults((prev) => ({
+        ...prev,
+        [q.id]: { earned, max },
+      }));
+      setSpeakingReadyForNext(true);
+    },
+    [q],
+  );
+
+  const onSpeakingPart1Graded = useCallback(
+    (result: SpeakingGradeResponse, transcript: string) => {
+      recordSpeakingResult(result.score, result.maxScore);
+      setSpeakingTranscript(transcript.trim() || null);
+      setSpeakingMarkingText(formatSpeakingGradeSummary(result));
+      setAiFeedbackText(null);
+      setShowFeedback(true);
+    },
+    [recordSpeakingResult],
+  );
+
+  const onSpeakingPart2Complete = useCallback(
+    (payload: {
+      prepareGrade: SpeakingGradeResponse | null;
+      speakGrade: SpeakingGradeResponse | null;
+      prepareTranscript: string;
+      speakTranscript: string;
+    }) => {
+      const speak = payload.speakGrade;
+      recordSpeakingResult(speak?.score, speak?.maxScore ?? 10);
+
+      const transcriptParts: string[] = [];
+      if (payload.prepareTranscript.trim()) {
+        transcriptParts.push(payload.prepareTranscript.trim());
+      }
+      if (payload.speakTranscript.trim()) {
+        transcriptParts.push(payload.speakTranscript.trim());
+      }
+      setSpeakingTranscript(transcriptParts.length > 0 ? transcriptParts.join("\n\n") : null);
+
+      const markingParts: string[] = [];
+      if (payload.prepareGrade) {
+        markingParts.push(formatSpeakingGradeSummary(payload.prepareGrade));
+      }
+      if (speak) {
+        markingParts.push(formatSpeakingGradeSummary(speak));
+      }
+      setSpeakingMarkingText(markingParts.length > 0 ? markingParts.join("\n\n\n") : null);
+      setAiFeedbackText(null);
+      setShowFeedback(true);
+    },
+    [recordSpeakingResult],
+  );
 
   async function askAiForExplanation() {
     if (!q || !isMcq) return;
@@ -402,24 +508,33 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
   async function runOcrFromUri(photoUri: string) {
     try {
       setOcrBusy(true);
-      const result = await uploadScanImageWithAiTutor(photoUri);
+      setOcrError(null);
+      const result = await uploadScanImageWithAiTutor(photoUri, {
+        question: (q?.questionForGrade ?? q?.questionText)?.trim() || undefined,
+        subject: routeSubject ?? "Biology",
+      });
       const text = (result?.text ?? "").trim();
       if (!text) {
-        setAiFeedbackText("OCR found no readable text from the image.");
+        setOcrError("OCR found no readable text from the image. Try a clearer photo.");
         return;
       }
-      // Treat OCR output as the student's answer (paper -> image -> answer text).
       setOpenEndedAnswer(text);
       setShowFeedback(false);
       setAiFeedbackText(null);
+      setOcrError(null);
     } catch (e) {
-      setAiFeedbackText(e instanceof Error ? e.message : "OCR failed.");
+      setOcrError(e instanceof Error ? e.message : "OCR failed. Check your connection and try again.");
     } finally {
       setOcrBusy(false);
     }
   }
 
   async function ocrTakePhoto() {
+    const permission = await ImagePicker.requestCameraPermissionsAsync();
+    if (!permission.granted) {
+      setOcrError("Camera permission is required to take a photo of your answer.");
+      return;
+    }
     const picked = await ImagePicker.launchCameraAsync({
       mediaTypes: ["images"],
       quality: 0.85,
@@ -430,6 +545,11 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
   }
 
   async function ocrPickImage() {
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      setOcrError("Photo library permission is required to upload an image.");
+      return;
+    }
     const picked = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ["images"],
       quality: 0.85,
@@ -530,7 +650,9 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
     ? pickedRight
       ? `Correct · ${currentMarkResult ? `${currentMarkResult.earned}/${currentMarkResult.max}` : "1/1"}`
       : `Incorrect · ${currentMarkResult ? `${currentMarkResult.earned}/${currentMarkResult.max}` : "0/1"}`
-    : currentMarkResult
+    : isSpeakingQuestion && currentMarkResult
+      ? `Speaking · ${currentMarkResult.earned}/${currentMarkResult.max}`
+      : currentMarkResult
       ? `Marked · ${currentMarkResult.earned}/${currentMarkResult.max} marks`
       : "Marked by AI";
 
@@ -574,14 +696,41 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
             transform: [{ translateY: questionLift }],
           }}
         >
-          <Text style={styles.diffChip}>{q.difficulty}</Text>
-          <Text style={styles.questionText}>{q.questionText}</Text>
+          <Text style={styles.diffChip}>
+            {isSpeakingQuestion ? "English speaking" : q.difficulty}
+          </Text>
+          {isSpeakingQuestion && !isSpeakingPart2 ? (
+            <Text style={styles.questionText}>{displayQuestionText}</Text>
+          ) : !isSpeakingQuestion ? (
+            <Text style={styles.questionText}>{displayQuestionText}</Text>
+          ) : null}
 
-      {isMcq && multiSelect ? (
+          {isSpeakingQuestion ? (
+        isSpeakingPart2 ? (
+          <EnglishSpeakingPart2Exam
+            key={q.id}
+            questionText={q.questionText}
+            sortOrder={q.sortOrder}
+            subject={speakingSubject}
+            formLevel={speakingForm}
+            onExamComplete={onSpeakingPart2Complete}
+          />
+        ) : (
+          <EnglishSpeakingPart1Exam
+            key={q.id}
+            questionText={q.questionText}
+            subject={speakingSubject}
+            formLevel={speakingForm}
+            onGraded={onSpeakingPart1Graded}
+          />
+        )
+          ) : null}
+
+          {!isSpeakingQuestion && isMcq && multiSelect ? (
         <Text style={styles.multiHint}>Select all answers that apply.</Text>
       ) : null}
 
-      {isMcq && q.options.length > 0 ? (
+      {!isSpeakingQuestion && isMcq && q.options.length > 0 ? (
         <View style={styles.optionsGrid}>
           {q.options.map((opt, i) => {
             const on = selected.has(i);
@@ -621,9 +770,9 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
             );
           })}
         </View>
-      ) : isMcq && q.options.length === 0 ? (
+      ) : !isSpeakingQuestion && isMcq && q.options.length === 0 ? (
         <Text style={styles.unsupported}>No answer choices were loaded for this question.</Text>
-      ) : (
+      ) : !isSpeakingQuestion ? (
         <View style={styles.openEndedWrap}>
           <Text style={styles.openEndedLabel}>Your answer</Text>
           <TextInput
@@ -652,12 +801,19 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
               <Text style={styles.ocrBtnText}>{ocrBusy ? "Scanning..." : "Upload image"}</Text>
             </Pressable>
           </View>
+          {ocrBusy ? (
+            <View style={styles.ocrStatusRow}>
+              <ActivityIndicator size="small" color={BRAND} />
+              <Text style={styles.ocrStatusText}>Reading text from your image…</Text>
+            </View>
+          ) : null}
+          {ocrError ? <Text style={styles.ocrErrorText}>{ocrError}</Text> : null}
         </View>
-      )}
+      ) : null}
         </Animated.View>
       </View>
 
-      {showFeedback ? (
+      {showFeedback || (isSpeakingQuestion && speakingReadyForNext) ? (
         <Animated.View
           style={[
             styles.feedback,
@@ -670,19 +826,26 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
           <Text style={[styles.feedbackTitle, isMcq ? (pickedRight ? styles.ok : styles.bad) : styles.ok]}>
             {feedbackTitle}
           </Text>
-          {(aiFeedbackText || q.explanation) ? (
+          {isSpeakingQuestion ? (
+            <SpeakingFeedbackPanel
+              transcript={speakingTranscript}
+              markingText={speakingMarkingText}
+            />
+          ) : (aiFeedbackText || q.explanation) ? (
             <Text style={styles.explanation}>{aiFeedbackText ?? q.explanation}</Text>
           ) : null}
+          {!isSpeakingQuestion ? (
           <Pressable
             style={({ pressed }) => [styles.askAiButton, pressed && styles.askAiButtonPressed]}
             onPress={() => void askAiForExplanation()}
           >
             <Text style={styles.askAiButtonText}>Ask AI for more explanation</Text>
           </Pressable>
+          ) : null}
         </Animated.View>
       ) : null}
 
-      {!showFeedback ? (
+      {!showFeedback && !speakingReadyForNext && !isSpeakingQuestion ? (
         <Pressable
           style={[styles.primaryBtn, selected.size === 0 && styles.primaryBtnOff]}
           disabled={isMcq ? selected.size === 0 : openEndedAnswer.trim().length === 0 || openEndedMarkingBusy}
@@ -706,7 +869,7 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
             </Text>
           </LinearGradient>
         </Pressable>
-      ) : (
+      ) : speakingReadyForNext || showFeedback ? (
         <Pressable style={styles.primaryBtn} onPress={onNext}>
           <LinearGradient
             colors={[...theme.gradientCta]}
@@ -719,7 +882,7 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
             </Text>
           </LinearGradient>
         </Pressable>
-      )}
+      ) : null}
     </ScrollView>
 
     <Modal
@@ -877,6 +1040,24 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontFamily: fonts.semiBold,
     color: BRAND,
+  },
+  ocrStatusRow: {
+    marginTop: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  ocrStatusText: {
+    fontSize: 12,
+    fontFamily: fonts.medium,
+    color: colors.textSecondary,
+  },
+  ocrErrorText: {
+    marginTop: 10,
+    fontSize: 12,
+    fontFamily: fonts.medium,
+    color: "#DC2626",
+    lineHeight: 18,
   },
   feedback: {
     marginTop: 18,

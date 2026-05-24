@@ -153,7 +153,8 @@ export async function applyExaminerPriorityMarking(
       "Examiner review: scientifically correct for this mark point.";
     row.matchMethod = "llmVerifier";
     row.matchStrategy = "examinerPriority";
-    row.awardedOutsideRubric = false;
+    row.awardedOutsideRubric = credit.awardedOutsideRubric === true;
+    if (row.awardedOutsideRubric) outsideCount += 1;
     budget -= marks;
   }
 

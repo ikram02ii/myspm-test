@@ -2,6 +2,8 @@ import { chatCompletion, generateImage } from "./llmProvider";
 import { retrieveChunks } from "../rag/retrievalService";
 import { enrichMathAnswerWithSvg } from "./mathSvg";
 import { analyzeQuestion } from "../rag/questionAnalysisService";
+import { buildEnglishSpeakingPdfContext } from "../rag/englishSpeakingPdfService";
+import { englishSpeakingPartFromQuery } from "../rag/englishSpeakingTypes";
 import { finalizeRubricIdeas, saveGeneratedRubric } from "../rag/rubricService";
 import type { RetrievedChunk, RubricIdea, RubricIdeaKind } from "../rag/types";
 
@@ -20,6 +22,12 @@ export type GenerateRagInput = {
   chapterHint?: string | null;
   /** For AI Practice subjective mode: create saved rubrics and return structured question objects. */
   createOpenEndedRubrics?: boolean;
+  /** Skip Postgres/RAG retrieval — LLM only (English speaking practice). */
+  skipRetrieval?: boolean;
+  /** Use English oral-exam prompt instead of textbook MCQ template. */
+  englishSpeaking?: boolean;
+  /** Override path to SPM Speaking Part 2 & 3 PDF (else ENGLISH_SPEAKING_SOURCE_PDF or Knowledge Base default). */
+  englishSpeakingPdfPath?: string | null;
 };
 
 export type GeneratedOpenEndedQuestion = {
@@ -118,6 +126,83 @@ const LANGUAGE_RULE_BILINGUAL = `Write every question stem, every A–D option, 
 
 const LANGUAGE_RULE_FORCE_BM =
   "For this subject, respond entirely in Bahasa Melayu (standard SPM). If the user's request is in English or mixed, still write the whole answer in BM only.";
+
+const ENGLISH_SPEAKING_SYSTEM = `You are an expert SPM English oral exam question writer for Malaysian Form 4/5 students.
+Generate realistic speaking practice prompts only — no textbook citations, no MCQ format, no bilingual BM lines unless the user asks.
+Use natural Malaysian classroom English. Follow the user's output format exactly. Do not add preamble or process commentary.`;
+
+async function buildEnglishSpeakingUserContent(input: GenerateRagInput): Promise<string> {
+  const tail = `${input.query}\n\nOutput the speaking prompts only, using the exact format specified above.`;
+  let pdfContext: { excerpt: string; pdfPath: string } | null = null;
+  try {
+    const part = englishSpeakingPartFromQuery(input.query);
+    pdfContext = await buildEnglishSpeakingPdfContext({
+      pdfPath: input.englishSpeakingPdfPath,
+      part: part === "part1" ? "all" : part,
+    });
+    console.info("[rag][english-speaking] PDF context loaded", {
+      pdfPath: pdfContext.pdfPath,
+      excerptChars: pdfContext.excerpt.length,
+      part,
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn("[rag][english-speaking] PDF context unavailable:", msg);
+  }
+
+  if (!pdfContext) {
+    return tail;
+  }
+
+  return [
+    "Official SPM English Speaking reference (extracted from syllabus PDF — Part 2 & Part 3).",
+    "Follow task types, timings, and examiner style from this material when writing new practice prompts.",
+    "Do not copy long passages verbatim; create original prompts in the same SPM format.",
+    "",
+    pdfContext.excerpt,
+    "",
+    "---",
+    "",
+    tail,
+  ].join("\n");
+}
+
+async function generateWithoutRetrieval(input: GenerateRagInput): Promise<GenerateRagResult> {
+  const useEnglishSpeakingPrompt =
+    input.englishSpeaking === true ||
+    (input.skipRetrieval === true && input.subject?.trim().toLowerCase() === "english");
+
+  const system = useEnglishSpeakingPrompt
+    ? ENGLISH_SPEAKING_SYSTEM
+    : systemPromptForSubject(input.subject);
+
+  const userContent = useEnglishSpeakingPrompt
+    ? await buildEnglishSpeakingUserContent(input)
+    : `${input.query}\n\n(Note: No knowledge-base chunks were retrieved. Answer from general knowledge and clearly label uncertainty.)\n\n${userTemplateHint(input.subject)}${bilingualGenerationReminder(input.subject)}`;
+
+  const answerRaw = await chatCompletion(
+    [
+      { role: "system", content: system },
+      { role: "user", content: userContent },
+    ],
+    { subject: input.subject, query: input.query },
+  );
+
+  const answer = shouldPostProcessMathSvg(input.subject)
+    ? enrichMathAnswerWithSvg(answerRaw)
+    : answerRaw;
+
+  const generatedImages: GenerateRagResult["generatedImages"] = [];
+  if (input.generateImage) {
+    const prompt =
+      input.imagePrompt?.trim() ||
+      `Create a clean education-style diagram for this ${input.subject ?? "SPM"} question context: ${input.query}`;
+    const urls = await generateImage(prompt);
+    generatedImages.push(...urls.map((url) => ({ url, prompt })));
+  }
+
+  return { answer, sources: [], sourcePageImages: [], generatedImages };
+}
 
 function parseForceBmSubjects(): Set<string> {
   const raw = process.env.RAG_FORCE_BM_SUBJECTS?.trim();
@@ -366,6 +451,10 @@ async function generateOpenEndedWithSavedRubrics(params: {
 export async function generateWithRag(
   input: GenerateRagInput,
 ): Promise<GenerateRagResult> {
+  if (input.skipRetrieval) {
+    return generateWithoutRetrieval(input);
+  }
+
   const topK = input.topK ?? 8;
   const chapterFilter = input.chapterFilter?.trim() || undefined;
   const chapterHint = input.chapterHint?.trim() || undefined;

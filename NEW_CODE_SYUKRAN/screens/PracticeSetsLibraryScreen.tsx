@@ -22,6 +22,7 @@ import { LinearGradient } from "expo-linear-gradient";
 
 import { ToastMessage } from "../components/ui/ToastMessage";
 import {
+  backendSubjectFromPracticeCode,
   practiceSetSubjectMatchesFavourite,
   subjectTileShortLabel,
 } from "../constants/practiceSubjectFilter";
@@ -43,7 +44,15 @@ import {
   type PracticeSetQuestion,
   type PracticeSetSummary,
 } from "../services/mobilePracticeSets";
+import {
+  defaultTopicForPart,
+  ENGLISH_SPEAKING_PART_OPTIONS,
+  isEnglishPracticeCode,
+  topicCategoriesForPart,
+  type EnglishSpeakingPart,
+} from "../constants/englishSpeaking";
 import { ragApiGet, ragApiPost } from "../services/ragApi";
+import { buildEnglishSpeakingQuery, parseEnglishSpeakingAnswer } from "../utils/englishSpeakingGenerate";
 import { parseAiGeneratedMcqAnswer, parseAiGeneratedOpenEnded } from "../utils/parseAiMcq";
 
 const BRAND = theme.brand;
@@ -60,6 +69,15 @@ type Props = NativeStackScreenProps<PracticeStackParamList, "PracticeLibrary">;
 
 function favouriteKey(f: MobileSubjectFavourite): string {
   return f.code.trim().toUpperCase();
+}
+
+function withEnglishTile(items: MobileSubjectFavourite[]): MobileSubjectFavourite[] {
+  const hasEnglish = items.some((item) => {
+    const k = favouriteKey(item);
+    return k === "ENGLISH" || k === "ENG" || k === "EN";
+  });
+  if (hasEnglish) return items;
+  return [...items, { code: "english", name: "English" }];
 }
 
 function withBiologyTile(items: MobileSubjectFavourite[]): MobileSubjectFavourite[] {
@@ -146,21 +164,9 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
   const [ragChaptersLoading, setRagChaptersLoading] = useState(false);
   const [aiQuestionType, setAiQuestionType] = useState<"mcq" | "subjective">("mcq");
   const [aiQuestionCount, setAiQuestionCount] = useState<number>(5);
-
-  function backendSubjectFromPracticeCode(code: string | null): string | null {
-    if (!code) return null;
-    const c = code.trim().toLowerCase();
-    const map: Record<string, string> = {
-      biology: "Biology",
-      physics: "Physics",
-      chemistry: "Chemistry",
-      english: "English",
-      bm: "BM",
-      math: "Math",
-      addmath: "Additional Math",
-    };
-    return map[c] ?? null;
-  }
+  const [englishSpeakingPart, setEnglishSpeakingPart] = useState<EnglishSpeakingPart>("part1");
+  const [englishTopicCategory, setEnglishTopicCategory] = useState(() => defaultTopicForPart("part1"));
+  const [englishQuestionCount, setEnglishQuestionCount] = useState<number>(5);
 
   const showToast = (message: string) => {
     setToastMessage(message);
@@ -307,7 +313,10 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
   }, [sets, favouritesVisible]);
 
   const favouriteTiles = useMemo(
-    () => withAdditionalMathTile(withMathTile(withChemistryTile(withBiologyTile(favouritesVisible)))),
+    () =>
+      withAdditionalMathTile(
+        withMathTile(withChemistryTile(withBiologyTile(withEnglishTile(favouritesVisible)))),
+      ),
     [favouritesVisible],
   );
 
@@ -324,6 +333,16 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
     }
     return favouriteKey(favouriteTiles[0]);
   }, [favouriteTiles, activeSubjectCode]);
+
+  const isEnglishGenerator = useMemo(
+    () => isEnglishPracticeCode(selectedSubjectKey),
+    [selectedSubjectKey],
+  );
+
+  const englishTopicOptions = useMemo(
+    () => topicCategoriesForPart(englishSpeakingPart),
+    [englishSpeakingPart],
+  );
 
   const visibleSets = useMemo(() => {
     if (favouriteTiles.length === 0) {
@@ -364,7 +383,7 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
   );
 
   useEffect(() => {
-    if (!aiModalOpen) return;
+    if (!aiModalOpen || isEnglishGenerator) return;
     const subject = backendSubjectForModal;
     if (!subject) {
       setRagChapters([]);
@@ -377,7 +396,10 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
       form: metaFormLevel,
     })
       .then((res) => {
-        if (!cancelled) setRagChapters(Array.isArray(res.chapters) ? res.chapters : []);
+        if (cancelled) return;
+        const list = Array.isArray(res.chapters) ? res.chapters : [];
+        setRagChapters(list);
+        setAiSelectedChapter((prev) => (prev && list.includes(prev) ? prev : list[0] ?? ""));
       })
       .catch(() => {
         if (!cancelled) setRagChapters([]);
@@ -388,7 +410,11 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [aiModalOpen, backendSubjectForModal, metaFormLevel]);
+  }, [aiModalOpen, backendSubjectForModal, metaFormLevel, isEnglishGenerator]);
+
+  useEffect(() => {
+    setEnglishTopicCategory(defaultTopicForPart(englishSpeakingPart));
+  }, [englishSpeakingPart]);
 
   const questionTypeLabel = aiQuestionType === "mcq" ? "MCQ (A-D)" : "subjective";
 
@@ -494,6 +520,61 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
       });
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Failed to generate questions.");
+    } finally {
+      setAiGenerating(false);
+    }
+  };
+
+  const runEnglishSpeakingGenerate = async () => {
+    if (aiGenerating) return;
+    const backendSubject = backendSubjectFromPracticeCode(selectedSubjectKey);
+    if (!backendSubject || !isEnglishGenerator) {
+      showComingSoonWithSound();
+      return;
+    }
+
+    setAiGenerating(true);
+    try {
+      const topic = englishTopicCategory.trim() || defaultTopicForPart(englishSpeakingPart);
+      const count =
+        englishSpeakingPart === "part1"
+          ? englishQuestionCount
+          : englishSpeakingPart === "part3"
+            ? Math.min(6, Math.max(2, englishQuestionCount))
+            : 1;
+      const query = buildEnglishSpeakingQuery({
+        form: metaFormLevel,
+        part: englishSpeakingPart,
+        topicCategory: topic,
+        questionCount: count,
+      });
+      const result = await ragApiPost<RagGenerateResponse>("/rag/generate", {
+        query,
+        subject: backendSubject,
+        form: metaFormLevel,
+        skipRetrieval: true,
+        englishSpeaking: true,
+      });
+      const parsed = parseEnglishSpeakingAnswer(result.answer, englishSpeakingPart);
+      if (parsed.length === 0) {
+        showToast("AI did not return parseable speaking prompts. Try again.");
+        return;
+      }
+      setAiModalOpen(false);
+      navigation.navigate("PracticeSession", {
+        title:
+          englishSpeakingPart === "part1"
+            ? "English Speaking Part 1"
+            : englishSpeakingPart === "part3"
+              ? "English Speaking Part 3"
+              : "English Speaking Part 2",
+        questions: parsed,
+        subject: backendSubject,
+        formLevel: metaFormLevel,
+        practiceMode: "speaking",
+      });
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Failed to generate speaking practice.");
     } finally {
       setAiGenerating(false);
     }
@@ -714,9 +795,13 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
             style={[styles.modalCard, { paddingBottom: insets.bottom + 16 }]}
             onPress={(e) => e.stopPropagation()}
           >
-            <Text style={styles.modalTitle}>Generate AI questions</Text>
+            <Text style={styles.modalTitle}>
+              {isEnglishGenerator ? "English speaking practice" : "Generate AI questions"}
+            </Text>
             <Text style={styles.modalHint}>
-              Pick Form (must match ingested textbooks), then topic-specific uses chapter titles from the database.
+              {isEnglishGenerator
+                ? "Generate SPM-style oral prompts, then practise with timed recording and AI marking."
+                : "Pick Form (must match ingested textbooks), then topic-specific uses chapter titles from the database."}
             </Text>
 
             <Text style={styles.fieldLabel}>Form (matches textbook in RAG)</Text>
@@ -739,6 +824,90 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
               ))}
             </View>
 
+            {isEnglishGenerator ? (
+              <>
+                <Text style={styles.fieldLabel}>Skill</Text>
+                <View style={styles.choiceRow}>
+                  <View style={[styles.choiceChip, styles.choiceChipActive]}>
+                    <Text style={[styles.choiceChipText, styles.choiceChipTextActive]}>Speaking</Text>
+                  </View>
+                </View>
+
+                <Text style={styles.fieldLabel}>Speaking part</Text>
+                <View style={styles.choiceRow}>
+                  {ENGLISH_SPEAKING_PART_OPTIONS.map((opt) => (
+                    <Pressable
+                      key={opt.id}
+                      style={[
+                        styles.choiceChip,
+                        englishSpeakingPart === opt.id && styles.choiceChipActive,
+                      ]}
+                      onPress={() => setEnglishSpeakingPart(opt.id)}
+                    >
+                      <Text
+                        style={[
+                          styles.choiceChipText,
+                          englishSpeakingPart === opt.id && styles.choiceChipTextActive,
+                        ]}
+                      >
+                        {opt.label}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+
+                <Text style={styles.fieldLabel}>Topic category</Text>
+                <View style={styles.choiceRow}>
+                  {englishTopicOptions.map((topic) => (
+                    <Pressable
+                      key={topic}
+                      style={[
+                        styles.choiceChip,
+                        englishTopicCategory === topic && styles.choiceChipActive,
+                      ]}
+                      onPress={() => setEnglishTopicCategory(topic)}
+                    >
+                      <Text
+                        style={[
+                          styles.choiceChipText,
+                          englishTopicCategory === topic && styles.choiceChipTextActive,
+                        ]}
+                      >
+                        {topic}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+
+                {englishSpeakingPart === "part1" ? (
+                  <>
+                    <Text style={styles.fieldLabel}>Number of questions</Text>
+                    <View style={styles.choiceRow}>
+                      {[5, 8, 10].map((count) => (
+                        <Pressable
+                          key={count}
+                          style={[
+                            styles.choiceChip,
+                            englishQuestionCount === count && styles.choiceChipActive,
+                          ]}
+                          onPress={() => setEnglishQuestionCount(count)}
+                        >
+                          <Text
+                            style={[
+                              styles.choiceChipText,
+                              englishQuestionCount === count && styles.choiceChipTextActive,
+                            ]}
+                          >
+                            {count}
+                          </Text>
+                        </Pressable>
+                      ))}
+                    </View>
+                  </>
+                ) : null}
+              </>
+            ) : (
+              <>
             <Text style={styles.fieldLabel}>Mode</Text>
             <View style={styles.choiceRow}>
               <Pressable
@@ -856,9 +1025,14 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
               ))}
             </View>
 
+              </>
+            )}
+
             <Pressable
               style={({ pressed }) => [styles.generateActionBtn, pressed && styles.generateActionBtnPressed]}
-              onPress={() => void runAiGenerate()}
+              onPress={() =>
+                void (isEnglishGenerator ? runEnglishSpeakingGenerate() : runAiGenerate())
+              }
               disabled={aiGenerating}
             >
               <LinearGradient
@@ -868,7 +1042,11 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
                 style={styles.generateActionBtnGrad}
               >
                 <Text style={styles.generateActionBtnText}>
-                  {aiGenerating ? "Generating..." : "Generate"}
+                  {aiGenerating
+                    ? "Generating..."
+                    : isEnglishGenerator
+                      ? "Start speaking practice"
+                      : "Generate"}
                 </Text>
               </LinearGradient>
             </Pressable>
@@ -1150,7 +1328,7 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
   },
   topicChapterScroll: {
-    maxHeight: 220,
+    maxHeight: 280,
     borderWidth: 1,
     borderColor: "rgba(15, 23, 42, 0.12)",
     borderRadius: 12,
