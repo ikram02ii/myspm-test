@@ -45,7 +45,9 @@ import {
   type PracticeSetSummary,
 } from "../services/mobilePracticeSets";
 import { ragApiPost } from "../services/ragApi";
+import type { SttLanguage } from "../services/oralApi";
 import { parseAiGeneratedMcqAnswer, parseAiGeneratedOpenEnded } from "../utils/parseAiMcq";
+import { parseAiOralPrompt } from "../utils/parseAiOral";
 
 const BRAND = theme.brand;
 const BRAND_SOFT = theme.brandSoftSage;
@@ -54,6 +56,17 @@ const AnimatedLinearGradient = Animated.createAnimatedComponent(LinearGradient);
 type Props = NativeStackScreenProps<PracticeStackParamList, "PracticeLibrary">;
 
 type AiFormLevel = 4 | 5;
+
+type AiGenerateMode = "general" | "topic" | "oral";
+
+function isOralPracticeSubjectKey(practiceCode: string | null): boolean {
+  const c = practiceCode?.trim().toLowerCase();
+  return c === "english" || c === "bm";
+}
+
+function sttLanguageForOralSubject(practiceCode: string | null): SttLanguage {
+  return practiceCode?.trim().toLowerCase() === "english" ? "en-MY" : "ms-MY";
+}
 
 type AiTopicsByForm = {
   form4: string[];
@@ -391,7 +404,7 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
   const [metaFormLevel, setMetaFormLevel] = useState<string>("Form 4");
   const [aiModalOpen, setAiModalOpen] = useState(false);
   const [aiFormLevel, setAiFormLevel] = useState<AiFormLevel>(4);
-  const [aiMode, setAiMode] = useState<"general" | "topic">("general");
+  const [aiMode, setAiMode] = useState<AiGenerateMode>("general");
   const [aiTopic, setAiTopic] = useState("");
   const [aiTopicDropdownOpen, setAiTopicDropdownOpen] = useState(false);
   const [aiQuestionType, setAiQuestionType] = useState<"mcq" | "subjective">("mcq");
@@ -600,6 +613,13 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
   }, [aiTopicSubjectKey, aiFormLevel]);
 
   const aiFormLevelLabel = `Form ${aiFormLevel}`;
+  const oralModeAvailable = isOralPracticeSubjectKey(selectedSubjectKey);
+
+  useEffect(() => {
+    if (!oralModeAvailable && aiMode === "oral") {
+      setAiMode("general");
+    }
+  }, [oralModeAvailable, aiMode]);
 
   useEffect(() => {
     if (aiMode !== "topic") return;
@@ -698,6 +718,29 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
     return `Generate ${aiQuestionCount} SPM ${subject} subjective questions${topicPart}. ${variationInstructions} ${graphInstructions}${bilingualStemRule}Use past-paper excerpts to calibrate marks per question. For each item: Soalan N, bilingual stem (EN: then BM: on new line), Markah: <integer> (match typical mark weight from retrieved past papers for similar question type), Jawapan:, then Marking points: as bullet scheme. Repeat for Soalan 2, 3, etc.`;
   };
 
+  const buildAiOralQuery = (subject: string, practiceCode: string | null): string => {
+    const selectedTopic = aiMode === "topic" ? aiTopic.trim() : "";
+    const topicPart =
+      selectedTopic.length > 0 ? ` focused on: ${selectedTopic}` : "";
+    const isEnglish = practiceCode?.trim().toLowerCase() === "english";
+    const languageRule = isEnglish
+      ? "Write the student prompt in clear Malaysian SPM English. "
+      : "Write the student prompt in standard Bahasa Melayu (SPM). ";
+    const variationSeed = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+    return (
+      `Generate exactly 1 SPM oral/speaking practice task for ${subject} (${aiFormLevelLabel})${topicPart}. ` +
+      `${languageRule}` +
+      `Pick one realistic SPM-style oral type (e.g. picture description, role play, opinion, reading aloud, or stimulus response). ` +
+      `Do NOT output MCQ, A/B/C/D options, or multiple choice. The student must speak freely, not pick a letter. ` +
+      `Use retrieved past-paper or textbook context when available. ` +
+      `Output format only:\n` +
+      `Prompt:\n<what the student should say or do, 2-5 sentences>\n` +
+      `Sample answer:\n<brief bullet points for marking reference only>\n` +
+      `Do not output MCQ, Soalan numbering blocks, or Markah lines. Variation seed: ${variationSeed}.`
+    );
+  };
+
   const runAiGenerate = async () => {
     if (aiGenerating) return;
     const practiceCode = selectedSubjectKey;
@@ -710,6 +753,36 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
       showToast("Please select a topic.");
       return;
     }
+
+    if (aiMode === "oral") {
+      setAiGenerating(true);
+      try {
+        const result = await ragApiPost<RagGenerateResponse>("/rag/generate", {
+          query: buildAiOralQuery(backendSubject, practiceCode),
+          subject: backendSubject,
+          topK: 8,
+          generateImage: false,
+        });
+        const prompt = parseAiOralPrompt(result.answer);
+        if (!prompt) {
+          showToast("AI did not return a parseable oral prompt. Try again.");
+          return;
+        }
+        setAiModalOpen(false);
+        (navigation as any).navigate("OralPractice", {
+          prompt,
+          subject: backendSubject,
+          formLevel: aiFormLevelLabel,
+          sttLanguage: sttLanguageForOralSubject(practiceCode),
+        });
+      } catch (e) {
+        showToast(e instanceof Error ? e.message : "Failed to generate oral question.");
+      } finally {
+        setAiGenerating(false);
+      }
+      return;
+    }
+
     const selectedTopic = aiMode === "topic" ? aiTopic.trim() : "";
     const historyKey = questionHistoryKey(backendSubject, selectedTopic, aiQuestionType);
 
@@ -1032,7 +1105,11 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
             <View style={styles.choiceRow}>
               <Pressable
                 style={[styles.choiceChip, aiMode === "general" && styles.choiceChipActive]}
-                onPress={() => setAiMode("general")}
+                onPress={() => {
+                  setAiMode("general");
+                  setAiTopicDropdownOpen(false);
+                }}
+                disabled={aiGenerating}
               >
                 <Text style={[styles.choiceChipText, aiMode === "general" && styles.choiceChipTextActive]}>
                   General
@@ -1041,12 +1118,33 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
               <Pressable
                 style={[styles.choiceChip, aiMode === "topic" && styles.choiceChipActive]}
                 onPress={() => setAiMode("topic")}
+                disabled={aiGenerating}
               >
                 <Text style={[styles.choiceChipText, aiMode === "topic" && styles.choiceChipTextActive]}>
                   Topic-specific
                 </Text>
               </Pressable>
+              {oralModeAvailable ? (
+                <Pressable
+                  style={[styles.choiceChip, aiMode === "oral" && styles.choiceChipActive]}
+                  onPress={() => {
+                    setAiMode("oral");
+                    setAiTopicDropdownOpen(false);
+                  }}
+                  disabled={aiGenerating}
+                >
+                  <Text style={[styles.choiceChipText, aiMode === "oral" && styles.choiceChipTextActive]}>
+                    Oral
+                  </Text>
+                </Pressable>
+              ) : null}
             </View>
+
+            {aiMode === "oral" ? (
+              <Text style={styles.oralModeHint}>
+                Generates one speaking prompt, then you record your answer with the microphone.
+              </Text>
+            ) : null}
 
             {aiMode === "topic" ? (
               <>
@@ -1108,42 +1206,48 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
               </>
             ) : null}
 
-            <Text style={styles.fieldLabel}>Question type</Text>
-            <View style={styles.choiceRow}>
-              {(["mcq", "subjective"] as const).map((type) => (
-                <Pressable
-                  key={type}
-                  style={[styles.choiceChip, aiQuestionType === type && styles.choiceChipActive]}
-                  onPress={() => setAiQuestionType(type)}
-                >
-                  <Text
-                    style={[styles.choiceChipText, aiQuestionType === type && styles.choiceChipTextActive]}
-                  >
-                    {type === "mcq" ? "MCQ" : "Subjective"}
-                  </Text>
-                </Pressable>
-              ))}
-            </View>
+            {aiMode !== "oral" ? (
+              <>
+                <Text style={styles.fieldLabel}>Question type</Text>
+                <View style={styles.choiceRow}>
+                  {(["mcq", "subjective"] as const).map((type) => (
+                    <Pressable
+                      key={type}
+                      style={[styles.choiceChip, aiQuestionType === type && styles.choiceChipActive]}
+                      onPress={() => setAiQuestionType(type)}
+                      disabled={aiGenerating}
+                    >
+                      <Text
+                        style={[styles.choiceChipText, aiQuestionType === type && styles.choiceChipTextActive]}
+                      >
+                        {type === "mcq" ? "MCQ" : "Subjective"}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
 
-            <Text style={styles.fieldLabel}>Number of questions</Text>
-            <View style={styles.choiceRow}>
-              {[5, 10, 15, 20].map((count) => (
-                <Pressable
-                  key={count}
-                  style={[styles.choiceChip, aiQuestionCount === count && styles.choiceChipActive]}
-                  onPress={() => setAiQuestionCount(count)}
-                >
-                  <Text
-                    style={[
-                      styles.choiceChipText,
-                      aiQuestionCount === count && styles.choiceChipTextActive,
-                    ]}
-                  >
-                    {count}
-                  </Text>
-                </Pressable>
-              ))}
-            </View>
+                <Text style={styles.fieldLabel}>Number of questions</Text>
+                <View style={styles.choiceRow}>
+                  {[5, 10, 15, 20].map((count) => (
+                    <Pressable
+                      key={count}
+                      style={[styles.choiceChip, aiQuestionCount === count && styles.choiceChipActive]}
+                      onPress={() => setAiQuestionCount(count)}
+                      disabled={aiGenerating}
+                    >
+                      <Text
+                        style={[
+                          styles.choiceChipText,
+                          aiQuestionCount === count && styles.choiceChipTextActive,
+                        ]}
+                      >
+                        {count}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </>
+            ) : null}
             </ScrollView>
 
             <View style={styles.aiModalFooter}>
@@ -1159,7 +1263,11 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
                   style={styles.generateActionBtnGrad}
                 >
                   <Text style={styles.generateActionBtnText}>
-                    {aiGenerating ? "Generating..." : "Generate"}
+                    {aiGenerating
+                      ? "Generating..."
+                      : aiMode === "oral"
+                        ? "Generate oral practice"
+                        : "Generate"}
                   </Text>
                 </LinearGradient>
               </Pressable>
@@ -1437,6 +1545,13 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 8,
+  },
+  oralModeHint: {
+    fontFamily: fonts.regular,
+    fontSize: 13,
+    lineHeight: 18,
+    color: colors.textSecondary,
+    marginBottom: 12,
   },
   choiceChip: {
     paddingHorizontal: 12,

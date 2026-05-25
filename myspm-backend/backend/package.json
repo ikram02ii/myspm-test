@@ -31,7 +31,9 @@
     "express": "^5",
     "google-auth-library": "^10.6.2",
     "jsonwebtoken": "^9.0.3",
+    "microsoft-cognitiveservices-speech-sdk": "^1.50.0",
     "multer": "^2.1.1",
+    "openai": "^6.39.0",
     "pdf-parse": "^2.4.5",
     "pdfjs-dist": "^5.7.284",
     "pg": "^8.20.0"

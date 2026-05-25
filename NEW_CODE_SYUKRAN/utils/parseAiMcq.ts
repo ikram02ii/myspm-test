@@ -41,6 +41,8 @@ const MCQ_DIAGRAM_FLAG_LINE =
 function stripDiagramFlagFromStem(raw: string): string {
   return raw.replace(MCQ_DIAGRAM_FLAG_LINE, "").replace(/\n{3,}/g, "\n\n").trim();
 }
+
+function letterToIndex(letter: string): number | null {
   const L = letter.trim().toUpperCase();
   if (!/^[A-D]$/.test(L)) return null;
   return L.charCodeAt(0) - 65;

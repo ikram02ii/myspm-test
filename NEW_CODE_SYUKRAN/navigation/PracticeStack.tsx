@@ -6,7 +6,10 @@ import { theme } from "../constants/palette";
 import PracticeSetsLibraryScreen from "../screens/PracticeSetsLibraryScreen";
 import PracticeSetDetailScreen from "../screens/PracticeSetDetailScreen";
 import PracticeSessionScreen from "../screens/PracticeSessionScreen";
+import OralPracticeScreen from "../screens/OralPracticeScreen";
+import OralReviewScreen from "../screens/OralReviewScreen";
 import type { PracticeSetQuestion } from "../services/mobilePracticeSets";
+import type { SttLanguage } from "../services/oralApi";
 
 export type PracticeStackParamList = {
   PracticeLibrary: undefined;
@@ -20,6 +23,18 @@ export type PracticeStackParamList = {
   PracticeSession:
     | { setId: number; title: string; subject?: string; formLevel?: string }
     | { title: string; questions: PracticeSetQuestion[]; subject?: string; formLevel?: string };
+  OralPractice: {
+    prompt: string;
+    subject: string;
+    formLevel: string;
+    sttLanguage: SttLanguage;
+  };
+  OralReview: {
+    prompt: string;
+    transcript: string;
+    subject: string;
+    formLevel: string;
+  };
 };
 
 const Stack = createNativeStackNavigator<PracticeStackParamList>();
@@ -55,6 +70,34 @@ export default function PracticeStack() {
         options={{
           headerShown: true,
           headerBackTitle: "Back",
+          headerTintColor: BRAND,
+          headerStyle: { backgroundColor: colors.screenBackground },
+          headerShadowVisible: false,
+          headerTitleStyle: { fontFamily: fonts.semiBold, color: colors.text },
+          headerBackTitleStyle: { fontFamily: fonts.medium },
+        }}
+      />
+      <Stack.Screen
+        name="OralPractice"
+        component={OralPracticeScreen}
+        options={{
+          headerShown: true,
+          title: "Oral practice",
+          headerBackTitle: "Back",
+          headerTintColor: BRAND,
+          headerStyle: { backgroundColor: colors.screenBackground },
+          headerShadowVisible: false,
+          headerTitleStyle: { fontFamily: fonts.semiBold, color: colors.text },
+          headerBackTitleStyle: { fontFamily: fonts.medium },
+        }}
+      />
+      <Stack.Screen
+        name="OralReview"
+        component={OralReviewScreen}
+        options={{
+          headerShown: true,
+          title: "Review & submit",
+          headerBackTitle: "Practice",
           headerTintColor: BRAND,
           headerStyle: { backgroundColor: colors.screenBackground },
           headerShadowVisible: false,
