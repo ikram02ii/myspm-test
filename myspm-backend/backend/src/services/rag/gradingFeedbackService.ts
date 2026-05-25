@@ -1,4 +1,5 @@
 import type { QuestionAnalysis } from "./types";
+import { formatFeedbackEvidenceOnlyBlock } from "./gradingEvidencePolicy";
 import { formatSpmStudentFriendlyRulesBlock } from "./spmStudentLanguage";
 import { qwenGradingJson, resolveQwenGradingConfig } from "./qwenGradingClient";
 
@@ -24,9 +25,12 @@ export async function buildPostScoreFeedback(input: PostScoreFeedbackInput): Pro
   const system = [
     "Write feedback for a Malaysian SPM student after their answer has already been marked.",
     formatSpmStudentFriendlyRulesBlock(),
+    formatFeedbackEvidenceOnlyBlock(),
     "Return JSON only: { \"feedback\": string }.",
     "feedback must be 1–3 short sentences, simple Form 4/5 language matching the student's language style.",
-    "Mention what was correct using the matched points; mention gaps only from missing points.",
+    "Mention only matched points that reflect wording actually in the student answer; gaps only from missing points.",
+    "Never say the student mentioned a concept unless it appears in the student answer text below.",
+    "If marks were withheld for vagueness, say the required point was not stated clearly — do not invent what they meant.",
     "Do NOT introduce new science topics not in the question stem.",
     "Do NOT say something is missing if it appears in the student answer.",
     "Do NOT demand specific examples (e.g. one chemical) unless the question explicitly asked for that detail.",

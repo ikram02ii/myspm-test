@@ -1330,11 +1330,12 @@ async function gradeWithQwen(params: {
     "- Build markBreakdown as ordered steps. Award a step only if the student wrote that step (correct content AND correct relative order).",
 
     "Calibration:",
-    "- Award marks based on correct scientific meaning, not exact textbook wording.",
+    "- Award marks ONLY for ideas explicitly stated or clearly conveyed in the student answer — never inferred.",
+    "- Reject vague or generic lines that could fit many topics even if scientifically related.",
     "- Grade at SPM Form 4/5 level — NOT A-Level / matriculation / university.",
-    "- Accept paraphrases and equivalent meaning; do not require textbook-exact wording.",
+    "- Accept paraphrases only when the student's own words show the mark point with enough specificity.",
     "- Do not require advanced details SPM does not ask for (e.g., Na+/glucose symport, renal threshold, secondary active transport, ATP/ADP minutiae, enzyme kinetics formulas, biochem pathways beyond syllabus).",
-    "- Do not deduct only because more detail could have been added. Deduct only for missing mark points, wrong ideas, or contradictions.",
+    "- Deduct for missing mark points, wrong ideas, contradictions, or implied-but-unstated science.",
 
     "Context use:",
     "- '[TEXTBOOK CONTEXT]' is the source of scientific truth.",
@@ -1354,6 +1355,7 @@ async function gradeWithQwen(params: {
     "- Follow STUDENT LANGUAGE LEVEL in your system instructions for feedback, modelAnswer, strengths, improvements, and markBreakdown reasons.",
     "- Length: 1–3 short sentences. No paragraphs, no padding.",
     "- Base feedback ONLY on matchedIdeas + missingIdeas; do not introduce new ideas not in the breakdown.",
+    "- Never claim the student wrote something that does not appear in their answer text.",
     "- Full marks: briefly confirm the matched key points; improvements MUST be [].",
     "- Partial marks: one sentence on what was correct, then state what is missing.",
     "- Zero/low marks: say it's too vague or incorrect, then give the correct key idea in one short line.",
@@ -1761,11 +1763,14 @@ export async function gradeSubmission(input: GradeSubmissionInput): Promise<Grad
   const studentIdeasList = await extractStudentIdeas(question, studentAnswer, answerLang);
   const studentIdeaStrings = studentIdeasList.map((i) => i.idea);
 
-  const reconciled = fixMissingIdeasAgainstStudentAnswer({
+  const reconciled = await fixMissingIdeasAgainstStudentAnswer({
+    question,
+    subject: input.subject?.trim() || "General",
     studentAnswer,
     missingIdeas: graded.parsed.missingIdeas ?? [],
     matchedIdeas: graded.parsed.matchedIdeas ?? [],
     markBreakdown: graded.parsed.markBreakdown,
+    rubricIdeas: undefined,
     score: graded.parsed.score,
     maxScore,
   });

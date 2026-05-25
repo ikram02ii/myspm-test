@@ -22,6 +22,10 @@ import {
   isOpenCategoryMarkingQuestion,
   isStrictContextBindingQuestion,
 } from "./gradingCategoryMarking";
+import {
+  isGenericVagueStatement,
+  studentAnswerExplicitlySupportsMarkPoint,
+} from "./gradingEvidencePolicy";
 import { verifyBorderlineMeaningMatch } from "./qwenGradingClient";
 import {
   extractStudentStageOrder,
@@ -79,27 +83,21 @@ function fullAnswerHasCausalLink(answer: string): boolean {
   return CAUSAL_EN.test(text) || CAUSAL_BM.test(text);
 }
 
-function questionStemProvidesCauseContext(question: string): boolean {
-  return /\b(when|if|as|because|due to|caused by|after|during|apabila|jika|bila|kerana|semasa|selepas)\b/i.test(
-    question,
-  );
-}
-
+/** Strong deterministic match only — borderline cases go to the LLM exam-standard verifier. */
 function studentIdeaMatchesRubricPoint(studentIdea: string, rubric: RubricIdea, studentAnswer: string): boolean {
   if (!studentIdea?.trim()) return false;
   if (!studentAnswerSatisfiesRubricDetail(studentAnswer, rubric.idea)) return false;
-  if (studentExpressesRubricMeaning(studentIdea, rubric, studentAnswer)) return true;
-  if (studentExpressesRubricMeaning(studentAnswer, rubric, studentAnswer)) return true;
+  const ans = normalizeAnswerText(studentAnswer);
+  const id = normalizeAnswerText(rubric.idea);
+  if (id.length >= 8 && ans.includes(id)) return true;
+  if (ideasShareSynonymGroup(studentIdea, rubric.idea) || ideasShareSynonymGroup(studentAnswer, rubric.idea)) {
+    return true;
+  }
+  for (const phrase of [...(rubric.keywords ?? []), ...(rubric.acceptedConcepts ?? [])]) {
+    const p = normalizeAnswerText(phrase);
+    if (p.length >= 6 && ans.includes(p)) return true;
+  }
   return false;
-}
-
-function evidenceIsConnectedScientificIdea(evidence: string): boolean {
-  const text = normalizeAnswerText(evidence);
-  if (!text) return false;
-  const meaningfulTokens = text
-    .split(/\s+/)
-    .filter((t) => t.length > 3 && !/\b(the|and|with|from|that|this|when|more|less|have|has|are|will)\b/.test(t));
-  return meaningfulTokens.length >= 2;
 }
 
 function causalRequirementSatisfied(params: {
@@ -111,24 +109,27 @@ function causalRequirementSatisfied(params: {
 }): boolean {
   const { rubric, evidence, studentAnswer, question, questionAnalysis } = params;
   if (!rubric.requiresCausalLink) return true;
-  if (fullAnswerHasCausalLink(studentAnswer)) return true;
-  if (studentAnswerCoversIdea(studentAnswer, rubric.idea)) return true;
-  if (evidence && (studentAnswerCoversIdea(evidence, rubric.idea) || ideasShareSynonymGroup(evidence, rubric.idea))) {
+  if (!fullAnswerHasCausalLink(studentAnswer) && evidence && !fullAnswerHasCausalLink(evidence)) {
+    return false;
+  }
+  if (studentAnswerExplicitlySupportsMarkPoint(studentAnswer, rubric, evidence || studentAnswer)) {
     return true;
   }
-
-  // In SPM cause-effect stems, the cause is often already in the question
-  // ("when temperature increases"). Award concise effect statements if they
-  // clearly express the scientific idea; use feedback to improve linking.
-  if (
-    isCauseEffectQuestion(question, questionAnalysis) &&
-    questionStemProvidesCauseContext(question) &&
-    evidenceIsConnectedScientificIdea(evidence)
-  ) {
-    return true;
-  }
-
   return false;
+}
+
+function allowMarkAward(params: {
+  llmAwarded: boolean;
+  studentAnswer: string;
+  rubric: RubricIdea;
+  evidence: string;
+  causalOk: boolean;
+  conceptAllowed: boolean;
+  routeDetailOk: boolean;
+}): boolean {
+  if (!params.llmAwarded) return false;
+  if (!params.causalOk || !params.conceptAllowed || !params.routeDetailOk) return false;
+  return studentAnswerExplicitlySupportsMarkPoint(params.studentAnswer, params.rubric, params.evidence);
 }
 
 function resolveMatchStrategy(
@@ -554,23 +555,6 @@ export async function matchStudentIdeasToRubric(params: MatchStudentIdeasToRubri
     }
 
     if (strategy === "categoryMembership") {
-      const namedIdea = params.studentIdeas.find(
-        (si) =>
-          sequenceStageMatchesStudent(rubric, studentAnswer, [si]) ||
-          studentIdeaMatchesRubricPoint(si.idea, rubric, studentAnswer) ||
-          ideasShareSynonymGroup(si.idea, rubric.idea),
-      );
-      if (namedIdea) {
-        pushRow(
-          rubric,
-          strategy,
-          true,
-          "Student gave a valid description for this category at SPM level.",
-          namedIdea.idea,
-          "acceptedConcept",
-        );
-        continue;
-      }
       const lineForVerify =
         params.studentIdeas.find((si) => studentAnswerCoversIdea(si.idea, rubric.idea))?.idea ?? studentLine;
       const verified = await verifyBorderlineMeaningMatch({
@@ -587,14 +571,28 @@ export async function matchStudentIdeasToRubric(params: MatchStudentIdeasToRubri
         openCategoryMarking: openCat || true,
         exampleUseCombo,
       });
-      const evidence = params.studentIdeas[0]?.idea ?? studentAnswer.slice(0, 200);
+      const catEvidence =
+        lineForVerify ||
+        params.studentIdeas[0]?.idea ||
+        studentAnswer.slice(0, 200);
+      const catAwarded = allowMarkAward({
+        llmAwarded: verified.awarded,
+        studentAnswer,
+        rubric,
+        evidence: catEvidence,
+        causalOk: true,
+        conceptAllowed: true,
+        routeDetailOk: studentAnswerSatisfiesRubricDetail(studentAnswer, rubric.idea),
+      });
       pushRow(
         rubric,
         strategy,
-        verified.awarded,
-        verified.reason ||
-          (verified.awarded ? "Valid member of the category at SPM level." : "Not a valid member of the category."),
-        evidence,
+        catAwarded,
+        catAwarded
+          ? verified.reason || "Category member stated clearly in the answer."
+          : verified.reason ||
+            "Answer does not name a specific valid category member in the student's own words.",
+        catEvidence,
         "llmVerifier",
       );
       continue;
@@ -620,12 +618,24 @@ export async function matchStudentIdeasToRubric(params: MatchStudentIdeasToRubri
         openCategoryMarking: openCat || true,
         exampleUseCombo,
       });
+      const reasonEvidence = params.studentIdeas[0]?.idea ?? studentAnswer.slice(0, 200);
+      const reasonAwarded = allowMarkAward({
+        llmAwarded: verified.awarded,
+        studentAnswer,
+        rubric,
+        evidence: reasonEvidence,
+        causalOk: true,
+        conceptAllowed: true,
+        routeDetailOk: true,
+      });
       pushRow(
         rubric,
         strategy,
-        verified.awarded,
-        verified.reason || (verified.awarded ? "Valid scientific reasoning." : "Reasoning not scientifically valid."),
-        params.studentIdeas[0]?.idea ?? studentAnswer.slice(0, 200),
+        reasonAwarded,
+        reasonAwarded
+          ? verified.reason || "Reasoning stated clearly in the answer."
+          : verified.reason || "Reasoning not stated clearly enough in the answer.",
+        reasonEvidence,
         "llmVerifier",
       );
       continue;
@@ -694,11 +704,15 @@ export async function matchStudentIdeasToRubric(params: MatchStudentIdeasToRubri
 
     if (!awarded) {
       for (const si of params.studentIdeas) {
-        if (studentIdeaMatchesRubricPoint(si.idea, rubric, studentAnswer) && conceptGuardAllows(rubric.idea, si.idea, question, params.questionAnalysis)) {
+        if (
+          studentIdeaMatchesRubricPoint(si.idea, rubric, studentAnswer) &&
+          conceptGuardAllows(rubric.idea, si.idea, question, params.questionAnalysis) &&
+          studentAnswerExplicitlySupportsMarkPoint(studentAnswer, rubric, si.idea)
+        ) {
           awarded = true;
           evidence = si.idea;
           matchMethod = "exact";
-          reason = "Student idea already expresses this mark point (no causal linker required).";
+          reason = "Mark point explicitly stated in the answer.";
           break;
         }
       }
@@ -707,31 +721,23 @@ export async function matchStudentIdeasToRubric(params: MatchStudentIdeasToRubri
     if (!awarded && bestIdx >= 0) {
       evidence = params.studentIdeas[bestIdx]?.idea ?? "";
       const ideaClearlyPresent = studentIdeaMatchesRubricPoint(evidence, rubric, studentAnswer);
-      const causalOk =
-        ideaClearlyPresent ||
-        params.studentIdeas[bestIdx]?.hasCausalLink === true ||
-        causalRequirementSatisfied({
-          rubric,
-          evidence,
-          studentAnswer,
-          question,
-          questionAnalysis: params.questionAnalysis,
-        });
+      const causalOk = causalRequirementSatisfied({
+        rubric,
+        evidence,
+        studentAnswer,
+        question,
+        questionAnalysis: params.questionAnalysis,
+      });
 
       const conceptAllowed = conceptGuardAllows(rubric.idea, evidence, question, params.questionAnalysis);
       const routeDetailOk = studentAnswerSatisfiesRubricDetail(studentAnswer, rubric.idea);
-      const embedAutoAward = 0.68;
       const embedAutoReject = 0.32;
       const useSemanticVerifier =
         strategy !== "equationCompleteness" &&
         strategy !== "accuracyCheck" &&
         (ideaClearlyPresent || bestScore > embedAutoReject);
 
-      if (bestScore >= embedAutoAward && causalOk && conceptAllowed && routeDetailOk) {
-        awarded = true;
-        matchMethod = rubric.openEnded ? "openEndedCategory" : "embedding";
-        reason = `Scientific meaning aligns (similarity ${bestScore.toFixed(2)}): ${evidence}`;
-      } else if (
+      if (
         !useSemanticVerifier &&
         (bestScore <= embedAutoReject || !causalOk || !conceptAllowed || !routeDetailOk)
       ) {
@@ -743,7 +749,7 @@ export async function matchStudentIdeasToRubric(params: MatchStudentIdeasToRubri
             ? "Student idea is too generic for this specific causal concept."
             : !causalOk
               ? "Rubric point needs a causal explanation; not clearly shown in the student wording."
-              : `Scientific meaning not shown (similarity ${bestScore.toFixed(2)}).`;
+              : `Does not meet SPM mark-scheme standard for this point (similarity ${bestScore.toFixed(2)}).`;
       } else if (useSemanticVerifier) {
         const verified = await verifyBorderlineMeaningMatch({
           mode: resolveVerifierMode(strategy),
@@ -759,14 +765,27 @@ export async function matchStudentIdeasToRubric(params: MatchStudentIdeasToRubri
           openCategoryMarking: openCat || rubric.openEnded === true || strategy === "conceptMatch",
           exampleUseCombo,
         });
-        awarded = verified.awarded && causalOk && conceptAllowed && routeDetailOk;
+        const evidenceLine = evidence || studentAnswer.slice(0, 400);
+        awarded = allowMarkAward({
+          llmAwarded: verified.awarded,
+          studentAnswer,
+          rubric,
+          evidence: evidenceLine,
+          causalOk,
+          conceptAllowed,
+          routeDetailOk,
+        });
         matchMethod = "llmVerifier";
         reason =
           verified.reason ||
-          `Semantic check (similarity ${bestScore.toFixed(2)}): ${awarded ? "same scientific meaning" : "meaning not shown"}.`;
+          (awarded
+            ? `Mark point stated in the answer (similarity ${bestScore.toFixed(2)}).`
+            : `Required point not stated clearly in the answer (similarity ${bestScore.toFixed(2)}).`);
         if (!causalOk) {
           awarded = false;
-          reason = "Rubric point needs a causal link; student answer did not show one clearly.";
+          reason = "Explanation mark needs a causal link written in the answer.";
+        } else if (awarded === false && isGenericVagueStatement(evidenceLine)) {
+          reason = "Answer is too vague — the required scientific point is not stated clearly.";
         }
       }
     } else if (!awarded && bestIdx < 0) {
@@ -776,42 +795,20 @@ export async function matchStudentIdeasToRubric(params: MatchStudentIdeasToRubri
           : "No embedding match to extracted ideas.";
     }
 
-    if (
-      !awarded &&
-      strategy !== "equationCompleteness" &&
-      strategy !== "accuracyCheck" &&
-      studentAnswer.trim().length > 0
-    ) {
-      const rescueLine =
-        evidence ||
-        params.studentIdeas.map((s) => s.idea).find((line) => studentExpressesRubricMeaning(line, rubric, studentAnswer)) ||
-        studentAnswer.slice(0, 400);
-      const routeDetailOk = studentAnswerSatisfiesRubricDetail(studentAnswer, rubric.idea);
+    if (!awarded && studentIdeaMatchesRubricPoint(evidence, rubric, studentAnswer)) {
       const causalOk =
         !rubric.requiresCausalLink ||
         fullAnswerHasCausalLink(studentAnswer) ||
-        studentExpressesRubricMeaning(rescueLine, rubric, studentAnswer);
-      if (routeDetailOk && causalOk && conceptGuardAllows(rubric.idea, rescueLine, question, params.questionAnalysis)) {
-        const rescued = await verifyBorderlineMeaningMatch({
-          mode: resolveVerifierMode(strategy),
-          question,
-          rubricIdea: rubric.idea,
-          rubricKind: rubric.kind,
-          rubricKeywords: rubric.keywords,
-          studentIdea: rescueLine,
-          similarity: 0,
-          fullStudentAnswer: studentAnswer,
-          priorAwardedRubricIdeas: markBreakdown.filter((r) => r.awarded).map((r) => r.idea),
-          strictContextBound: strictCtx,
-          openCategoryMarking: !strictCtx,
-          exampleUseCombo,
-        });
-        if (rescued.awarded) {
-          awarded = true;
-          evidence = rescueLine;
-          matchMethod = "llmVerifier";
-          reason = rescued.reason || "Scientific meaning matches this mark point (semantic rescue).";
-        }
+        studentAnswerCoversIdea(studentAnswer, rubric.idea);
+      if (
+        causalOk &&
+        conceptGuardAllows(rubric.idea, evidence, question, params.questionAnalysis) &&
+        studentAnswerSatisfiesRubricDetail(studentAnswer, rubric.idea) &&
+        studentAnswerExplicitlySupportsMarkPoint(studentAnswer, rubric, evidence)
+      ) {
+        awarded = true;
+        matchMethod = "exact";
+        reason = "Mark point explicitly stated in the answer.";
       }
     }
 

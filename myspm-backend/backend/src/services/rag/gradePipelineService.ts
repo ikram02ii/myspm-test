@@ -3,6 +3,7 @@ import { buildGradingContextFromChunks } from "./retrievalService";
 import { formatSpmStudentFriendlyRulesBlock } from "./spmStudentLanguage";
 import { finalizeRubricIdeas, getOrCreateRubric, getRubricById } from "./rubricService";
 import { applyExaminerPriorityMarking } from "./examinerCreditService";
+import { filterGroundedStudentIdeas } from "./gradingEvidencePolicy";
 import { fixMissingIdeasAgainstStudentAnswer } from "./gradingFairnessMatch";
 import { mapAnalysisToRubricQuestionType } from "./questionAnalysisService";
 import { matchStudentIdeasToRubric } from "./rubricMatchingService";
@@ -146,15 +147,16 @@ function detectAnswerLanguage(text: string): "english" | "malay" | "mixed" {
 
 export async function extractStudentIdeas(question: string, studentAnswer: string, language: string): Promise<StudentIdea[]> {
   const system = [
-    "Extract concise ideas from a student's answer.",
+    "Extract concise ideas from a student's answer — EVIDENCE ONLY.",
     formatSpmStudentFriendlyRulesBlock(),
-    "Each \"idea\" string must stay short and in plain school-level wording (same language style as the student's answer).",
+    "Each \"idea\" string must be a short quote or faithful paraphrase of words the student actually wrote.",
     "Return JSON only: { \"ideas\": [{ \"idea\": string, \"hasCausalLink\": boolean }] }.",
-    "When one sentence contains several scientific points, split them into separate ideas.",
+    "Do NOT add mechanisms, purposes, outcomes, or scientific details that are not in the answer.",
+    "Do NOT infer what a vague phrase probably meant.",
+    "When one sentence contains several distinct written points, split them into separate ideas.",
     [
       "SHORT ANSWER RULE:",
-      "If the student answer is a single word, name, formula, or short phrase with no predicate, extract it as one idea exactly as written. Do not discard it, do not add words to it, and do not split it further.",
-      "A brief answer is not an incorrect answer — extract it faithfully.",
+      "If the answer is a single word, name, or short phrase, extract it exactly as written — do not expand it.",
     ].join("\n"),
   ].join("\n");
   const sequenceQ = isSequenceMarkingQuestion(question);
@@ -167,9 +169,9 @@ export async function extractStudentIdeas(question: string, studentAnswer: strin
           "SEQUENCE QUESTION: split the answer into one idea per stage/level/step (e.g. cell, tissue, organ, or each model name).",
           "Keep fragments in the order the student wrote them. Include every stage mentioned, even if only one word.",
         ].join("\n")
-      : "Split into short markable ideas — include every distinct correct point, even if phrased briefly, informally, or with weak grammar.",
-    "Split only when the student has made genuinely separate scientific claims. When a short or incomplete answer is given, extract it as-is as a single idea.",
-    "hasCausalLink=true if this idea explicitly contains explanation linkage (because/so that/to/kerana/supaya/untuk etc).",
+      : "Split into short ideas using only wording from the student answer.",
+    "Split only when the student wrote genuinely separate points. Incomplete answers stay as one idea — do not fill gaps.",
+    "hasCausalLink=true only if this idea line explicitly contains because/so that/to/kerana/supaya/untuk etc.",
   ].join("\n\n");
   const parsed = await qwenGradingJson(system, user);
   const ideas = Array.isArray(parsed?.ideas) ? parsed.ideas : [];
@@ -303,7 +305,8 @@ export async function gradeWithPipelineV2(input: GradeSubmissionInput): Promise<
     );
   }
 
-  const studentIdeas = await extractStudentIdeas(question, studentAnswer, language);
+  const studentIdeasRaw = await extractStudentIdeas(question, studentAnswer, language);
+  const studentIdeas = filterGroundedStudentIdeas(studentIdeasRaw, studentAnswer);
   const rubricIdeasForMarking = finalizeRubricIdeas(
     rubric.ideas,
     question,
@@ -331,7 +334,9 @@ export async function gradeWithPipelineV2(input: GradeSubmissionInput): Promise<
   let matchedIdeas = matchedRows.map((row) => row.idea);
   let missingIdeas = missingRows.map((row) => row.idea);
 
-  const reconciled = fixMissingIdeasAgainstStudentAnswer({
+  const reconciled = await fixMissingIdeasAgainstStudentAnswer({
+    question,
+    subject,
     studentAnswer,
     missingIdeas,
     matchedIdeas,
@@ -431,10 +436,6 @@ export async function gradeWithPipelineV2(input: GradeSubmissionInput): Promise<
     }
   } catch {
     /* keep fallback */
-  }
-
-  if (outsideRubricAwardCount > 0) {
-    feedback = `${feedback}\n\n(Note: ${outsideRubricAwardCount} mark point(s) were awarded for scientifically correct ideas not listed in the rubric — teacher review suggested.)`.trim();
   }
 
   return {

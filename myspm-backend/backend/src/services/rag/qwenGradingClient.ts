@@ -4,6 +4,8 @@
  */
 
 import type { RubricIdeaKind, VerifierMode } from "./types";
+import { formatSpmExamStandardMarkingBlock } from "./gradingExaminerPolicy";
+import { formatEvidenceOnlyMarkingBlock } from "./gradingEvidencePolicy";
 import { formatSpmStudentFriendlyRulesBlock } from "./spmStudentLanguage";
 
 export type QwenGradingConfig = { apiKey: string; baseUrl: string; model: string };
@@ -77,20 +79,19 @@ export async function qwenGradingJson(system: string, user: string): Promise<any
 
 const VERIFIER_MODE_BLOCKS: Record<VerifierMode, string> = {
   meaning: [
-    "Task: does the student idea carry the same scientific meaning as the rubric point regardless of wording?",
-    "Award for correct concept in any phrasing, language, or notation.",
-    "Withhold only for factually wrong, contradictory, or genuinely absent content.",
+    "Task: would an SPM examiner award this mark for the student's wording on this rubric point?",
+    "Award only if the student shows the mark point with SPM-level specificity and detail (paraphrases OK).",
+    "Withhold if only vaguely related, generic, incomplete, informal, or scientifically true but below exam standard.",
   ].join("\n"),
   membership: [
-    "Task: is the student's answer a valid member of the category described by the rubric row keywords?",
-    "Do not compare to acceptedConcepts as if they are the only valid answers.",
-    "Award for any scientifically correct instance of that category at SPM Form 4/5 level.",
-    "Withhold only if the answer is not a valid category member or is too vague to verify.",
+    "Task: did the student name a valid category member at SPM exam standard (specific enough to mark)?",
+    "Award for a clear, markable instance — not a vague label or unrelated example.",
+    "Withhold if too vague, wrong category, or scientifically related but not acceptable on an SPM mark scheme.",
   ].join("\n"),
   reasoning: [
-    "Task: is the student's reasoning scientifically valid for this scenario at SPM Form 4/5 level?",
-    "Award if the logic is sound regardless of the specific answer.",
-    "Withhold only if the reasoning is scientifically incorrect.",
+    "Task: does the student's reasoning meet SPM marking-scheme standard for this mark point?",
+    "Award only if the logic is sound AND specific enough for the marks (steps/mechanism as required).",
+    "Withhold for wrong science, missing steps, or vague 'because' without the required mechanism.",
   ].join("\n"),
   method: [
     "Task: did the student use a correct method, formula, or approach for this step regardless of whether the final value is correct?",
@@ -101,6 +102,11 @@ const VERIFIER_MODE_BLOCKS: Record<VerifierMode, string> = {
     "Task: does this idea correctly describe the named item on this side of the comparison?",
     "Award only if the idea is correct AND applies to the right item.",
     "Withhold if the idea describes the other item even if correct.",
+  ].join("\n"),
+  sequence: [
+    "Task: does the student's sequence/order meet SPM mark-scheme standard for this stage or full order?",
+    "Award only when the required stage is present in the correct position (or full order when required).",
+    "Withhold for wrong order, missing stages, or vague labels that do not name the required step.",
   ].join("\n"),
   equation: [
     "Task: check ALL of the following and award only if ALL pass —",
@@ -116,17 +122,19 @@ const VERIFIER_MODE_BLOCKS: Record<VerifierMode, string> = {
 
 const LEAD_BY_MODE: Record<VerifierMode, string> = {
   meaning:
-    "Does the student idea express the same scientific meaning as the rubric marking point? Answer with awarded true/false only — do NOT choose marks.",
+    "Would an SPM examiner award this mark point for the student's answer (exam standard, not science trivia)? Answer awarded true/false only — do NOT choose marks.",
   membership:
-    "Is the student's answer a valid member of the category this rubric row is testing? Answer with awarded true/false only — do NOT choose marks.",
+    "Is the student's answer a specific, markable SPM-level instance of this category? Answer awarded true/false only — do NOT choose marks.",
   reasoning:
-    "Is the student's reasoning scientifically valid for this mark point? Answer with awarded true/false only — do NOT choose marks.",
+    "Does the reasoning meet SPM mark-scheme standard for this point? Answer awarded true/false only — do NOT choose marks.",
   method:
     "Did the student use a correct method or approach for this step? Answer with awarded true/false only — do NOT choose marks.",
   paired:
     "Does this student idea correctly describe the item named on this side of the comparison? Answer with awarded true/false only — do NOT choose marks.",
   equation:
     "Does the student's equation satisfy ALL required species and balance conditions? Answer with awarded true/false only — do NOT choose marks.",
+  sequence:
+    "Does the student's sequence meet SPM mark-scheme standard for this rubric row? Answer awarded true/false only — do NOT choose marks.",
 };
 
 export async function verifyBorderlineMeaningMatch(params: {
@@ -145,15 +153,19 @@ export async function verifyBorderlineMeaningMatch(params: {
 }): Promise<{ awarded: boolean; reason: string }> {
   const system = [
     "Verify a student response against a rubric marking point at SPM Form 4/5 level.",
+    formatSpmExamStandardMarkingBlock(),
+    formatEvidenceOnlyMarkingBlock(),
     formatSpmStudentFriendlyRulesBlock(),
     "Return JSON only: { \"awarded\": boolean, \"reason\": string }.",
-    "The reason must be one short plain sentence.",
+    "The reason must be one short plain sentence for the student, citing only what they actually wrote.",
+    "If awarded is false: say the required point was not stated clearly in their answer (too vague / not mentioned / only implied).",
+    "Never award because the student 'probably meant' a scientific idea that is not expressed in the answer text.",
     VERIFIER_MODE_BLOCKS[params.mode],
     params.openCategoryMarking || params.strictContextBound
-      ? "For open-category stems, award if scientifically valid at SPM level for the criterion — not only if wording matches one textbook example. For context-bound stems, the idea must fit the named diagram/text/experiment."
+      ? "Open-category: award only a specific valid SPM instance of the criterion. Context-bound: must fit the named source in the question."
       : null,
     params.exampleUseCombo
-      ? "When the stem asks for example + use, use rows already matched to infer the student's example when judging a use/function row."
+      ? "Example+use: only credit use/function if the student's written answer states that use — do not infer the example from the question stem alone."
       : null,
   ]
     .filter((line): line is string => Boolean(line))
@@ -161,11 +173,11 @@ export async function verifyBorderlineMeaningMatch(params: {
 
   const userParts = [
     LEAD_BY_MODE[params.mode],
-    "Treat common SPM paraphrases as the same meaning.",
-    "For cause-effect science questions, do not require exact causal words like because/therefore if the student clearly states the correct scientific cause/effect idea.",
-    "Do not require the student to repeat context already given in the question stem (for example 'when temperature increases') in every sentence.",
+    "Treat common SPM paraphrases as the same mark point only when specificity is sufficient.",
+    "For cause-effect questions, withhold if only a generic outcome is stated without the mark-point mechanism.",
+    "Do not require repeating context already in the question stem, but do require the mark-point detail itself.",
     params.openCategoryMarking && !params.strictContextBound
-      ? "OPEN CATEGORY: award true for any correct SPM-level response fitting the rubric row."
+      ? "OPEN CATEGORY: award only when the student gives a specific valid instance at SPM mark-scheme level."
       : null,
     params.strictContextBound
       ? "CONTEXT-BOUND: reject if inconsistent with the source named in the question."

@@ -4,6 +4,8 @@
  */
 
 import type { MarkBreakdownItem, RubricIdea } from "./types";
+import { studentAnswerExplicitlySupportsMarkPoint } from "./gradingEvidencePolicy";
+import { verifyBorderlineMeaningMatch } from "./qwenGradingClient";
 
 export const EQUIVALENT_PHRASE_GROUPS: readonly string[][] = [
   ["pollen tube", "grow a pollen tube", "form a pollen tube", "develop a pollen tube", "grows a pollen tube", "pollen tube growth"],
@@ -207,7 +209,7 @@ export function studentAnswerCoversIdea(studentAnswer: string, idea: string): bo
 
   if (tokens.length === 0) return false;
   const hitRatio = tokens.filter((t) => ans.includes(t)).length / tokens.length;
-  if (hitRatio >= 0.5) return true;
+  if (hitRatio >= 0.72) return true;
 
   for (const group of EQUIVALENT_PHRASE_GROUPS) {
     const ideaHit = group.some((g) => id.includes(normalizeAnswerText(g)));
@@ -248,10 +250,12 @@ export type ContradictionFixResult = {
 };
 
 /**
- * Remove missing ideas that are already present in the student answer; optionally
- * flip matching markBreakdown rows to awarded and re-sum score.
+ * Reconcile "missing" rubric rows when heuristics suggest the answer may already
+ * cover them — confirmed by LLM at SPM exam standard (not heuristic auto-credit).
  */
-export function fixMissingIdeasAgainstStudentAnswer(params: {
+export async function fixMissingIdeasAgainstStudentAnswer(params: {
+  question: string;
+  subject?: string;
   studentAnswer: string;
   missingIdeas: string[];
   matchedIdeas: string[];
@@ -259,25 +263,49 @@ export function fixMissingIdeasAgainstStudentAnswer(params: {
   rubricIdeas?: RubricIdea[];
   score: number;
   maxScore: number;
-}): ContradictionFixResult {
-  const { studentAnswer, maxScore } = params;
+}): Promise<ContradictionFixResult> {
+  const { studentAnswer, maxScore, question } = params;
   let missing = [...params.missingIdeas];
   let matched = [...params.matchedIdeas];
   const breakdown = params.markBreakdown?.map((r) => ({ ...r }));
   let score = params.score;
-  const falselyMissing: string[] = [];
+  const confirmedMissing: string[] = [];
 
   for (const idea of params.missingIdeas) {
     const rubricRow = params.rubricIdeas?.find((r) => r.idea === idea);
-    const meaningPresent = rubricRow
+    const heuristicHit = rubricRow
       ? studentExpressesRubricMeaning(studentAnswer, rubricRow, studentAnswer)
       : studentAnswerCoversIdea(studentAnswer, idea) || ideasShareSynonymGroup(studentAnswer, idea);
-    if (meaningPresent && studentAnswerSatisfiesRubricDetail(studentAnswer, idea)) {
-      falselyMissing.push(idea);
+    if (!heuristicHit || !studentAnswerSatisfiesRubricDetail(studentAnswer, idea)) continue;
+
+    try {
+      const verified = await verifyBorderlineMeaningMatch({
+        mode: "meaning",
+        question,
+        rubricIdea: idea,
+        rubricKind: rubricRow?.kind ?? "point",
+        rubricKeywords: rubricRow?.keywords,
+        studentIdea: studentAnswer.slice(0, 400),
+        similarity: 0,
+        fullStudentAnswer: studentAnswer,
+        priorAwardedRubricIdeas: matched,
+        strictContextBound: false,
+        openCategoryMarking: rubricRow?.openEnded === true,
+        exampleUseCombo: false,
+      });
+      if (
+        verified.awarded &&
+        rubricRow &&
+        studentAnswerExplicitlySupportsMarkPoint(studentAnswer, rubricRow, studentAnswer)
+      ) {
+        confirmedMissing.push(idea);
+      }
+    } catch {
+      /* keep as missing on LLM failure */
     }
   }
 
-  if (falselyMissing.length === 0) {
+  if (confirmedMissing.length === 0) {
     return {
       missingIdeas: missing,
       matchedIdeas: matched,
@@ -287,26 +315,36 @@ export function fixMissingIdeasAgainstStudentAnswer(params: {
     };
   }
 
-  missing = missing.filter((m) => !falselyMissing.includes(m));
-  for (const idea of falselyMissing) {
+  missing = missing.filter((m) => !confirmedMissing.includes(m));
+  for (const idea of confirmedMissing) {
     if (!matched.includes(idea)) matched.push(idea);
   }
 
   if (breakdown && breakdown.length > 0) {
     for (const row of breakdown) {
       const rubricRow = params.rubricIdeas?.find((r) => r.id === row.rubricId || r.idea === row.idea);
-      const meaningPresent = rubricRow
-        ? studentExpressesRubricMeaning(studentAnswer, rubricRow, studentAnswer)
-        : studentAnswerCoversIdea(studentAnswer, row.idea) || ideasShareSynonymGroup(studentAnswer, row.idea);
-      if (!row.awarded && meaningPresent && studentAnswerSatisfiesRubricDetail(studentAnswer, row.idea)) {
+      if (!row.awarded && confirmedMissing.includes(row.idea)) {
         row.awarded = true;
-        row.reason = `${row.reason || ""} (Reconciled: idea appears in student answer.)`.trim();
+        row.reason =
+          `${row.reason || ""} (SPM exam-standard check: mark point clearly shown.)`.trim();
+        row.matchMethod = "llmVerifier";
+        row.matchStrategy = "examStandardReconcile";
+      } else if (
+        !row.awarded &&
+        rubricRow &&
+        confirmedMissing.includes(rubricRow.idea)
+      ) {
+        row.awarded = true;
+        row.reason =
+          `${row.reason || ""} (SPM exam-standard check: mark point clearly shown.)`.trim();
+        row.matchMethod = "llmVerifier";
+        row.matchStrategy = "examStandardReconcile";
       }
     }
     const summed = breakdown.reduce((sum, item) => sum + (item.awarded ? item.marks : 0), 0);
     score = Math.max(0, Math.min(maxScore, Math.round(summed)));
   } else {
-    score = Math.max(0, Math.min(maxScore, score + falselyMissing.length));
+    score = Math.max(0, Math.min(maxScore, score + confirmedMissing.length));
   }
 
   return {
@@ -314,7 +352,6 @@ export function fixMissingIdeasAgainstStudentAnswer(params: {
     matchedIdeas: matched,
     markBreakdown: breakdown,
     score,
-    /** True when output no longer lists ideas as missing that the answer already covers (including after repair). */
     contradictionCheckPassed: true,
   };
 }

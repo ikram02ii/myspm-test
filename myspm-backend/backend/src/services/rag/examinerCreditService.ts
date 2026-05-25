@@ -1,16 +1,16 @@
 /**
- * Examiner-priority pass: credit scientifically correct answers even when
- * the deterministic matcher missed them; flag true outside-rubric awards.
+ * Second-pass review: credit rubric rows only when the first matcher missed them
+ * but the answer already meets SPM mark-scheme standard. No loose outside-rubric marks.
  */
 
-import { randomUUID } from "node:crypto";
 import type {
   MarkBreakdownItem,
   QuestionAnalysis,
   RubricIdea,
   StudentIdea,
 } from "./types";
-import { formatExaminerMarkingPriorityBlock } from "./gradingExaminerPolicy";
+import { studentAnswerExplicitlySupportsMarkPoint } from "./gradingEvidencePolicy";
+import { formatSpmExamStandardMarkingBlock } from "./gradingExaminerPolicy";
 import { formatSpmStudentFriendlyRulesBlock } from "./spmStudentLanguage";
 import { qwenGradingJson } from "./qwenGradingClient";
 import { isStrictContextBindingQuestion } from "./gradingCategoryMarking";
@@ -38,13 +38,6 @@ export type ExaminerCreditPassResult = {
 type RubricRowCredit = {
   rubricId?: string;
   award?: boolean;
-  reason?: string;
-  awardedOutsideRubric?: boolean;
-};
-
-type OutsideRubricCredit = {
-  studentIdea?: string;
-  marks?: number;
   reason?: string;
   awardedOutsideRubric?: boolean;
 };
@@ -90,21 +83,24 @@ export async function applyExaminerPriorityMarking(
   const contextExcerpt = (input.textbookContext ?? "").trim().slice(0, 4000);
 
   const system = [
-    formatExaminerMarkingPriorityBlock(),
+    formatSpmExamStandardMarkingBlock(),
     formatSpmStudentFriendlyRulesBlock(),
     "Return JSON only:",
     `{`,
-    `  "rubricRowCredits": [{ "rubricId": string, "award": boolean, "reason": string, "awardedOutsideRubric": boolean }],`,
-    `  "outsideRubricCredits": [{ "studentIdea": string, "marks": number, "reason": string, "awardedOutsideRubric": true }]`,
+    `  "rubricRowCredits": [{ "rubricId": string, "award": boolean, "reason": string, "awardedOutsideRubric": false }]`,
     `}`,
     "Rules:",
-    "- rubricRowCredits: only for existing rubric row ids listed below; set award true when the student already demonstrated that mark point (meaning, not exact words). awardedOutsideRubric must be false when crediting an existing rubric row.",
-    "- outsideRubricCredits: only when the student gave scientifically correct, relevant content that no rubric row captures; each entry must have awardedOutsideRubric true.",
-    `- Do not award more than ${remaining} additional mark(s) in total across both arrays.`,
-    "- Do not award equation marks unless the equation in the answer is fully correct at SPM level.",
+    "- Review ONLY existing rubric row ids listed below.",
+    "- Set award true only when the student already demonstrated that mark point at SPM exam standard (specificity + detail), not merely a related scientific idea.",
+    "- awardedOutsideRubric must always be false.",
+    "- Do NOT invent new mark points or award marks outside the rubric.",
+    `- You may add at most ${remaining} additional mark(s) total.`,
+    "- Do not award equation marks unless the equation is fully correct at SPM level.",
+    "- Reject vague, generic, incomplete, or informal answers even if scientifically true.",
+    "- Award only if the student answer text already contains the mark point — do not infer unstated science.",
     strictCtx
-      ? "- CONTEXT-BOUND: outside-rubric credit only if consistent with the named source in the question."
-      : "- Valid SPM alternatives not listed in the rubric are allowed.",
+      ? "- CONTEXT-BOUND: credit only if consistent with the named source in the question."
+      : "- Valid SPM paraphrases are allowed when the mark-point detail is clearly present.",
   ].join("\n");
 
   const user = [
@@ -115,23 +111,20 @@ export async function applyExaminerPriorityMarking(
     `Marks already awarded: ${score}/${maxScore}. You may add at most ${remaining} more.`,
     "Rubric rows:",
     rubricRowSummary(input.rubricIdeas, breakdown),
-    contextExcerpt ? `Textbook context (reference only):\n${contextExcerpt}` : null,
+    contextExcerpt ? `Marking context (reference only):\n${contextExcerpt}` : null,
   ]
     .filter((line): line is string => Boolean(line))
     .join("\n\n");
 
   let rubricRowCredits: RubricRowCredit[] = [];
-  let outsideRubricCredits: OutsideRubricCredit[] = [];
 
   try {
     const parsed = await qwenGradingJson(system, user);
     rubricRowCredits = Array.isArray(parsed?.rubricRowCredits) ? parsed.rubricRowCredits : [];
-    outsideRubricCredits = Array.isArray(parsed?.outsideRubricCredits) ? parsed.outsideRubricCredits : [];
   } catch {
     return buildResult(breakdown, score, 0);
   }
 
-  let outsideCount = 0;
   let budget = remaining;
 
   for (const credit of rubricRowCredits) {
@@ -142,6 +135,9 @@ export async function applyExaminerPriorityMarking(
     const rubricIdea = input.rubricIdeas.find((r) => r.id === rubricId);
     if (!row || row.awarded || !rubricIdea) continue;
     if (rubricIdea.kind === "equation" || rubricIdea.demandType === "equation") continue;
+    if (!studentAnswerExplicitlySupportsMarkPoint(input.studentAnswer, rubricIdea, input.studentAnswer)) {
+      continue;
+    }
 
     const marks = Math.min(budget, row.marks, rubricIdea.marks);
     if (marks <= 0) continue;
@@ -150,41 +146,15 @@ export async function applyExaminerPriorityMarking(
     row.marks = marks;
     row.reason =
       (typeof credit.reason === "string" && credit.reason.trim()) ||
-      "Examiner review: scientifically correct for this mark point.";
+      "SPM exam-standard review: mark point clearly shown in the answer.";
     row.matchMethod = "llmVerifier";
-    row.matchStrategy = "examinerPriority";
-    row.awardedOutsideRubric = credit.awardedOutsideRubric === true;
-    if (row.awardedOutsideRubric) outsideCount += 1;
-    budget -= marks;
-  }
-
-  for (const credit of outsideRubricCredits) {
-    if (budget <= 0) break;
-    const idea =
-      typeof credit.studentIdea === "string" && credit.studentIdea.trim()
-        ? credit.studentIdea.trim()
-        : "";
-    if (!idea) continue;
-    const rawMarks = typeof credit.marks === "number" ? Math.floor(credit.marks) : 1;
-    const marks = Math.max(1, Math.min(budget, rawMarks));
-    breakdown.push({
-      rubricId: `outside-${randomUUID().slice(0, 8)}`,
-      idea,
-      awarded: true,
-      marks,
-      reason:
-        (typeof credit.reason === "string" && credit.reason.trim()) ||
-        "Scientifically correct point not listed in the rubric (teacher review suggested).",
-      matchMethod: "llmVerifier",
-      matchStrategy: "examinerOutsideRubric",
-      awardedOutsideRubric: true,
-    });
-    outsideCount += 1;
+    row.matchStrategy = "examStandardReview";
+    row.awardedOutsideRubric = false;
     budget -= marks;
   }
 
   score = Math.min(maxScore, sumAwarded(breakdown));
-  return buildResult(breakdown, score, outsideCount);
+  return buildResult(breakdown, score, 0);
 }
 
 function buildResult(
