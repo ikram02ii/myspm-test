@@ -1,4 +1,10 @@
-import { chatCompletion, generateImage } from "./llmProvider";
+import { chatCompletion } from "./llmProvider";
+import {
+  buildGenerationReminders,
+  finalizeGeneratedAnswer,
+  formatGeneratorContextBlock,
+  type GenerateRagDiagram,
+} from "./generateFromRagEnhancements";
 import { retrieveChunks } from "../rag/retrievalService";
 import { enrichMathAnswerWithSvg } from "./mathSvg";
 import { analyzeQuestion } from "../rag/questionAnalysisService";
@@ -46,8 +52,12 @@ export type GeneratedOpenEndedQuestion = {
   rubricIdeas: RubricIdea[];
 };
 
+export type { GenerateRagDiagram } from "./generateFromRagEnhancements";
+
 export type GenerateRagResult = {
   answer: string;
+  diagram?: GenerateRagDiagram;
+  diagrams?: GenerateRagDiagram[];
   sources: Array<{
     documentId: number;
     chunkIndex: number;
@@ -67,9 +77,33 @@ export type GenerateRagResult = {
   generatedImages: Array<{
     url: string;
     prompt: string;
+    questionIndex?: number;
   }>;
   openEndedQuestions?: GeneratedOpenEndedQuestion[];
 };
+
+async function packageGeneratedAnswer(
+  input: GenerateRagInput,
+  answerRaw: string,
+  extras: Omit<GenerateRagResult, "answer" | "diagram" | "diagrams" | "generatedImages">,
+): Promise<GenerateRagResult> {
+  const finalized = await finalizeGeneratedAnswer(
+    {
+      query: input.query,
+      subject: input.subject,
+      generateImage: input.generateImage,
+      imagePrompt: input.imagePrompt,
+    },
+    answerRaw,
+  );
+  return {
+    ...extras,
+    answer: finalized.answer,
+    diagram: finalized.diagram,
+    diagrams: finalized.diagrams,
+    generatedImages: finalized.generatedImages,
+  };
+}
 
 const PROMPT_INTRO = `You are an assistant for Malaysian SPM exam preparation.
 Use ONLY the provided context excerpts when stating specific facts. If context is insufficient, say so in one short sentence (follow the language rule below for those sentences).
@@ -188,20 +222,10 @@ async function generateWithoutRetrieval(input: GenerateRagInput): Promise<Genera
     { subject: input.subject, query: input.query },
   );
 
-  const answer = shouldPostProcessMathSvg(input.subject)
-    ? enrichMathAnswerWithSvg(answerRaw)
-    : answerRaw;
-
-  const generatedImages: GenerateRagResult["generatedImages"] = [];
-  if (input.generateImage) {
-    const prompt =
-      input.imagePrompt?.trim() ||
-      `Create a clean education-style diagram for this ${input.subject ?? "SPM"} question context: ${input.query}`;
-    const urls = await generateImage(prompt);
-    generatedImages.push(...urls.map((url) => ({ url, prompt })));
-  }
-
-  return { answer, sources: [], sourcePageImages: [], generatedImages };
+  return packageGeneratedAnswer(input, answerRaw, {
+    sources: [],
+    sourcePageImages: [],
+  });
 }
 
 function parseForceBmSubjects(): Set<string> {
@@ -345,11 +369,7 @@ async function generateOpenEndedWithSavedRubrics(params: {
   hits: RetrievedChunk[];
   form?: string;
 }): Promise<GenerateRagResult> {
-  const contextBlocks = params.hits.map((h, i) => {
-    const n = i + 1;
-    const ch = h.chapter?.trim();
-    return `[${n}]${ch ? ` Chapter: ${ch}` : ""}\n${h.content}`;
-  });
+  const contextBlocks = params.hits.map((h, i) => formatGeneratorContextBlock(h, i + 1));
   const hasContext = contextBlocks.length > 0;
   const system = [
     "You generate short Malaysian SPM subjective practice questions and strict marking rubrics.",
@@ -491,53 +511,26 @@ export async function generateWithRag(
       { role: "system", content: systemPromptForSubject(input.subject) },
       {
         role: "user",
-        content: `${input.query}\n\n(Note: No knowledge-base chunks were retrieved. Answer from general knowledge and clearly label uncertainty.)\n\n${userTemplateHint(input.subject)}${bilingualGenerationReminder(input.subject)}`,
+        content: `${input.query}\n\n(Note: No knowledge-base chunks were retrieved. Answer from general knowledge and clearly label uncertainty.)\n\n${userTemplateHint(input.subject)}${bilingualGenerationReminder(input.subject)}${buildGenerationReminders(input.query, input.subject, hits)}`,
       },
     ], { subject: input.subject, query: input.query });
-    const answer = shouldPostProcessMathSvg(input.subject)
-      ? enrichMathAnswerWithSvg(answerRaw)
-      : answerRaw;
-    const generatedImages: GenerateRagResult["generatedImages"] = [];
-    if (input.generateImage) {
-      const prompt =
-        input.imagePrompt?.trim() ||
-        `Create a clean education-style diagram for this math question context: ${input.query}`;
-      const urls = await generateImage(prompt);
-      generatedImages.push(...urls.map((url) => ({ url, prompt })));
-    }
-    return { answer, sources: [], sourcePageImages: [], generatedImages };
+    return packageGeneratedAnswer(input, answerRaw, {
+      sources: [],
+      sourcePageImages: [],
+    });
   }
 
-  const contextBlocks = hits.map((h, i) => {
-    const n = i + 1;
-    const ch = h.chapter?.trim();
-    return `[${n}]${ch ? ` Chapter: ${ch}` : ""}\n${h.content}`;
-  });
+  const contextBlocks = hits.map((h, i) => formatGeneratorContextBlock(h, i + 1));
 
-  const userContent = `Below are short excerpts from the syllabus/material (numbered for your use only; never show these numbers or any reference to them in your reply):\n\n${contextBlocks.join("\n\n---\n\n")}\n\nUser request:\n${input.query}\n\n${userTemplateHint(input.subject)}${bilingualGenerationReminder(input.subject)}`;
+  const userContent = `Below are short excerpts from the syllabus/material (numbered for your use only; never show these numbers or any reference to them in your reply):\n\n${contextBlocks.join("\n\n---\n\n")}\n\nUser request:\n${input.query}\n\n${userTemplateHint(input.subject)}${bilingualGenerationReminder(input.subject)}${buildGenerationReminders(input.query, input.subject, hits)}`;
 
   const answerRaw = await chatCompletion([
     { role: "system", content: systemPromptForSubject(input.subject) },
     { role: "user", content: userContent },
   ], { subject: input.subject, query: input.query });
-  const answer = shouldPostProcessMathSvg(input.subject)
-    ? enrichMathAnswerWithSvg(answerRaw)
-    : answerRaw;
 
-  const sourcePageImages: GenerateRagResult["sourcePageImages"] = [];
-  const generatedImages: GenerateRagResult["generatedImages"] = [];
-  if (input.generateImage) {
-    const prompt =
-      input.imagePrompt?.trim() ||
-      `Create a clean education-style diagram for this ${input.subject ?? "SPM"} question context: ${input.query}`;
-    const urls = await generateImage(prompt);
-    generatedImages.push(...urls.map((url) => ({ url, prompt })));
-  }
-
-  return {
-    answer,
+  return packageGeneratedAnswer(input, answerRaw, {
     sources: sourcesFromHits(hits),
-    sourcePageImages,
-    generatedImages,
-  };
+    sourcePageImages: [],
+  });
 }

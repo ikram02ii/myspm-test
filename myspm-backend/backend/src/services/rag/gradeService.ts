@@ -18,6 +18,12 @@ import type {
   QuestionAnalysis,
   RetrievedChunk,
 } from "./types";
+import {
+  formatDiagramContextRubricOnlyPreamble,
+  formatDiagramImageEvidenceBlock,
+  gradingUsesVisualFigure,
+} from "./gradingDiagramPolicy";
+import { formatEvidenceOnlyMarkingBlock } from "./gradingEvidencePolicy";
 import { formatSpmStudentFriendlyRulesBlock } from "./spmStudentLanguage";
 import { inferAdjustedMaxScore } from "./gradingMaxScoreInference";
 import { fixMissingIdeasAgainstStudentAnswer } from "./gradingFairnessMatch";
@@ -686,23 +692,24 @@ function buildQuestionTypeRules(type: QuestionType): string {
     case "diagram_label":
       return [
         header,
-        "- Cross-check student answers against the structured diagram labels block.",
-        "- Award 1 mark per correct label/name; the term must match the diagram's `labels[].refersTo` (accept SPM-equivalent terms and BM/EN translations).",
-        "- Do NOT award explanation/function marks here — labelling questions test recognition only.",
+        "- The structured diagram block is for rubric context only — NOT proof the student knows a label.",
+        "- Award 1 mark per correct label only when the student WROTE that name/term in their answer (BM/EN SPM synonyms OK).",
+        "- Do NOT award a label because the figure shows it if the student did not write the term.",
+        "- Do NOT award explanation/function marks here — labelling questions test recognition in the written answer only.",
         "- If the student gives a related-but-wrong term (e.g. 'xylem' for a phloem label), do not award.",
-        "- If the diagram's `confidence` is low or the relevant label is missing/ambiguous, be cautious and explain in `reason`; do not penalise the student for the vision model's uncertainty.",
+        "- If vision `confidence` is low, be cautious; do not penalise the student for vision uncertainty.",
         "- Feedback: short confirmation (e.g., 'P = phloem ✓, Q = xylem ✓.'). For misses, give the correct labels in one short line.",
       ].join("\n");
     case "graph_reading":
       return [
         header,
-        "- Use the diagram's axes, dataPoints, and keyValues block as the source of truth — never re-imagine the graph.",
-        "- For 'read off' questions, accept values within ±1 small grid square or ±5% of the expected value (whichever is larger).",
-        "- For gradient/slope: gradient = Δy / Δx using two clear points on the line; award the formula mark and the value mark separately if both are required.",
-        "- For intercepts and turning points, use the diagram's coordinates; require correct axis units when shown.",
-        "- Always require correct units in the final answer if the axes have units. Missing units = withhold the unit/answer mark only, not the working mark.",
-        "- Do NOT introduce theory beyond what the graph shows.",
-        "- Feedback: state the read value(s) the student gave vs the expected value, then the missing/wrong piece in one short line.",
+        "- Use axes/dataPoints/keyValues from the figure only to know what values/trends are expected — not as student evidence.",
+        "- Award a read-off, gradient, intercept, or trend mark ONLY if the student stated that value/trend in their written answer.",
+        "- For 'read off' questions, accept values within ±1 small grid square or ±5% of the expected value when the student wrote a number.",
+        "- For gradient/slope: credit formula and value separately only when the student showed working or stated the gradient.",
+        "- Require correct axis units in the student's answer when units matter. Missing units = withhold the unit mark only.",
+        "- Do NOT introduce theory beyond what the student wrote.",
+        "- Feedback: state what the student wrote vs what was needed; do not claim they read the graph correctly unless they wrote the value.",
       ].join("\n");
     default:
       return [
@@ -1219,7 +1226,7 @@ function legacyGradingRubricHints(subject?: string): string[] {
     "- Prioritize syllabus accuracy at SPM Form 4/5 level.",
     "- Reward correct reasoning and paraphrases (BM/EN) when meaning is correct.",
     "- Award marks point-by-point; do not require exact textbook wording.",
-    "- For visuals (diagram/graph/table), require evidence from the named source when the stem is context-bound.",
+    "- For visuals (diagram/graph/table), use the figure only to shape expected points; marks require the same points in the student's written answer.",
     "- Penalize only clear errors; feedback should be concise and student-friendly.",
   ];
 }
@@ -1304,8 +1311,18 @@ async function gradeWithQwen(params: {
     "Output language is decided ONLY by the student's answer; retrieved context language never changes it.",
   ].join("\n");
 
+  const visualFigure = gradingUsesVisualFigure({
+    question: params.question,
+    diagramContextStructured: params.diagramContext,
+  });
+  const markingPolicyOpts = {
+    question: params.question,
+    diagramContextStructured: params.diagramContext ?? null,
+  };
+
   const gradingRules = [
     "GRADING RULES (SPM examiner mindset):",
+    visualFigure ? formatDiagramImageEvidenceBlock() : null,
 
     "Procedure (do these IN ORDER):",
     "- 1) First, build markBreakdown: list each SPM mark point the question expects (idea), whether the student awarded it (awarded), the mark value (marks), and a brief reason.",
@@ -1370,7 +1387,9 @@ async function gradeWithQwen(params: {
     "- Bounded by maxScore: ~N concise mark points for an N-mark question.",
     "- No extra textbook elaboration beyond what the marks demand.",
     "- For full marks, modelAnswer can be a single short line confirming the same key points.",
-  ].join("\n");
+  ]
+    .filter((line): line is string => Boolean(line))
+    .join("\n");
 
   const inputBlock = [
     `LANGUAGE: ${languageDirective}`,
@@ -1386,11 +1405,9 @@ async function gradeWithQwen(params: {
     `Reference context (textbook + past-paper mark schemes when available):\n${params.contextText || "[No context retrieved]"}`,
     params.diagramContext
       ? [
-          "Diagram context (structured — treat as the source of truth for the figure):",
+          formatDiagramContextRubricOnlyPreamble(params.diagramContext.confidence),
           renderDiagramContextForGrader(params.diagramContext),
-          params.diagramContext.confidence < 0.5
-            ? "Note: vision confidence is low. For diagram-dependent marks, be cautious and rely on the student's words where the figure is ambiguous."
-            : null,
+          formatEvidenceOnlyMarkingBlock(markingPolicyOpts),
         ]
           .filter((line): line is string => Boolean(line))
           .join("\n")
@@ -1622,6 +1639,7 @@ export async function gradeSubmission(input: GradeSubmissionInput): Promise<Grad
       studentAnswer,
       maxScore,
       questionAnalysis,
+      diagramContextStructured: diagramContextStructured ?? null,
       mergedGradingContextText: context.mergedContextText,
       auditedRetrievedChunks: effectiveChunks,
       pipelineContextAudit: contextAudit,

@@ -2,7 +2,7 @@ import { Router, type IRouter } from "express";
 import multer from "multer";
 import OSS from "ali-oss";
 import { randomUUID } from "node:crypto";
-import { OCR_EXTRACTION_PROMPT } from "../services/rag/ocrTextNormalize";
+import { normalizeOcrExtractedText, OCR_EXTRACTION_PROMPT } from "../services/rag/ocrTextNormalize";
 import { runOcrPostProcessPipeline } from "../services/rag/ocrPipelineService";
 
 const router: IRouter = Router();
@@ -184,24 +184,20 @@ async function qwenOcrFromImageBuffer(buffer: Buffer, mime: string): Promise<str
     throw err;
   }
 
-  const model =
-    process.env.QWEN_OCR_MODEL?.trim() ||
-    process.env.DASHSCOPE_OCR_MODEL?.trim() ||
-    "qwen-vl-ocr";
+  const ocrModels = [
+    process.env.QWEN_OCR_MODEL?.trim(),
+    process.env.DASHSCOPE_OCR_MODEL?.trim(),
+    process.env.QWEN_VISION_MODEL?.trim(),
+    process.env.QWEN_VISION_FALLBACK_MODEL?.trim(),
+    "qwen-vl-ocr",
+    "qwen-vl-plus",
+  ].filter((m, i, arr): m is string => Boolean(m) && arr.indexOf(m) === i);
 
-  const payload = {
-    model,
-    messages: [
-      {
-        role: "user",
-        content: [
-          { type: "image_url", image_url: { url: dataUrlForBuffer(buffer, mime) } },
-          {
-            type: "text",
-            text: OCR_EXTRACTION_PROMPT,
-          },
-        ],
-      },
+  const messageBody = {
+    role: "user" as const,
+    content: [
+      { type: "image_url", image_url: { url: dataUrlForBuffer(buffer, mime) } },
+      { type: "text", text: OCR_EXTRACTION_PROMPT },
     ],
   };
 
@@ -217,50 +213,53 @@ async function qwenOcrFromImageBuffer(buffer: Buffer, mime: string): Promise<str
 
   for (const attempt of attempts) {
     const url = `${attempt.baseUrl}/chat/completions`;
-    console.log("[scan] qwen-ocr request", { url, model, attempt: attempt.label });
 
-    const response = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${attempt.apiKey}`,
-      },
-      body: JSON.stringify(payload),
-    });
+    for (const model of ocrModels) {
+      console.log("[scan] qwen-ocr request", { url, model, attempt: attempt.label });
 
-    const rawText = await response.text();
-    let parsed: any;
-    try {
-      parsed = JSON.parse(rawText);
-    } catch {
-      const err = new Error(rawText.slice(0, 400) || `OCR HTTP ${response.status}`);
-      (err as any).status = 502;
-      lastError = err;
-      continue;
+      const response = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${attempt.apiKey}`,
+        },
+        body: JSON.stringify({ model, messages: [messageBody] }),
+      });
+
+      const rawText = await response.text();
+      let parsed: any;
+      try {
+        parsed = JSON.parse(rawText);
+      } catch {
+        const err = new Error(rawText.slice(0, 400) || `OCR HTTP ${response.status}`);
+        (err as any).status = 502;
+        lastError = err;
+        continue;
+      }
+
+      if (!response.ok) {
+        const msg =
+          parsed?.error?.message ||
+          parsed?.message ||
+          (typeof parsed?.error === "string" ? parsed.error : null) ||
+          rawText.slice(0, 400) ||
+          `OCR failed (${response.status})`;
+        const err = new Error(msg);
+        (err as any).status = response.status >= 400 && response.status < 600 ? response.status : 502;
+        lastError = err;
+        continue;
+      }
+
+      const content = parsed?.choices?.[0]?.message?.content;
+      const text = messageContentToString(content).trim();
+      if (!text) {
+        const err = new Error("OCR returned empty text");
+        (err as any).status = 502;
+        lastError = err;
+        continue;
+      }
+      return text;
     }
-
-    if (!response.ok) {
-      const msg =
-        parsed?.error?.message ||
-        parsed?.message ||
-        (typeof parsed?.error === "string" ? parsed.error : null) ||
-        rawText.slice(0, 400) ||
-        `OCR failed (${response.status})`;
-      const err = new Error(msg);
-      (err as any).status = response.status >= 400 && response.status < 600 ? response.status : 502;
-      lastError = err;
-      continue;
-    }
-
-    const content = parsed?.choices?.[0]?.message?.content;
-    const text = messageContentToString(content).trim();
-    if (!text) {
-      const err = new Error("OCR returned empty text");
-      (err as any).status = 502;
-      lastError = err;
-      continue;
-    }
-    return text;
   }
 
   throw lastError ?? new Error("OCR failed");
@@ -269,6 +268,18 @@ async function qwenOcrFromImageBuffer(buffer: Buffer, mime: string): Promise<str
 function ocrPostProcessEnabled(): boolean {
   const v = (process.env["OCR_POST_PROCESS"] ?? "true").trim().toLowerCase();
   return v !== "0" && v !== "false" && v !== "no" && v !== "off";
+}
+
+async function runExtractOnlyScan(
+  buffer: Buffer,
+  mime: string,
+  email: string,
+): Promise<{ text: string; format: "plain" }> {
+  const oss = makeOssClient();
+  await uploadScanImageToOss(oss, buffer, mime, email);
+  const rawOcr = await qwenOcrFromImageBuffer(buffer, mime);
+  const text = normalizeOcrExtractedText(rawOcr).trim();
+  return { text, format: "plain" };
 }
 
 async function runScanPipeline(
@@ -334,15 +345,19 @@ router.post("/scan", upload.any(), async (req, res) => {
     const email = bodyEmail || filesEmail || "unknown@local";
     const emailForStorage = email.includes("@") ? email : "unknown@local";
 
+    const modeRaw = typeof (req.body as any)?.mode === "string" ? (req.body as any).mode.trim().toLowerCase() : "";
+    const extractOnly = modeRaw === "extract";
     const question =
       typeof (req.body as any)?.question === "string" ? (req.body as any).question.trim() : "";
     const subject =
       typeof (req.body as any)?.subject === "string" ? (req.body as any).subject.trim() : "";
 
-    const { text, format, validationWarning } = await runScanPipeline(imageFile.buffer, mime, emailForStorage, {
-      question: question || undefined,
-      subject: subject || undefined,
-    });
+    const { text, format, validationWarning } = extractOnly
+      ? await runExtractOnlyScan(imageFile.buffer, mime, emailForStorage)
+      : await runScanPipeline(imageFile.buffer, mime, emailForStorage, {
+          question: question || undefined,
+          subject: subject || undefined,
+        });
     console.log("[scan] ocr text", { length: text?.length ?? 0, preview: (text ?? "").slice(0, 200) });
     return res.json({
       text,

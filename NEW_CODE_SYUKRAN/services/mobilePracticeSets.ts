@@ -9,6 +9,17 @@ export type PracticeSetSummary = {
   difficultyLevel: string;
 };
 
+export type MathLineDiagram = {
+  type: "line-chart";
+  questionIndex?: number;
+  title?: string;
+  subtitle?: string;
+  equationLabel?: string;
+  xAxisLabel?: string;
+  yAxisLabel?: string;
+  points: Array<{ x: number; y: number; label?: string }>;
+};
+
 export type PracticeSetQuestion = {
   id: number;
   sortOrder: number;
@@ -28,6 +39,10 @@ export type PracticeSetQuestion = {
   rubricIdeas?: Array<{ id: string; idea: string; marks: number; kind?: string }>;
   /** Optional: include full question text (e.g., with A-D options) for /api/rag/grade. */
   questionForGrade?: string;
+  /** Optional diagram from /api/rag/generate (Math line charts). */
+  diagram?: MathLineDiagram;
+  /** Qwen image URL for science educational diagrams. */
+  diagramImageUrl?: string;
 };
 
 /**

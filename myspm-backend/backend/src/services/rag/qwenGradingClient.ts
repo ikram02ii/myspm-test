@@ -5,7 +5,7 @@
 
 import type { RubricIdeaKind, VerifierMode } from "./types";
 import { formatSpmExamStandardMarkingBlock } from "./gradingExaminerPolicy";
-import { formatEvidenceOnlyMarkingBlock } from "./gradingEvidencePolicy";
+import { formatEvidenceOnlyMarkingBlock, type EvidenceOnlyMarkingOptions } from "./gradingEvidencePolicy";
 import { formatSpmStudentFriendlyRulesBlock } from "./spmStudentLanguage";
 
 export type QwenGradingConfig = { apiKey: string; baseUrl: string; model: string };
@@ -150,16 +150,19 @@ export async function verifyBorderlineMeaningMatch(params: {
   strictContextBound: boolean;
   openCategoryMarking: boolean;
   exampleUseCombo: boolean;
+  markingPolicyOptions?: EvidenceOnlyMarkingOptions;
 }): Promise<{ awarded: boolean; reason: string }> {
+  const policyOpts = params.markingPolicyOptions;
   const system = [
     "Verify a student response against a rubric marking point at SPM Form 4/5 level.",
-    formatSpmExamStandardMarkingBlock(),
-    formatEvidenceOnlyMarkingBlock(),
+    formatSpmExamStandardMarkingBlock(policyOpts),
+    formatEvidenceOnlyMarkingBlock(policyOpts),
     formatSpmStudentFriendlyRulesBlock(),
     "Return JSON only: { \"awarded\": boolean, \"reason\": string }.",
     "The reason must be one short plain sentence for the student, citing only what they actually wrote.",
     "If awarded is false: say the required point was not stated clearly in their answer (too vague / not mentioned / only implied).",
     "Never award because the student 'probably meant' a scientific idea that is not expressed in the answer text.",
+    "Never award because a diagram, figure, graph, or table shows the point if the student did not write it.",
     VERIFIER_MODE_BLOCKS[params.mode],
     params.openCategoryMarking || params.strictContextBound
       ? "Open-category: award only a specific valid SPM instance of the criterion. Context-bound: must fit the named source in the question."

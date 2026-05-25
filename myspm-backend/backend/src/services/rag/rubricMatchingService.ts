@@ -1,5 +1,6 @@
 import type {
   DemandType,
+  DiagramContext,
   MarkBreakdownItem,
   MatchMethod,
   QuestionAnalysis,
@@ -12,6 +13,7 @@ import {
   allEquationSpeciesPresent,
   ideasShareSynonymGroup,
   normalizeAnswerText,
+  normalizedTextIncludesPhrase,
   rubricIdeaRequiresRouteDetail,
   studentAnswerCoversIdea,
   studentAnswerSatisfiesRubricDetail,
@@ -23,8 +25,11 @@ import {
   isStrictContextBindingQuestion,
 } from "./gradingCategoryMarking";
 import {
+  isDiagramDeixisAnswer,
   isGenericVagueStatement,
+  rubricSubstancePresentInAnswer,
   studentAnswerExplicitlySupportsMarkPoint,
+  type EvidenceOnlyMarkingOptions,
 } from "./gradingEvidencePolicy";
 import { verifyBorderlineMeaningMatch } from "./qwenGradingClient";
 import {
@@ -86,6 +91,8 @@ function fullAnswerHasCausalLink(answer: string): boolean {
 /** Strong deterministic match only — borderline cases go to the LLM exam-standard verifier. */
 function studentIdeaMatchesRubricPoint(studentIdea: string, rubric: RubricIdea, studentAnswer: string): boolean {
   if (!studentIdea?.trim()) return false;
+  if (isDiagramDeixisAnswer(studentIdea) || isDiagramDeixisAnswer(studentAnswer)) return false;
+  if (!rubricSubstancePresentInAnswer(studentAnswer, rubric)) return false;
   if (!studentAnswerSatisfiesRubricDetail(studentAnswer, rubric.idea)) return false;
   const ans = normalizeAnswerText(studentAnswer);
   const id = normalizeAnswerText(rubric.idea);
@@ -112,7 +119,7 @@ function causalRequirementSatisfied(params: {
   if (!fullAnswerHasCausalLink(studentAnswer) && evidence && !fullAnswerHasCausalLink(evidence)) {
     return false;
   }
-  if (studentAnswerExplicitlySupportsMarkPoint(studentAnswer, rubric, evidence || studentAnswer)) {
+  if (studentAnswerExplicitlySupportsMarkPoint(studentAnswer, rubric, evidence || studentAnswer, question)) {
     return true;
   }
   return false;
@@ -126,10 +133,16 @@ function allowMarkAward(params: {
   causalOk: boolean;
   conceptAllowed: boolean;
   routeDetailOk: boolean;
+  question?: string;
 }): boolean {
   if (!params.llmAwarded) return false;
   if (!params.causalOk || !params.conceptAllowed || !params.routeDetailOk) return false;
-  return studentAnswerExplicitlySupportsMarkPoint(params.studentAnswer, params.rubric, params.evidence);
+  return studentAnswerExplicitlySupportsMarkPoint(
+    params.studentAnswer,
+    params.rubric,
+    params.evidence,
+    params.question,
+  );
 }
 
 function resolveMatchStrategy(
@@ -236,7 +249,12 @@ function levelKeywordOrExact(params: {
       reason: "Main SPM function is correct; advanced osmotic detail is optional for this stem.",
     };
   }
-  if (studentAnswerCoversIdea(studentAnswer, rubric.idea) && studentAnswerSatisfiesRubricDetail(studentAnswer, rubric.idea)) {
+  if (
+    !isDiagramDeixisAnswer(studentAnswer) &&
+    studentAnswerCoversIdea(studentAnswer, rubric.idea) &&
+    studentAnswerSatisfiesRubricDetail(studentAnswer, rubric.idea) &&
+    studentAnswerExplicitlySupportsMarkPoint(studentAnswer, rubric, studentAnswer.slice(0, 200), question)
+  ) {
     return {
       hit: true,
       evidence: studentAnswer.slice(0, 200),
@@ -262,12 +280,17 @@ function levelKeywordOrExact(params: {
       };
     }
     if (ideasShareSynonymGroup(si.idea, rubric.idea)) {
-      return {
-        hit: true,
-        evidence: si.idea,
-        method: "synonym",
-        reason: "Student idea matches rubric via SPM synonym group.",
-      };
+      if (
+        !isDiagramDeixisAnswer(studentAnswer) &&
+        studentAnswerExplicitlySupportsMarkPoint(studentAnswer, rubric, si.idea, question)
+      ) {
+        return {
+          hit: true,
+          evidence: si.idea,
+          method: "synonym",
+          reason: "Student idea matches rubric via SPM synonym group.",
+        };
+      }
     }
     if (studentIdeaMatchesRubricPoint(si.idea, rubric, studentAnswer)) {
       return {
@@ -277,7 +300,12 @@ function levelKeywordOrExact(params: {
         reason: "Detected student idea matches this rubric mark point.",
       };
     }
-    if (studentAnswerCoversIdea(studentAnswer, si.idea) && studentAnswerCoversIdea(si.idea, rubric.idea)) {
+    if (
+      !isDiagramDeixisAnswer(studentAnswer) &&
+      studentAnswerCoversIdea(studentAnswer, si.idea) &&
+      studentAnswerCoversIdea(si.idea, rubric.idea) &&
+      studentAnswerExplicitlySupportsMarkPoint(studentAnswer, rubric, si.idea, question)
+    ) {
       return { hit: true, evidence: si.idea, method: "exact", reason: "Extracted idea aligns with rubric text." };
     }
   }
@@ -285,7 +313,12 @@ function levelKeywordOrExact(params: {
   for (const phrase of phrases) {
     const p = normalizeAnswerText(phrase);
     if (p.length < 3) continue;
-    if (normalizeAnswerText(studentAnswer).includes(p) && studentAnswerSatisfiesRubricDetail(studentAnswer, rubric.idea)) {
+    if (
+      !isDiagramDeixisAnswer(studentAnswer) &&
+      normalizedTextIncludesPhrase(studentAnswer, phrase) &&
+      studentAnswerSatisfiesRubricDetail(studentAnswer, rubric.idea) &&
+      studentAnswerExplicitlySupportsMarkPoint(studentAnswer, rubric, phrase, question)
+    ) {
       return {
         hit: true,
         evidence: phrase,
@@ -295,8 +328,10 @@ function levelKeywordOrExact(params: {
     }
     for (const si of studentIdeas) {
       if (
-        normalizeAnswerText(si.idea).includes(p) &&
-        studentAnswerSatisfiesRubricDetail(studentAnswer, rubric.idea)
+        !isDiagramDeixisAnswer(studentAnswer) &&
+        normalizedTextIncludesPhrase(si.idea, phrase) &&
+        studentAnswerSatisfiesRubricDetail(studentAnswer, rubric.idea) &&
+        studentAnswerExplicitlySupportsMarkPoint(studentAnswer, rubric, si.idea, question)
       ) {
         return {
           hit: true,
@@ -318,6 +353,9 @@ export type MatchStudentIdeasToRubricParams = {
   questionAnalysis?: QuestionAnalysis | null;
   subject: string;
   maxScore: number;
+  diagramContextStructured?: DiagramContext | null;
+  diagramImageUrl?: string | null;
+  diagramImageBase64?: string | null;
 };
 
 export type MatchedRubricPointDetail = {
@@ -349,6 +387,12 @@ export async function matchStudentIdeasToRubric(params: MatchStudentIdeasToRubri
   const strictCtx = isStrictContextBindingQuestion(question);
   const openCat = isOpenCategoryMarkingQuestion(question);
   const exampleUseCombo = isExampleAndUseComboQuestion(question);
+  const markingPolicyOptions: EvidenceOnlyMarkingOptions = {
+    question,
+    diagramContextStructured: params.diagramContextStructured ?? null,
+    diagramImageUrl: params.diagramImageUrl,
+    diagramImageBase64: params.diagramImageBase64,
+  };
 
   const rubricTexts = params.rubricIdeas.map((r) => r.idea);
   const studentTexts = params.studentIdeas.map((s) => s.idea);
@@ -369,6 +413,26 @@ export async function matchStudentIdeasToRubric(params: MatchStudentIdeasToRubri
     reason: string,
   ): { awarded: boolean; reason: string } => {
     if (!awarded) return { awarded, reason };
+    if (isDiagramDeixisAnswer(studentAnswer) || isDiagramDeixisAnswer(evidence)) {
+      return {
+        awarded: false,
+        reason:
+          "Diagram or vague wording is not credited — state the required scientific point in your own words.",
+      };
+    }
+    if (
+      !studentAnswerExplicitlySupportsMarkPoint(
+        studentAnswer,
+        rubric,
+        evidence || studentAnswer,
+        question,
+      )
+    ) {
+      return {
+        awarded: false,
+        reason: "The written answer does not state the required scientific point clearly enough.",
+      };
+    }
     if (rubricIdeaRequiresRouteDetail(rubric.idea) && !studentAnswerSatisfiesRubricDetail(studentAnswer, rubric.idea)) {
       return {
         awarded: false,
@@ -500,6 +564,7 @@ export async function matchStudentIdeasToRubric(params: MatchStudentIdeasToRubri
             strictContextBound: strictCtx,
             openCategoryMarking: false,
             exampleUseCombo,
+            markingPolicyOptions,
             sequenceExpectedOrder: expectedOrder,
             sequenceStudentOrder: studentOrder.join(" → "),
             sequencePositionIndex: rubricIndex,
@@ -536,6 +601,7 @@ export async function matchStudentIdeasToRubric(params: MatchStudentIdeasToRubri
             strictContextBound: strictCtx,
             openCategoryMarking: false,
             exampleUseCombo,
+            markingPolicyOptions,
             sequenceExpectedOrder: expectedOrder,
             sequenceStudentOrder: studentOrder.join(" → ") || "(none detected)",
             sequencePositionIndex: rubricIndex,
@@ -570,6 +636,7 @@ export async function matchStudentIdeasToRubric(params: MatchStudentIdeasToRubri
         strictContextBound: strictCtx,
         openCategoryMarking: openCat || true,
         exampleUseCombo,
+        markingPolicyOptions,
       });
       const catEvidence =
         lineForVerify ||
@@ -583,6 +650,7 @@ export async function matchStudentIdeasToRubric(params: MatchStudentIdeasToRubri
         causalOk: true,
         conceptAllowed: true,
         routeDetailOk: studentAnswerSatisfiesRubricDetail(studentAnswer, rubric.idea),
+        question,
       });
       pushRow(
         rubric,
@@ -617,6 +685,7 @@ export async function matchStudentIdeasToRubric(params: MatchStudentIdeasToRubri
         strictContextBound: strictCtx,
         openCategoryMarking: openCat || true,
         exampleUseCombo,
+        markingPolicyOptions,
       });
       const reasonEvidence = params.studentIdeas[0]?.idea ?? studentAnswer.slice(0, 200);
       const reasonAwarded = allowMarkAward({
@@ -627,6 +696,7 @@ export async function matchStudentIdeasToRubric(params: MatchStudentIdeasToRubri
         causalOk: true,
         conceptAllowed: true,
         routeDetailOk: true,
+        question,
       });
       pushRow(
         rubric,
@@ -665,6 +735,7 @@ export async function matchStudentIdeasToRubric(params: MatchStudentIdeasToRubri
         strictContextBound: strictCtx,
         openCategoryMarking: false,
         exampleUseCombo,
+        markingPolicyOptions,
       });
       pushRow(
         rubric,
@@ -707,7 +778,7 @@ export async function matchStudentIdeasToRubric(params: MatchStudentIdeasToRubri
         if (
           studentIdeaMatchesRubricPoint(si.idea, rubric, studentAnswer) &&
           conceptGuardAllows(rubric.idea, si.idea, question, params.questionAnalysis) &&
-          studentAnswerExplicitlySupportsMarkPoint(studentAnswer, rubric, si.idea)
+          studentAnswerExplicitlySupportsMarkPoint(studentAnswer, rubric, si.idea, question)
         ) {
           awarded = true;
           evidence = si.idea;
@@ -764,6 +835,7 @@ export async function matchStudentIdeasToRubric(params: MatchStudentIdeasToRubri
           strictContextBound: strictCtx,
           openCategoryMarking: openCat || rubric.openEnded === true || strategy === "conceptMatch",
           exampleUseCombo,
+          markingPolicyOptions,
         });
         const evidenceLine = evidence || studentAnswer.slice(0, 400);
         awarded = allowMarkAward({
@@ -774,6 +846,7 @@ export async function matchStudentIdeasToRubric(params: MatchStudentIdeasToRubri
           causalOk,
           conceptAllowed,
           routeDetailOk,
+          question,
         });
         matchMethod = "llmVerifier";
         reason =
@@ -804,7 +877,7 @@ export async function matchStudentIdeasToRubric(params: MatchStudentIdeasToRubri
         causalOk &&
         conceptGuardAllows(rubric.idea, evidence, question, params.questionAnalysis) &&
         studentAnswerSatisfiesRubricDetail(studentAnswer, rubric.idea) &&
-        studentAnswerExplicitlySupportsMarkPoint(studentAnswer, rubric, evidence)
+        studentAnswerExplicitlySupportsMarkPoint(studentAnswer, rubric, evidence, question)
       ) {
         awarded = true;
         matchMethod = "exact";

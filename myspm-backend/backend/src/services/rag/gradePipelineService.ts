@@ -1,14 +1,31 @@
-import type { AcceptedConceptBundle, GradeSubmissionInput, MarkBreakdownItem, StudentIdea } from "./types";
+import type {
+  AcceptedConceptBundle,
+  GradeSubmissionInput,
+  MarkBreakdownItem,
+  RubricIdea,
+  StudentIdea,
+} from "./types";
 import { buildGradingContextFromChunks } from "./retrievalService";
 import { formatSpmStudentFriendlyRulesBlock } from "./spmStudentLanguage";
 import { finalizeRubricIdeas, getOrCreateRubric, getRubricById } from "./rubricService";
 import { applyExaminerPriorityMarking } from "./examinerCreditService";
-import { filterGroundedStudentIdeas } from "./gradingEvidencePolicy";
+import {
+  filterGroundedStudentIdeas,
+  isDiagramDeixisAnswer,
+  studentAnswerExplicitlySupportsMarkPoint,
+  type EvidenceOnlyMarkingOptions,
+} from "./gradingEvidencePolicy";
+import { gradingUsesVisualFigure } from "./gradingDiagramPolicy";
 import { fixMissingIdeasAgainstStudentAnswer } from "./gradingFairnessMatch";
 import { mapAnalysisToRubricQuestionType } from "./questionAnalysisService";
 import { matchStudentIdeasToRubric } from "./rubricMatchingService";
 import { isSequenceMarkingQuestion } from "./sequenceMarkingService";
-import { buildPostScoreFeedback, resolveGradingModelLabel } from "./gradingFeedbackService";
+import {
+  buildPostScoreFeedback,
+  formatFeedbackWithModelAnswer,
+  resolveGradingModelLabel,
+} from "./gradingFeedbackService";
+import { gradingUsesVisualFigure, VISUAL_FIGURE_REVOKE_REASON } from "./gradingDiagramPolicy";
 import { qwenGradingJson } from "./qwenGradingClient";
 
 type QuestionType =
@@ -145,6 +162,41 @@ function detectAnswerLanguage(text: string): "english" | "malay" | "mixed" {
   return "mixed";
 }
 
+function evidenceRevokeReason(question: string, studentAnswer: string, options: EvidenceOnlyMarkingOptions): string {
+  if (
+    gradingUsesVisualFigure({ question, ...options }) &&
+    isDiagramDeixisAnswer(studentAnswer)
+  ) {
+    return VISUAL_FIGURE_REVOKE_REASON;
+  }
+  return "The written answer does not state the required scientific point clearly (diagram comments or vague wording are not credited).";
+}
+
+function enforceEvidenceOnlyMarks(
+  markBreakdown: MarkBreakdownItem[],
+  rubricIdeas: RubricIdea[],
+  studentAnswer: string,
+  question: string,
+  markingPolicyOptions: EvidenceOnlyMarkingOptions,
+): MarkBreakdownItem[] {
+  return markBreakdown.map((row) => {
+    if (!row.awarded) return row;
+    const rubric = rubricIdeas.find((r) => r.id === row.rubricId);
+    if (!rubric) return row;
+    if (
+      isDiagramDeixisAnswer(studentAnswer) ||
+      !studentAnswerExplicitlySupportsMarkPoint(studentAnswer, rubric, studentAnswer, question)
+    ) {
+      return {
+        ...row,
+        awarded: false,
+        reason: evidenceRevokeReason(question, studentAnswer, markingPolicyOptions),
+      };
+    }
+    return row;
+  });
+}
+
 export async function extractStudentIdeas(question: string, studentAnswer: string, language: string): Promise<StudentIdea[]> {
   const system = [
     "Extract concise ideas from a student's answer — EVIDENCE ONLY.",
@@ -153,6 +205,9 @@ export async function extractStudentIdeas(question: string, studentAnswer: strin
     "Return JSON only: { \"ideas\": [{ \"idea\": string, \"hasCausalLink\": boolean }] }.",
     "Do NOT add mechanisms, purposes, outcomes, or scientific details that are not in the answer.",
     "Do NOT infer what a vague phrase probably meant.",
+    gradingUsesVisualFigure({ question }) || isDiagramDeixisAnswer(studentAnswer)
+      ? "Do NOT extract meta-comments about the diagram/figure/part. Only extract scientific points the student actually wrote (names, functions, processes, values)."
+      : "",
     "When one sentence contains several distinct written points, split them into separate ideas.",
     [
       "SHORT ANSWER RULE:",
@@ -194,24 +249,31 @@ function fallbackFeedback(params: {
   matchedIdeas: string[];
   missingIdeas: string[];
   language: "english" | "malay" | "mixed";
+  usesVisualFigure?: boolean;
 }): string {
   const lang = params.language === "malay" ? "malay" : "english";
+  const visualHint =
+    params.usesVisualFigure && params.score < params.maxScore
+      ? lang === "malay"
+        ? " Tulis nama/fungsi/nilai dalam ayat anda — hanya merujuk rajah tidak dikira."
+        : " Write names, functions, or values in your own words — only referring to the diagram is not credited."
+      : "";
   if (lang === "malay") {
     if (params.score >= params.maxScore) {
       return `Bagus — betul. Anda sudah nyatakan perkara utama: ${params.matchedIdeas.slice(0, 3).join(", ")}.`;
     }
     if (params.score === 0) {
-      return `Jawapan ini kurang tepat atau terlalu kosong. Cuba sertakan: ${params.missingIdeas.slice(0, 2).join("; ")}.`;
+      return `Jawapan ini kurang tepat atau terlalu kosong. Cuba sertakan: ${params.missingIdeas.slice(0, 2).join("; ")}.${visualHint}`;
     }
-    return `Ada bahagian betul: ${params.matchedIdeas.slice(0, 2).join(", ")}. Tambah atau betulkan: ${params.missingIdeas.slice(0, 2).join("; ")}.`;
+    return `Ada bahagian betul: ${params.matchedIdeas.slice(0, 2).join(", ")}. Tambah atau betulkan: ${params.missingIdeas.slice(0, 2).join("; ")}.${visualHint}`;
   }
   if (params.score >= params.maxScore) {
     return `Well done — correct. You gave the main points: ${params.matchedIdeas.slice(0, 3).join(", ")}.`;
   }
   if (params.score === 0) {
-    return `This answer is not clear enough or is wrong. Try to include: ${params.missingIdeas.slice(0, 2).join("; ")}.`;
+    return `This answer is not clear enough or is wrong. Try to include: ${params.missingIdeas.slice(0, 2).join("; ")}.${visualHint}`;
   }
-  return `Partly right: ${params.matchedIdeas.slice(0, 2).join(", ")}. You still need to add or fix: ${params.missingIdeas.slice(0, 2).join("; ")}.`;
+  return `Partly right: ${params.matchedIdeas.slice(0, 2).join(", ")}. You still need to add or fix: ${params.missingIdeas.slice(0, 2).join("; ")}.${visualHint}`;
 }
 
 function sanitizeFeedback(feedback: string, opts?: { maxSentences?: number }): string {
@@ -317,6 +379,13 @@ export async function gradeWithPipelineV2(input: GradeSubmissionInput): Promise<
   const rubricIdeaTexts = rubricIdeasForMarking.map((idea) => idea.idea);
   const studentIdeaTexts = studentIdeas.map((idea) => idea.idea);
 
+  const markingPolicyOptions: EvidenceOnlyMarkingOptions = {
+    question,
+    diagramContextStructured: input.diagramContextStructured ?? null,
+    diagramImageUrl: input.diagramImageUrl,
+    diagramImageBase64: input.diagramImageBase64,
+  };
+
   const matchResult = await matchStudentIdeasToRubric({
     question,
     studentAnswer,
@@ -325,10 +394,19 @@ export async function gradeWithPipelineV2(input: GradeSubmissionInput): Promise<
     questionAnalysis: input.questionAnalysis,
     subject,
     maxScore,
+    diagramImageUrl: input.diagramImageUrl,
+    diagramImageBase64: input.diagramImageBase64,
+    diagramContextStructured: input.diagramContextStructured ?? null,
   });
 
-  let markBreakdown = matchResult.markBreakdown;
-  let score = matchResult.totalScore;
+  let markBreakdown = enforceEvidenceOnlyMarks(
+    matchResult.markBreakdown,
+    rubricIdeasForMarking,
+    studentAnswer,
+    question,
+    markingPolicyOptions,
+  );
+  let score = markBreakdown.reduce((sum, row) => sum + (row.awarded ? row.marks : 0), 0);
   let matchedRows = markBreakdown.filter((row) => row.awarded);
   let missingRows = markBreakdown.filter((row) => !row.awarded);
   let matchedIdeas = matchedRows.map((row) => row.idea);
@@ -347,8 +425,16 @@ export async function gradeWithPipelineV2(input: GradeSubmissionInput): Promise<
   });
   missingIdeas = reconciled.missingIdeas;
   matchedIdeas = reconciled.matchedIdeas;
-  score = reconciled.score;
-  let markBreakdownAfterFix = reconciled.markBreakdown ?? markBreakdown;
+  let markBreakdownAfterFix = enforceEvidenceOnlyMarks(
+    reconciled.markBreakdown ?? markBreakdown,
+    rubricIdeasForMarking,
+    studentAnswer,
+    question,
+    markingPolicyOptions,
+  );
+  score = markBreakdownAfterFix.reduce((sum, row) => sum + (row.awarded ? row.marks : 0), 0);
+  matchedIdeas = markBreakdownAfterFix.filter((row) => row.awarded).map((row) => row.idea);
+  missingIdeas = markBreakdownAfterFix.filter((row) => !row.awarded).map((row) => row.idea);
 
   const examinerPass = await applyExaminerPriorityMarking({
     question,
@@ -360,11 +446,18 @@ export async function gradeWithPipelineV2(input: GradeSubmissionInput): Promise<
     subject,
     textbookContext: auditedExcerpt || undefined,
     questionAnalysis: input.questionAnalysis ?? null,
+    markingPolicyOptions,
   });
-  markBreakdownAfterFix = examinerPass.markBreakdown;
-  score = examinerPass.score;
-  matchedIdeas = examinerPass.matchedIdeas;
-  missingIdeas = examinerPass.missingIdeas;
+  markBreakdownAfterFix = enforceEvidenceOnlyMarks(
+    examinerPass.markBreakdown,
+    rubricIdeasForMarking,
+    studentAnswer,
+    question,
+    markingPolicyOptions,
+  );
+  score = markBreakdownAfterFix.reduce((sum, row) => sum + (row.awarded ? row.marks : 0), 0);
+  matchedIdeas = markBreakdownAfterFix.filter((row) => row.awarded).map((row) => row.idea);
+  missingIdeas = markBreakdownAfterFix.filter((row) => !row.awarded).map((row) => row.idea);
   const outsideRubricAwardCount = examinerPass.outsideRubricCount;
 
   if (
@@ -404,6 +497,9 @@ export async function gradeWithPipelineV2(input: GradeSubmissionInput): Promise<
     acceptedPhrases: [...(idea.keywords ?? []), ...(idea.acceptedConcepts ?? [])],
   }));
 
+  const usesVisualFigure = gradingUsesVisualFigure(markingPolicyOptions);
+  let modelAnswer = buildModelAnswer(matchedRows2, missingRows2);
+
   let feedback = sanitizeFeedback(
     fallbackFeedback({
       score,
@@ -411,6 +507,7 @@ export async function gradeWithPipelineV2(input: GradeSubmissionInput): Promise<
       matchedIdeas,
       missingIdeas,
       language,
+      usesVisualFigure,
     }),
     {
       maxSentences: isMcqLetterOnlyExplanationRequest(question, studentAnswer, maxScore) ? 8 : undefined,
@@ -425,23 +522,36 @@ export async function gradeWithPipelineV2(input: GradeSubmissionInput): Promise<
       maxScore,
       matchedIdeas,
       missingIdeas,
+      rubricIdeas: rubricIdeaTexts,
       questionAnalysis: input.questionAnalysis,
       subject,
       language,
+      usesVisualFigure,
     });
-    if (post.trim().length > 0) {
-      feedback = sanitizeFeedback(post, {
+    if (post.feedback.trim().length > 0) {
+      feedback = sanitizeFeedback(post.feedback, {
         maxSentences: isMcqLetterOnlyExplanationRequest(question, studentAnswer, maxScore) ? 8 : undefined,
       });
+    }
+    if (score < maxScore && post.modelAnswer?.trim()) {
+      modelAnswer = post.modelAnswer.trim();
     }
   } catch {
     /* keep fallback */
   }
 
+  const formatted = formatFeedbackWithModelAnswer({
+    feedback,
+    modelAnswer: score < maxScore ? modelAnswer : undefined,
+    score,
+    maxScore,
+    language,
+  });
+
   return {
     score,
-    feedback,
-    modelAnswer: buildModelAnswer(matchedRows2, missingRows2),
+    feedback: formatted.feedback,
+    modelAnswer: formatted.modelAnswer ?? (score < maxScore ? modelAnswer : undefined),
     matchedIdeas,
     missingIdeas,
     markBreakdown: markBreakdownOut,

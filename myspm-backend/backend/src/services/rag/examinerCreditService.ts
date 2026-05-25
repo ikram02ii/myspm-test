@@ -9,7 +9,7 @@ import type {
   RubricIdea,
   StudentIdea,
 } from "./types";
-import { studentAnswerExplicitlySupportsMarkPoint } from "./gradingEvidencePolicy";
+import { studentAnswerExplicitlySupportsMarkPoint, type EvidenceOnlyMarkingOptions } from "./gradingEvidencePolicy";
 import { formatSpmExamStandardMarkingBlock } from "./gradingExaminerPolicy";
 import { formatSpmStudentFriendlyRulesBlock } from "./spmStudentLanguage";
 import { qwenGradingJson } from "./qwenGradingClient";
@@ -25,6 +25,7 @@ export type ExaminerCreditPassInput = {
   subject: string;
   textbookContext?: string;
   questionAnalysis?: QuestionAnalysis | null;
+  markingPolicyOptions?: EvidenceOnlyMarkingOptions;
 };
 
 export type ExaminerCreditPassResult = {
@@ -83,7 +84,7 @@ export async function applyExaminerPriorityMarking(
   const contextExcerpt = (input.textbookContext ?? "").trim().slice(0, 4000);
 
   const system = [
-    formatSpmExamStandardMarkingBlock(),
+    formatSpmExamStandardMarkingBlock(input.markingPolicyOptions),
     formatSpmStudentFriendlyRulesBlock(),
     "Return JSON only:",
     `{`,
@@ -98,6 +99,7 @@ export async function applyExaminerPriorityMarking(
     "- Do not award equation marks unless the equation is fully correct at SPM level.",
     "- Reject vague, generic, incomplete, or informal answers even if scientifically true.",
     "- Award only if the student answer text already contains the mark point — do not infer unstated science.",
+    "- Never award because a diagram/figure shows the point if the student did not write it in their answer.",
     strictCtx
       ? "- CONTEXT-BOUND: credit only if consistent with the named source in the question."
       : "- Valid SPM paraphrases are allowed when the mark-point detail is clearly present.",
@@ -135,7 +137,7 @@ export async function applyExaminerPriorityMarking(
     const rubricIdea = input.rubricIdeas.find((r) => r.id === rubricId);
     if (!row || row.awarded || !rubricIdea) continue;
     if (rubricIdea.kind === "equation" || rubricIdea.demandType === "equation") continue;
-    if (!studentAnswerExplicitlySupportsMarkPoint(input.studentAnswer, rubricIdea, input.studentAnswer)) {
+    if (!studentAnswerExplicitlySupportsMarkPoint(input.studentAnswer, rubricIdea, input.studentAnswer, input.question)) {
       continue;
     }
 

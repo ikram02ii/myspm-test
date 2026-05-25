@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Animated,
+  Image,
   Modal,
   Pressable,
   ScrollView,
@@ -13,12 +14,22 @@ import {
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
-import { Check } from "lucide-react-native";
+import { Camera, Check, ImageUp } from "lucide-react-native";
 import * as ImagePicker from "expo-image-picker";
 
 import { colors } from "../constants/colors";
 import { fonts } from "../constants/fonts";
 import { theme } from "../constants/palette";
+import { MathLineChart } from "../components/math/MathLineChart";
+import { AnimalCellDiagramWithLabels } from "../components/biology/AnimalCellDiagramWithLabels";
+import { LabeledAnimalCellDiagram } from "../components/biology/LabeledAnimalCellDiagram";
+import { MathFormattedText } from "../components/math/MathFormattedText";
+import {
+  inferOrganelleHighlights,
+  isBiologySubject,
+  shouldShowLabeledCellDiagram,
+} from "../utils/biologyDiagramHighlights";
+import { isMatrixOnlyOption } from "../utils/parseMatrixNotation";
 import type { PracticeStackParamList } from "../navigation/PracticeStack";
 import {
   fetchPracticeSetDetail,
@@ -94,6 +105,36 @@ function parseCorrectIndices(correctAnswer: string, numOptions: number): Set<num
   return out;
 }
 
+function normalizeOcrCompare(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/\(\s*\d{1,2}\s*(?:marks?|markah)\s*\)/gi, "")
+    .replace(/^(?:en|bm)\s*:\s*/gi, "")
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** True when OCR text is almost certainly the displayed question, not a student answer. */
+function ocrLooksLikeQuestionStem(ocrText: string, questionText: string): boolean {
+  const o = normalizeOcrCompare(ocrText);
+  const q = normalizeOcrCompare(questionText);
+  if (!o || !q || o.length < 16) return false;
+  if (o === q) return true;
+  if (q.length >= 24 && o.includes(q)) return true;
+  const bmLine = questionText
+    .split("\n")
+    .map((l) => l.trim())
+    .find((l) => /^bm\s*:/i.test(l))
+    ?.replace(/^bm\s*:\s*/i, "")
+    .trim();
+  if (bmLine) {
+    const b = normalizeOcrCompare(bmLine);
+    if (b.length >= 16 && (o === b || o.includes(b) || b.includes(o))) return true;
+  }
+  return false;
+}
+
 function isSelectionCorrect(selected: Set<number>, correct: Set<number>): boolean {
   if (selected.size !== correct.size || correct.size === 0) return false;
   for (const i of correct) {
@@ -105,6 +146,19 @@ function isSelectionCorrect(selected: Set<number>, correct: Set<number>): boolea
 /** maxScore for /rag/grade (open-ended). */
 function resolveOpenEndedMaxScore(q: PracticeSetQuestion, questionForGrade: string): number {
   return resolveQuestionMarks(q, questionForGrade);
+}
+
+function stripModelAnswerLabel(raw: string | undefined): string {
+  const text = (raw ?? "").trim();
+  if (!text) return "";
+  return text.replace(/^Model answer(?:\s*\/\s*Jawapan model)?\s*:\s*/i, "").trim();
+}
+
+function openEndedFeedbackOnly(
+  result: { feedback?: string } | null | undefined,
+): string {
+  const feedback = (result?.feedback ?? "").trim();
+  return feedback || "No feedback returned.";
 }
 
 type QuestionMarkResult = {
@@ -156,6 +210,8 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
   const [aiDrawerOpen, setAiDrawerOpen] = useState(false);
   const [aiBusy, setAiBusy] = useState(false);
   const [aiFeedbackText, setAiFeedbackText] = useState<string | null>(null);
+  const [gradeModelAnswer, setGradeModelAnswer] = useState<string | null>(null);
+  const [modelAnswerExpanded, setModelAnswerExpanded] = useState(false);
   const [openEndedAnswer, setOpenEndedAnswer] = useState("");
   const [ocrBusy, setOcrBusy] = useState(false);
   const [ocrError, setOcrError] = useState<string | null>(null);
@@ -228,6 +284,8 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
     setOpenEndedAnswer("");
     setShowFeedback(false);
     setAiFeedbackText(null);
+    setGradeModelAnswer(null);
+    setModelAnswerExpanded(false);
     setOcrError(null);
   }, [index, questions[index]?.id]);
 
@@ -354,6 +412,8 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
     try {
       setOpenEndedMarkingBusy(true);
       setAiFeedbackText(null);
+      setGradeModelAnswer(null);
+      setModelAnswerExpanded(false);
       const result = await ragApiPost<any>("/rag/grade", {
         question: questionForGrade,
         studentAnswer,
@@ -362,6 +422,7 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
         topK: 8,
         maxScore: requestedMaxScore,
         rubricId: q.rubricId ?? undefined,
+        diagramImageUrl: q.diagramImageUrl?.trim() || undefined,
       });
       const earnedRaw = Number(result?.score);
       const maxRaw = Number(result?.maxScore);
@@ -373,9 +434,12 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
         ...prev,
         [q.id]: { earned: Math.min(earned, maxMarks), max: maxMarks },
       }));
-      const scorePrefix = `Score: ${Math.min(earned, maxMarks)}/${maxMarks}\n\n`;
-      const feedback = result?.feedback ?? result?.modelAnswer ?? "No feedback returned.";
-      setAiFeedbackText(`${scorePrefix}${feedback}`);
+      const earnedClamped = Math.min(earned, maxMarks);
+      const modelAnswer = stripModelAnswerLabel(result?.modelAnswer);
+      const showModelAnswer = earnedClamped < maxMarks && modelAnswer.length > 0;
+      setGradeModelAnswer(showModelAnswer ? modelAnswer : null);
+      setModelAnswerExpanded(showModelAnswer);
+      setAiFeedbackText(openEndedFeedbackOnly(result));
       setShowFeedback(true);
     } catch (e) {
       setAiFeedbackText(e instanceof Error ? e.message : "Failed to grade your answer.");
@@ -389,6 +453,8 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
     setAiDrawerOpen(false);
     setAiBusy(false);
     setAiFeedbackText(null);
+    setGradeModelAnswer(null);
+    setModelAnswerExpanded(false);
     setOpenEndedAnswer("");
     setOcrBusy(false);
     setSpeakingReadyForNext(false);
@@ -510,12 +576,19 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
       setOcrBusy(true);
       setOcrError(null);
       const result = await uploadScanImageWithAiTutor(photoUri, {
-        question: (q?.questionForGrade ?? q?.questionText)?.trim() || undefined,
+        mode: "extract",
         subject: routeSubject ?? "Biology",
       });
       const text = (result?.text ?? "").trim();
       if (!text) {
-        setOcrError("OCR found no readable text from the image. Try a clearer photo.");
+        setOcrError("No text found in the image. Try a clearer photo of your written answer.");
+        return;
+      }
+      const stem = (q?.questionText ?? "").trim();
+      if (stem && ocrLooksLikeQuestionStem(text, stem)) {
+        setOcrError(
+          "That looks like the question, not your answer. Photo only your handwriting or typed working.",
+        );
         return;
       }
       setOpenEndedAnswer(text);
@@ -523,7 +596,12 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
       setAiFeedbackText(null);
       setOcrError(null);
     } catch (e) {
-      setOcrError(e instanceof Error ? e.message : "OCR failed. Check your connection and try again.");
+      const raw = e instanceof Error ? e.message : "OCR failed. Check your connection and try again.";
+      setOcrError(
+        /system error has occurred/i.test(raw)
+          ? "Scan service is busy. Wait a moment and try again, or type your answer."
+          : raw,
+      );
     } finally {
       setOcrBusy(false);
     }
@@ -702,7 +780,41 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
           {isSpeakingQuestion && !isSpeakingPart2 ? (
             <Text style={styles.questionText}>{displayQuestionText}</Text>
           ) : !isSpeakingQuestion ? (
-            <Text style={styles.questionText}>{displayQuestionText}</Text>
+            <MathFormattedText textStyle={styles.questionText}>{displayQuestionText}</MathFormattedText>
+          ) : null}
+
+          {!isSpeakingQuestion && q.diagram?.type === "line-chart" ? (
+            <View style={styles.diagramWrap}>
+              <MathLineChart
+                title={q.diagram.title ?? "Math Diagram"}
+                subtitle={q.diagram.subtitle ?? "Generated for this question"}
+                equationLabel={q.diagram.equationLabel ?? "Graph"}
+                xAxisLabel={q.diagram.xAxisLabel ?? "x"}
+                yAxisLabel={q.diagram.yAxisLabel ?? "y"}
+                points={q.diagram.points}
+              />
+            </View>
+          ) : null}
+          {!isSpeakingQuestion && isBiologySubject(routeSubject) && shouldShowLabeledCellDiagram(q.questionText) ? (
+            <View style={styles.diagramWrap}>
+              {q.diagramImageUrl ? (
+                <AnimalCellDiagramWithLabels
+                  imageUrl={q.diagramImageUrl}
+                  highlights={inferOrganelleHighlights(q.questionText)}
+                />
+              ) : (
+                <LabeledAnimalCellDiagram highlights={inferOrganelleHighlights(q.questionText)} />
+              )}
+            </View>
+          ) : !isSpeakingQuestion && q.diagramImageUrl ? (
+            <View style={styles.diagramWrap}>
+              <Image
+                source={{ uri: q.diagramImageUrl }}
+                style={styles.scienceDiagramImage}
+                resizeMode="contain"
+                accessibilityLabel="Educational diagram for this question"
+              />
+            </View>
           ) : null}
 
           {isSpeakingQuestion ? (
@@ -733,6 +845,7 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
       {!isSpeakingQuestion && isMcq && q.options.length > 0 ? (
         <View style={styles.optionsGrid}>
           {q.options.map((opt, i) => {
+            const matrixOption = isMatrixOnlyOption(opt);
             const on = selected.has(i);
             const isCorrectOption = correctIndices.has(i);
             let border = "rgba(15, 23, 42, 0.12)";
@@ -754,6 +867,7 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
                 key={i}
                 style={[
                   styles.optionTile,
+                  matrixOption && styles.optionTileMatrix,
                   {
                     borderColor: border,
                     backgroundColor: bg,
@@ -763,9 +877,9 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
                 onPress={() => !showFeedback && onToggleOption(i)}
                 disabled={showFeedback}
               >
-                <Text style={styles.optionTileLabel} numberOfLines={4}>
+                <MathFormattedText textStyle={styles.optionTileLabel} matrixCompact>
                   {opt}
-                </Text>
+                </MathFormattedText>
               </Pressable>
             );
           })}
@@ -778,7 +892,7 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
           <TextInput
             value={openEndedAnswer}
             onChangeText={setOpenEndedAnswer}
-            placeholder="Type your answer here..."
+            placeholder="Type your answer, or scan it with the options below"
             placeholderTextColor="#94A3B8"
             style={styles.openEndedInput}
             multiline
@@ -787,18 +901,47 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
 
           <View style={styles.ocrButtonsRow}>
             <Pressable
-              style={({ pressed }) => [styles.ocrBtn, pressed && styles.ocrBtnPressed]}
+              style={({ pressed }) => [
+                styles.ocrCard,
+                styles.ocrCardCamera,
+                pressed && !ocrBusy && styles.ocrCardPressed,
+                ocrBusy && styles.ocrCardDisabled,
+              ]}
               onPress={() => void ocrTakePhoto()}
               disabled={ocrBusy}
             >
-              <Text style={styles.ocrBtnText}>{ocrBusy ? "Scanning..." : "Take photo"}</Text>
+              <LinearGradient
+                colors={[BRAND, theme.brandDeep]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.ocrIconBadge}
+              >
+                {ocrBusy ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <Camera size={18} color="#FFFFFF" strokeWidth={2.2} />
+                )}
+              </LinearGradient>
+              <Text style={styles.ocrCardTitle}>{ocrBusy ? "Scanning…" : "Take photo"}</Text>
             </Pressable>
             <Pressable
-              style={({ pressed }) => [styles.ocrBtn, pressed && styles.ocrBtnPressed]}
+              style={({ pressed }) => [
+                styles.ocrCard,
+                styles.ocrCardUpload,
+                pressed && !ocrBusy && styles.ocrCardPressed,
+                ocrBusy && styles.ocrCardDisabled,
+              ]}
               onPress={() => void ocrPickImage()}
               disabled={ocrBusy}
             >
-              <Text style={styles.ocrBtnText}>{ocrBusy ? "Scanning..." : "Upload image"}</Text>
+              <View style={[styles.ocrIconBadge, styles.ocrIconBadgeUpload]}>
+                {ocrBusy ? (
+                  <ActivityIndicator size="small" color={BRAND} />
+                ) : (
+                  <ImageUp size={18} color={BRAND} strokeWidth={2.2} />
+                )}
+              </View>
+              <Text style={styles.ocrCardTitle}>{ocrBusy ? "Scanning…" : "Upload image"}</Text>
             </Pressable>
           </View>
           {ocrBusy ? (
@@ -834,13 +977,28 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
           ) : (aiFeedbackText || q.explanation) ? (
             <Text style={styles.explanation}>{aiFeedbackText ?? q.explanation}</Text>
           ) : null}
-          {!isSpeakingQuestion ? (
-          <Pressable
-            style={({ pressed }) => [styles.askAiButton, pressed && styles.askAiButtonPressed]}
-            onPress={() => void askAiForExplanation()}
-          >
-            <Text style={styles.askAiButtonText}>Ask AI for more explanation</Text>
-          </Pressable>
+          {!isSpeakingQuestion && gradeModelAnswer ? (
+            <Pressable
+              style={({ pressed }) => [
+                styles.modelAnswerCard,
+                pressed && styles.askAiButtonPressed,
+              ]}
+              onPress={() => setModelAnswerExpanded((open) => !open)}
+            >
+              <Text style={styles.askAiButtonText}>
+                {modelAnswerExpanded ? "Model answer" : "View model answer"}
+              </Text>
+              {modelAnswerExpanded ? (
+                <Text style={styles.modelAnswerBody}>{gradeModelAnswer}</Text>
+              ) : null}
+            </Pressable>
+          ) : !isSpeakingQuestion && isMcq ? (
+            <Pressable
+              style={({ pressed }) => [styles.askAiButton, pressed && styles.askAiButtonPressed]}
+              onPress={() => void askAiForExplanation()}
+            >
+              <Text style={styles.askAiButtonText}>Ask AI why</Text>
+            </Pressable>
           ) : null}
         </Animated.View>
       ) : null}
@@ -970,6 +1128,17 @@ const styles = StyleSheet.create({
     lineHeight: 26,
     marginBottom: 16,
   },
+  diagramWrap: {
+    marginBottom: 16,
+  },
+  scienceDiagramImage: {
+    width: "100%",
+    height: 280,
+    borderRadius: 12,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "rgba(15, 23, 42, 0.08)",
+  },
   optionsGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -985,6 +1154,10 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     justifyContent: "center",
     alignItems: "center",
+  },
+  optionTileMatrix: {
+    minHeight: 108,
+    paddingVertical: 10,
   },
   optionTileLabel: {
     fontSize: 14,
@@ -1021,25 +1194,53 @@ const styles = StyleSheet.create({
     backgroundColor: "#FFFFFF",
   },
   ocrButtonsRow: {
-    marginTop: 10,
+    marginTop: 8,
     flexDirection: "row",
     gap: 8,
   },
-  ocrBtn: {
+  ocrCard: {
     flex: 1,
-    borderWidth: 1,
-    borderColor: BRAND,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 8,
+    paddingHorizontal: 10,
     borderRadius: 10,
+    gap: 8,
+    borderWidth: 1,
+    borderColor: "rgba(15, 23, 42, 0.08)",
     backgroundColor: "#FFFFFF",
-    paddingVertical: 10,
+  },
+  ocrCardCamera: {
+    backgroundColor: theme.brandSoft,
+    borderColor: "rgba(227, 83, 54, 0.16)",
+  },
+  ocrCardUpload: {
+    backgroundColor: theme.brandSoftSage,
+    borderColor: "rgba(152, 168, 105, 0.22)",
+  },
+  ocrCardPressed: {
+    opacity: 0.9,
+  },
+  ocrCardDisabled: {
+    opacity: 0.7,
+  },
+  ocrIconBadge: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
     alignItems: "center",
     justifyContent: "center",
   },
-  ocrBtnPressed: { opacity: 0.85 },
-  ocrBtnText: {
+  ocrIconBadgeUpload: {
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: theme.brandSecondary,
+  },
+  ocrCardTitle: {
     fontSize: 12,
     fontFamily: fonts.semiBold,
-    color: BRAND,
+    color: theme.brandDeep,
   },
   ocrStatusRow: {
     marginTop: 10,
@@ -1086,6 +1287,23 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(15, 23, 42, 0.14)",
     backgroundColor: "#FFFFFF",
+  },
+  modelAnswerCard: {
+    alignSelf: "stretch",
+    marginTop: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "rgba(15, 23, 42, 0.14)",
+    backgroundColor: "#FFFFFF",
+  },
+  modelAnswerBody: {
+    marginTop: 8,
+    fontSize: 14,
+    fontFamily: fonts.regular,
+    color: colors.text,
+    lineHeight: 21,
   },
   askAiButtonPressed: { opacity: 0.85 },
   askAiButtonText: {

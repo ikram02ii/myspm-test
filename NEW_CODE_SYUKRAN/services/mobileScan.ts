@@ -75,9 +75,15 @@ export type AiScanOcrResult = {
 };
 
 export type AiScanOcrOptions = {
-  /** Current practice question — improves repair/validation when provided */
-  question?: string;
+  /** Subject label for the vision model (e.g. Biology). */
   subject?: string;
+  /**
+   * `extract` — read text from the image only (AI Practice answer box).
+   * Default — full cleanup/validation pipeline (other flows).
+   */
+  mode?: "extract" | "full";
+  /** Only used with mode `full`; optional question context for repair/validation. */
+  question?: string;
 };
 
 async function getStoredUserEmail(): Promise<string | null> {
@@ -115,10 +121,14 @@ export async function uploadScanImageWithAiTutor(
 
   const form = new FormData();
   if (email) form.append("email", email);
-  const question = options?.question?.trim();
+  const mode = options?.mode === "full" ? "full" : "extract";
+  form.append("mode", mode);
   const subject = options?.subject?.trim();
-  if (question) form.append("question", question);
   if (subject) form.append("subject", subject);
+  if (mode === "full") {
+    const question = options?.question?.trim();
+    if (question) form.append("question", question);
+  }
   await appendImageToFormData(form, photoUri);
 
   const base = await resolveAiScanBaseUrl();

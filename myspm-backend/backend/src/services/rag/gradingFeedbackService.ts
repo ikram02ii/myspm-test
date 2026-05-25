@@ -1,5 +1,9 @@
 import type { QuestionAnalysis } from "./types";
 import { formatFeedbackEvidenceOnlyBlock } from "./gradingEvidencePolicy";
+import {
+  formatDiagramImageEvidenceBlock,
+  gradingUsesVisualFigure,
+} from "./gradingDiagramPolicy";
 import { formatSpmStudentFriendlyRulesBlock } from "./spmStudentLanguage";
 import { qwenGradingJson, resolveQwenGradingConfig } from "./qwenGradingClient";
 
@@ -10,50 +14,67 @@ export type PostScoreFeedbackInput = {
   maxScore: number;
   matchedIdeas: string[];
   missingIdeas: string[];
+  rubricIdeas?: string[];
   questionAnalysis?: QuestionAnalysis | null;
   subject: string;
   language: "english" | "malay" | "mixed";
+  usesVisualFigure?: boolean;
+};
+
+export type PostScoreFeedbackResult = {
+  feedback: string;
+  /** SPM model answer — only when the student did not earn full marks. */
+  modelAnswer?: string;
 };
 
 /**
- * After marks are fixed in code, generate short SPM-style feedback only.
- * Must not contradict the score or demand content the question did not ask for.
+ * After marks are fixed in code, generate SPM Form 4/5 student feedback (and model answer if not full marks).
+ * Must not contradict the score or claim the student wrote ideas that are not in their answer.
  */
-export async function buildPostScoreFeedback(input: PostScoreFeedbackInput): Promise<string> {
+export async function buildPostScoreFeedback(
+  input: PostScoreFeedbackInput,
+): Promise<PostScoreFeedbackResult> {
   const lang =
     input.language === "malay" ? "Malay" : input.language === "mixed" ? "Mixed English/Malay" : "English";
+  const notFullMark = input.score < input.maxScore;
+  const usesVisual =
+    input.usesVisualFigure ??
+    gradingUsesVisualFigure({ question: input.question });
+
   const system = [
     "Write feedback for a Malaysian SPM student after their answer has already been marked.",
     formatSpmStudentFriendlyRulesBlock(),
     formatFeedbackEvidenceOnlyBlock(),
-    "Return JSON only: { \"feedback\": string }.",
-    "feedback must be 1–3 short sentences, simple Form 4/5 language matching the student's language style.",
-    "Mention only matched points that reflect wording actually in the student answer; gaps only from missing points.",
-    "Never say the student mentioned a concept unless it appears in the student answer text below.",
-    "If marks were withheld for vagueness, say the required point was not stated clearly — do not invent what they meant.",
-    "Do NOT introduce new science topics not in the question stem.",
-    "Do NOT say something is missing if it appears in the student answer.",
-    "Do NOT demand specific examples (e.g. one chemical) unless the question explicitly asked for that detail.",
+    usesVisual ? formatDiagramImageEvidenceBlock() : null,
+    "Return JSON only: { \"feedback\": string, \"modelAnswer\": string | null }.",
     [
-      "OPEN-ENDED ROW FEEDBACK:",
-      "When a mark point is open-ended (any valid member of a category is acceptable), never name a specific answer in feedback as if it were the only correct answer. Instead, describe the category the student needed to provide an instance of.",
-      "If the student gave a valid answer that was not awarded due to a matching failure, do not tell them their answer was wrong.",
+      "FEEDBACK (feedback field):",
+      "- 2–4 short sentences at SPM Form 4/5 level — clear, calm, like a helpful teacher.",
+      "- Match the student's language style (English, Malay, or mixed).",
+      "- Start with what they did well OR why marks were limited (based on the final score only).",
+      "- For partial marks: say which type of point was missing or unclear — do not list rubric jargon.",
+      "- For zero marks: encourage them to write the science in their own words; never say they were correct.",
+      "- Never claim they mentioned a term or idea unless it appears in the student answer below.",
+      "- Do NOT include a model answer inside feedback — use modelAnswer field only.",
     ].join("\n"),
-    [
-      "FEEDBACK RULES BY DEMAND TYPE:",
-      "recall: State the correct answer directly if missing. One sentence.",
-      "definition: Identify which part of the definition was missing — the concept, the mechanism, or both. Do not restate the full definition.",
-      "explanation: Name the specific mechanism step that was missing and where it fits in the chain. Do not restate steps the student got right.",
-      "comparison: State which side or criterion was missing or incorrect. Address both sides if both have gaps.",
-      "calculation: Separate method feedback from accuracy feedback. Never say the answer is wrong if only arithmetic was wrong and the method was correct.",
-      "example: Describe the category the student needed to give an instance of. Never name a single answer as the only correct one.",
-      "application: Describe the type of reasoning expected without giving the answer.",
-      "equation: If incomplete, name the missing species. If unbalanced, name the unbalanced element and side. Never use praise when incomplete or unbalanced.",
-      "essay: Separate content feedback from language feedback.",
-      "GENERAL: Never introduce science not in the question stem. Never say something is missing if it appears in the student answer. The score is final.",
-    ].join("\n"),
-    "The score is final — your wording must agree with it (do not imply a different mark).",
-  ].join("\n");
+    notFullMark
+      ? [
+          "MODEL ANSWER (modelAnswer field — required because score < maxScore):",
+          "- Write a complete, exam-ready SPM model answer for THIS question only.",
+          "- Use simple school language; bilingual EN/BM only if the question stem is bilingual.",
+          "- Cover all mark points the student missed (see gaps / rubric below).",
+          "- Do NOT mention diagrams unless the question is about labelling; give the words an examiner expects written.",
+          usesVisual
+            ? "- This is a diagram/figure question: the model answer must NAME structures/functions/values in words — not 'see the diagram'."
+            : null,
+        ]
+          .filter((line): line is string => Boolean(line))
+          .join("\n")
+      : "MODEL ANSWER: set modelAnswer to null (student earned full marks).",
+    "The score is final — wording must agree with it.",
+  ]
+    .filter((line): line is string => Boolean(line))
+    .join("\n");
 
   const user = [
     `Subject: ${input.subject}`,
@@ -61,23 +82,55 @@ export async function buildPostScoreFeedback(input: PostScoreFeedbackInput): Pro
     `Question: ${input.question}`,
     `Student answer: ${input.studentAnswer}`,
     `Score: ${input.score} / ${input.maxScore}`,
+    usesVisual ? "This question uses a diagram/figure (marks need written scientific wording)." : null,
     input.questionAnalysis
-      ? `Question demand summary: command=${input.questionAnalysis.commandWord}, type=${input.questionAnalysis.questionType}, demandType=${input.questionAnalysis.demandType}, openEnded=${input.questionAnalysis.isOpenEnded}, isEquationQuestion=${input.questionAnalysis.isEquationQuestion}, equationType=${input.questionAnalysis.equationType ?? "null"}`
+      ? `Question demand: command=${input.questionAnalysis.commandWord}, type=${input.questionAnalysis.questionType}, demandType=${input.questionAnalysis.demandType}`
       : null,
-    `Points credited: ${input.matchedIdeas.join(" | ") || "(none listed)"}`,
-    `Gaps for improvement: ${input.missingIdeas.join(" | ") || "(none)"}`,
+    `Points credited: ${input.matchedIdeas.join(" | ") || "(none)"}`,
+    `Gaps / mark points missed: ${input.missingIdeas.join(" | ") || "(none)"}`,
+    input.rubricIdeas?.length ? `Mark scheme ideas: ${input.rubricIdeas.join(" | ")}` : null,
   ]
     .filter((line): line is string => Boolean(line))
     .join("\n\n");
 
   try {
     const parsed = await qwenGradingJson(system, user);
-    const fb = typeof parsed?.feedback === "string" ? parsed.feedback.trim() : "";
-    if (fb.length > 0) return fb;
+    const feedback = typeof parsed?.feedback === "string" ? parsed.feedback.trim() : "";
+    let modelAnswer: string | undefined;
+    if (notFullMark) {
+      const raw = typeof parsed?.modelAnswer === "string" ? parsed.modelAnswer.trim() : "";
+      if (raw.length > 0) modelAnswer = raw;
+    }
+    if (feedback.length > 0) {
+      return { feedback, modelAnswer };
+    }
   } catch {
     // fall through
   }
-  return "";
+  return { feedback: "" };
+}
+
+export function formatFeedbackWithModelAnswer(params: {
+  feedback: string;
+  modelAnswer?: string;
+  score: number;
+  maxScore: number;
+  language: "english" | "malay" | "mixed";
+}): { feedback: string; modelAnswer?: string } {
+  const fb = params.feedback.trim();
+  if (params.score >= params.maxScore || !params.modelAnswer?.trim()) {
+    return { feedback: fb, modelAnswer: undefined };
+  }
+  const label =
+    params.language === "malay"
+      ? "Jawapan model"
+      : params.language === "mixed"
+        ? "Model answer / Jawapan model"
+        : "Model answer";
+  return {
+    feedback: fb,
+    modelAnswer: `${label}:\n${params.modelAnswer.trim()}`,
+  };
 }
 
 export function resolveGradingModelLabel(suffix: string): string {

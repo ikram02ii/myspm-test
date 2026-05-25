@@ -6,6 +6,7 @@
  *   4. Rubric-oriented validator (topic + plausibility vs question)
  */
 
+import { removeQuestionStemFromOcrText } from "./ocrAnswerFilter";
 import { parseOcrMathStructure } from "./ocrTextNormalize";
 import { repairOcrTranscription } from "./ocrRepairService";
 import { validateOcrAnswerAgainstQuestion, type OcrAnswerValidation } from "./ocrAnswerValidateService";
@@ -40,19 +41,28 @@ export async function runOcrPostProcessPipeline(input: OcrPipelineInput): Promis
     subject: input.subject,
   });
 
+  const stemFilter = removeQuestionStemFromOcrText(afterRepair, input.question);
+  let finalText = stemFilter.text;
+
   let validation: OcrAnswerValidation | undefined;
   if (input.question?.trim()) {
     validation = await validateOcrAnswerAgainstQuestion({
       question: input.question,
-      studentAnswer: afterRepair,
+      studentAnswer: finalText,
       subject: input.subject,
     });
   }
 
   const validationPassed = validation?.passed ?? true;
+  let validationWarning = validation?.warning;
+
+  if (stemFilter.lookedLikeQuestionOnly) {
+    validationWarning =
+      "The scan looks like the question text, not your answer. Take a photo of only your written answer.";
+  }
 
   return {
-    text: afterRepair,
+    text: finalText,
     format: "plain",
     stages: {
       rawOcr,
@@ -60,7 +70,7 @@ export async function runOcrPostProcessPipeline(input: OcrPipelineInput): Promis
       afterRepair,
       validation,
     },
-    validationPassed,
-    validationWarning: validation?.warning,
+    validationPassed: stemFilter.lookedLikeQuestionOnly ? false : validationPassed,
+    validationWarning,
   };
 }

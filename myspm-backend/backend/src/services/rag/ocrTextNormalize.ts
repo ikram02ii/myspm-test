@@ -145,10 +145,12 @@ export function parseOcrMathStructure(raw: string): string {
 }
 
 export const OCR_EXTRACTION_PROMPT = [
-  "Transcribe all visible handwriting or printed text from this image.",
+  "Transcribe the STUDENT'S ANSWER or working from this image — not the exam question.",
   "Output clean plain text only — suitable for a student answer box.",
   "Rules:",
-  "- One step per line, in the same order as the image.",
+  "- If the image shows a question at the top and an answer below, transcribe ONLY the answer/working area.",
+  "- Skip question numbers, Soalan labels, EN:/BM: question stems, and (N marks) in question headers.",
+  "- One step per line, in the same order as the student's writing.",
   "- Do NOT use LaTeX, \\displaylines, markdown, or code fences.",
   "- Chemical formulas: write with subscripts in the text (e.g. C2H5OH, CH3COOH, H2SO4) — not C_{2}H_{5}OH.",
   "- Fractions: use a slash, e.g. mass / (12 + 3 + 32 + 1), or put numerator and denominator on separate lines.",

@@ -4,6 +4,44 @@ function normalizeNewlines(s: string): string {
   return (s ?? "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
 }
 
+function normalizeAiText(s: string): string {
+  return normalizeNewlines(s)
+    .replace(/```(?:json|text)?/gi, "")
+    .replace(/```/g, "")
+    .replace(/\*\*/g, "")
+    .replace(/^\s*[-*]\s+/gm, "");
+}
+
+/** Keep EN and BM on separate lines; collapse spaces only within each line. */
+function parseMarkahFromBlock(lines: string[]): number | undefined {
+  for (const line of lines) {
+    const m = line.match(/^(?:Markah|Marks?)\s*[:：]\s*(\d{1,2})\b/i);
+    if (m) {
+      const n = Number(m[1]);
+      if (Number.isFinite(n) && n >= 1 && n <= 20) return n;
+    }
+  }
+  return undefined;
+}
+
+export function formatBilingualQuestionStem(raw: string): string {
+  let s = normalizeNewlines(raw.trim());
+  s = s.replace(/(EN:\s*[^\n]+?)\s+(BM:)/gi, "$1\n$2");
+  return s
+    .split("\n")
+    .map((line) => line.replace(/\s+/g, " ").trim())
+    .filter(Boolean)
+    .join("\n");
+}
+
+/** Strip LLM diagram flag from displayed stem (same tokens as backend extractQuestionStems). */
+const MCQ_DIAGRAM_FLAG_LINE =
+  /^\s*(?:Perlu rajah|Diagram needed|Need diagram|Rajah diperlukan)\s*:\s*(?:ya|tidak|yes|no|y|n)\b[^\n]*$/gim;
+
+function stripDiagramFlagFromStem(raw: string): string {
+  return raw.replace(MCQ_DIAGRAM_FLAG_LINE, "").replace(/\n{3,}/g, "\n\n").trim();
+}
+
 function letterToIndex(letter: string): number | null {
   const L = letter.trim().toUpperCase();
   if (!/^[A-D]$/.test(L)) return null;
@@ -30,16 +68,26 @@ function buildQuestionForGrade(questionStem: string, options: string[]): string 
  * Penjelasan: <text>
  */
 export function parseAiGeneratedMcqAnswer(answer: string): PracticeSetQuestion[] {
-  const text = normalizeNewlines(answer);
+  const text = normalizeAiText(answer);
   if (!text.trim()) return [];
 
   const blocks: Array<{ index: number; body: string }> = [];
-  const re = /Soalan\s+(\d+)\s*([\s\S]*?)(?=Soalan\s+\d+\s*|$)/gi;
+  const re =
+    /(?:^|\n)\s*(?:Soalan|Question)\s+(\d+)\s*[:.)-]?\s*([\s\S]*?)(?=\n\s*(?:Soalan|Question)\s+\d+\s*[:.)-]?|$)/gi;
   let m: RegExpExecArray | null;
   while ((m = re.exec(text))) {
     const index = Number(m[1]);
-    const body = m[2] ?? "";
-    blocks.push({ index, body });
+    const body = (m[2] ?? "").trim();
+    if (body) blocks.push({ index, body });
+  }
+
+  if (blocks.length === 0) {
+    const numberedRe = /(?:^|\n)\s*(\d+)\s*[.)]\s+([\s\S]*?)(?=\n\s*\d+\s*[.)]\s+|$)/g;
+    while ((m = numberedRe.exec(text))) {
+      const index = Number(m[1]);
+      const body = (m[2] ?? "").trim();
+      if (body) blocks.push({ index, body });
+    }
   }
 
   const out: PracticeSetQuestion[] = [];
@@ -48,30 +96,31 @@ export function parseAiGeneratedMcqAnswer(answer: string): PracticeSetQuestion[]
     const block = b.body.trim();
     if (!block) continue;
 
-    const correctMatch = block.match(/Jawapan:\s*([A-D])/i);
+    const correctMatch = block.match(
+      /(?:Jawapan(?:\s+betul)?|Answer|Correct answer|Correct Answer)\s*[:.)-]?\s*([A-Da-d])\b/i,
+    );
     if (!correctMatch) continue;
     const correctLetter = correctMatch[1].toUpperCase();
 
+    const optionsByLetter: Partial<Record<"A" | "B" | "C" | "D", string>> = {};
     const optRegex =
-      /A\.\s*(.*?)\n\s*B\.\s*(.*?)\n\s*C\.\s*(.*?)\n\s*D\.\s*(.*?)(?=\n\s*Jawapan:|\n\s*Penjelasan:|$)/s;
-    const optMatch = block.match(optRegex);
-    if (!optMatch) continue;
+      /(?:^|\n)\s*([A-Da-d])\s*[\).:\-]\s*([\s\S]*?)(?=\n\s*[A-Da-d]\s*[\).:\-]|\n\s*(?:Jawapan|Answer|Penjelasan|Explanation|Correct answer)\s*:|$)/gi;
+    let optMatch: RegExpExecArray | null;
+    let firstOptionIndex = -1;
+    while ((optMatch = optRegex.exec(block))) {
+      const letter = optMatch[1].toUpperCase() as "A" | "B" | "C" | "D";
+      if (firstOptionIndex < 0) firstOptionIndex = optMatch.index;
+      optionsByLetter[letter] = (optMatch[2] ?? "").replace(/\s+/g, " ").trim();
+    }
 
-    const optA = (optMatch[1] ?? "").trim();
-    const optB = (optMatch[2] ?? "").trim();
-    const optC = (optMatch[3] ?? "").trim();
-    const optD = (optMatch[4] ?? "").trim();
-    const options = [optA, optB, optC, optD].map((o) => o.replace(/\s+/g, " ").trim());
+    const options = (["A", "B", "C", "D"] as const).map((letter) => optionsByLetter[letter] ?? "");
+    if (options.some((option) => option.length === 0)) continue;
 
-    const explMatch = block.match(/Penjelasan:\s*([\s\S]*)$/i);
+    const explMatch = block.match(/(?:Penjelasan|Explanation)\s*:\s*([\s\S]*)$/i);
     const explanation = explMatch ? explMatch[1].trim().replace(/\s+/g, " ") : null;
 
-    const aPos = block.search(/\n\s*A\.\s*/i);
-    const qStemRaw = aPos >= 0 ? block.slice(0, aPos) : block;
-    const qStem = qStemRaw
-      .replace(/^\s*/g, "")
-      .replace(/\s+/g, " ")
-      .trim();
+    const qStemRaw = firstOptionIndex >= 0 ? block.slice(0, firstOptionIndex) : block;
+    const qStem = formatBilingualQuestionStem(stripDiagramFlagFromStem(qStemRaw));
 
     const gradeQuestion = buildQuestionForGrade(qStem, options);
     const correctIndex = letterToIndex(correctLetter);
@@ -88,7 +137,6 @@ export function parseAiGeneratedMcqAnswer(answer: string): PracticeSetQuestion[]
       questionForGrade: gradeQuestion,
     });
 
-    // If correctIndex is null it won't be used by UI, but parser already guarded correctLetter.
     void correctIndex;
   }
 
@@ -99,16 +147,26 @@ export function parseAiGeneratedOpenEnded(
   answer: string,
   type: "short" | "essay",
 ): PracticeSetQuestion[] {
-  const text = normalizeNewlines(answer);
+  const text = normalizeAiText(answer);
   if (!text.trim()) return [];
 
   const blocks: Array<{ index: number; body: string }> = [];
-  const re = /Soalan\s+(\d+)\s*([\s\S]*?)(?=Soalan\s+\d+\s*|$)/gi;
+  const re =
+    /(?:^|\n)\s*(?:Soalan|Question)\s+(\d+)\s*[:.)-]?\s*([\s\S]*?)(?=\n\s*(?:Soalan|Question)\s+\d+\s*[:.)-]?|$)/gi;
   let m: RegExpExecArray | null;
   while ((m = re.exec(text))) {
     const index = Number(m[1]);
     const body = (m[2] ?? "").trim();
     if (body) blocks.push({ index, body });
+  }
+
+  if (blocks.length === 0) {
+    const numberedRe = /(?:^|\n)\s*(\d+)\s*[.)]\s+([\s\S]*?)(?=\n\s*\d+\s*[.)]\s+|$)/g;
+    while ((m = numberedRe.exec(text))) {
+      const index = Number(m[1]);
+      const body = (m[2] ?? "").trim();
+      if (body) blocks.push({ index, body });
+    }
   }
 
   const out: PracticeSetQuestion[] = [];
@@ -119,9 +177,35 @@ export function parseAiGeneratedOpenEnded(
       .filter(Boolean);
     if (lines.length === 0) continue;
 
-    // Keep question stem as first non-empty line, answer/rubric as explanation.
-    const questionText = lines[0];
-    const explanation = lines.slice(1).join("\n").trim() || null;
+    const markahIndex = lines.findIndex((line) => /^(?:Markah|Marks?)\s*[:：]/i.test(line));
+    const answerLabelIndex = lines.findIndex((line) =>
+      /^(jawapan|answer|model answer|marking points?|rubric|skema)\s*:/i.test(line),
+    );
+    const stemEnd =
+      markahIndex >= 0
+        ? markahIndex
+        : answerLabelIndex > 0
+          ? answerLabelIndex
+          : lines.length;
+    const questionLines = lines.slice(0, stemEnd > 0 ? stemEnd : 1);
+    const explanationStart =
+      markahIndex >= 0 && answerLabelIndex > markahIndex
+        ? answerLabelIndex
+        : answerLabelIndex >= 0
+          ? answerLabelIndex
+          : stemEnd < lines.length
+            ? stemEnd
+            : 1;
+    const explanationLines = lines.slice(explanationStart);
+    const maxMarks = parseMarkahFromBlock(lines);
+    const rawStem = questionLines.join("\n");
+    const questionText = formatBilingualQuestionStem(stripDiagramFlagFromStem(rawStem));
+    const explanation = explanationLines.join("\n").trim() || null;
+    if (!questionText) continue;
+
+    const markLine = maxMarks != null ? `Markah: ${maxMarks}\n` : "";
+    // Keep diagram flag in grade payload so backend applies figure-only marking rules.
+    const questionForGrade = `${rawStem}\n${markLine}`.trim();
 
     out.push({
       id: out.length + 1,
@@ -132,10 +216,10 @@ export function parseAiGeneratedOpenEnded(
       options: [],
       correctAnswer: "",
       explanation,
-      questionForGrade: questionText,
+      questionForGrade,
+      maxMarks,
     });
   }
 
   return out;
 }
-

@@ -54,6 +54,10 @@ export type RetrievedChunk = {
   chapter?: string;
   pageStart?: number;
   pageEnd?: number;
+  /** Past-paper chunk label, e.g. Q7(a). */
+  questionRef?: string;
+  /** Typical mark weight from past-paper / mark-scheme chunks (question generation hints). */
+  maxMarks?: number | null;
 };
 
 export type RetrieveChunksResult = {
@@ -173,6 +177,8 @@ export type GradeSubmissionInput = {
   rubricVersion?: string;
   diagramImageUrl?: string;
   diagramImageBase64?: string;
+  /** Structured vision parse of an attached figure (rubric context only at mark time). */
+  diagramContextStructured?: DiagramContext | null;
   submissionId?: string;
   userId?: number | null;
   /** Pipeline v2: merged audited context (same as v1 grader). Do not retrieve independently in the pipeline. */

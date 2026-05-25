@@ -79,16 +79,47 @@ export const EQUIVALENT_PHRASE_GROUPS: readonly string[][] = [
   ["empire", "empayar", "colonial", "penjajahan", "independence", "kemerdekaan", "persekutuan"],
   ["cell", "sel", "tissue", "tisu", "organ", "organ", "system", "sistem", "organism", "organisma"],
   ["cell tissue organ", "cell → tissue → organ", "sel tisu organ"],
+  [
+    "mitochondria",
+    "mitokondria",
+    "mitochondrion",
+    "produce atp",
+    "produces atp",
+    "release energy",
+    "releases energy",
+    "cellular respiration",
+    "respirasi sel",
+    "respiration",
+    "respirasi",
+    "energy production",
+    "penghasilan tenaga",
+  ],
   ["sultan", "raja", "british", "inggeris", "japanese", "jepun", "malayan union", "kesatuan malaya"],
 ];
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** Word-boundary match for short tokens so "cell" does not match inside "cellular". */
+export function normalizedTextIncludesPhrase(text: string, phrase: string): boolean {
+  const normText = normalizeAnswerText(text);
+  const normPhrase = normalizeAnswerText(phrase);
+  if (!normText || !normPhrase) return false;
+  if (normPhrase.includes(" ")) return normText.includes(normPhrase);
+  if (normPhrase.length <= 5) {
+    return new RegExp(`\\b${escapeRegExp(normPhrase)}\\b`).test(normText);
+  }
+  return normText.includes(normPhrase);
+}
 
 export function ideasShareSynonymGroup(a: string, b: string): boolean {
   const na = normalizeAnswerText(a);
   const nb = normalizeAnswerText(b);
   if (!na || !nb) return false;
   for (const group of EQUIVALENT_PHRASE_GROUPS) {
-    const hitA = group.some((g) => na.includes(normalizeAnswerText(g)));
-    const hitB = group.some((g) => nb.includes(normalizeAnswerText(g)));
+    const hitA = group.some((g) => normalizedTextIncludesPhrase(na, g));
+    const hitB = group.some((g) => normalizedTextIncludesPhrase(nb, g));
     if (hitA && hitB) return true;
   }
   return false;
@@ -212,8 +243,8 @@ export function studentAnswerCoversIdea(studentAnswer: string, idea: string): bo
   if (hitRatio >= 0.72) return true;
 
   for (const group of EQUIVALENT_PHRASE_GROUPS) {
-    const ideaHit = group.some((g) => id.includes(normalizeAnswerText(g)));
-    const ansHit = group.some((g) => ans.includes(normalizeAnswerText(g)));
+    const ideaHit = group.some((g) => normalizedTextIncludesPhrase(id, g));
+    const ansHit = group.some((g) => normalizedTextIncludesPhrase(ans, g));
     if (ideaHit && ansHit) return true;
   }
 
@@ -296,7 +327,7 @@ export async function fixMissingIdeasAgainstStudentAnswer(params: {
       if (
         verified.awarded &&
         rubricRow &&
-        studentAnswerExplicitlySupportsMarkPoint(studentAnswer, rubricRow, studentAnswer)
+        studentAnswerExplicitlySupportsMarkPoint(studentAnswer, rubricRow, studentAnswer, question)
       ) {
         confirmedMissing.push(idea);
       }

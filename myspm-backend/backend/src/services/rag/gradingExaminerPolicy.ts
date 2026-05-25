@@ -2,7 +2,7 @@
  * SPM marking standard: marks follow the syllabus / marking scheme, not loose scientific relatedness.
  */
 
-import { formatEvidenceOnlyMarkingBlock } from "./gradingEvidencePolicy";
+import { formatEvidenceOnlyMarkingBlock, type EvidenceOnlyMarkingOptions } from "./gradingEvidencePolicy";
 
 export const SPM_EXAM_STANDARD_MARKING_LINES = [
   "You are marking as an official SPM examiner (Form 4/5), not as a university tutor.",
@@ -27,8 +27,8 @@ export const SPM_EXAM_STANDARD_MARKING_LINES = [
   "Evidence-only: marks require explicit or clearly conveyed wording in the student answer — never inferred science, mechanisms, or relationships.",
 ] as const;
 
-export function formatSpmExamStandardMarkingBlock(): string {
-  return [...SPM_EXAM_STANDARD_MARKING_LINES, "", formatEvidenceOnlyMarkingBlock()].join("\n");
+export function formatSpmExamStandardMarkingBlock(options?: EvidenceOnlyMarkingOptions): string {
+  return [...SPM_EXAM_STANDARD_MARKING_LINES, "", formatEvidenceOnlyMarkingBlock(options)].join("\n");
 }
 
 /** @deprecated Use formatSpmExamStandardMarkingBlock — kept for imports that still reference examiner priority naming. */

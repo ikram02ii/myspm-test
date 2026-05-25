@@ -39,7 +39,9 @@ export async function repairOcrTranscription(params: {
 
   const user = [
     params.subject ? `Subject: ${params.subject}` : null,
-    params.question ? `Question being answered (for context only — do not rewrite to match if OCR is another topic):\n${params.question}` : null,
+    params.question
+      ? `Question being answered (context only — never copy diagram labels or figure details into the transcription):\n${params.question}`
+      : null,
     "Approximate transcription after math parsing:",
     input,
   ]

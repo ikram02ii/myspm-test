@@ -12,6 +12,7 @@
     "start": "node ./dist/index.mjs",
     "ingest:textbook": "tsx ./scripts/ingestTextbook.ts",
     "ingest:past-paper": "tsx ./scripts/ingestPastPaper.ts",
+    "ingest:past-paper-vision": "tsx ./scripts/ingestPastPaperVision.ts",
     "ingest:past-paper-qa": "tsx ./scripts/ingestPastPaperQa.ts",
     "extract:pdf-text": "tsx ./scripts/extractPastPaperPdfText.ts",
     "typecheck:libs": "tsc -b tsconfig.workspace.json",
@@ -19,9 +20,12 @@
     "test:grading-regression": "cross-env NODE_ENV=development tsx ./scripts/runGradingRegression.ts",
     "backfill:rubric-fields": "cross-env NODE_ENV=development tsx ./scripts/backfillRubricFields.ts",
     "create:rubrics-from-chunks": "cross-env NODE_ENV=development tsx ./scripts/createRubricsFromTextbookChunks.ts",
+    "create:rubrics-bio-f5": "cross-env NODE_ENV=development tsx ./scripts/createRubricsBioForm5All.ts",
+    "create:rubrics-chem-f4": "cross-env NODE_ENV=development tsx ./scripts/createRubricsChemForm4All.ts",
     "generate:english-speaking": "cross-env NODE_ENV=development tsx ./scripts/generateEnglishSpeakingFromPdf.ts"
   },
   "dependencies": {
+    "@napi-rs/canvas": "^1.0.0",
     "@workspace/api-zod": "workspace:*",
     "@workspace/db": "workspace:*",
     "ali-oss": "^6.23.0",
@@ -35,7 +39,9 @@
     "google-auth-library": "^10.6.2",
     "jsonwebtoken": "^9.0.3",
     "multer": "^2.1.1",
+    "openai": "^6.39.0",
     "pdf-parse": "^2.4.5",
+    "pdfjs-dist": "^5.7.284",
     "pg": "^8.20.0"
   },
   "devDependencies": {

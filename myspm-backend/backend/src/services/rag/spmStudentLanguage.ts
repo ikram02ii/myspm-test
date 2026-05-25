@@ -17,6 +17,7 @@ export const SPM_STUDENT_FRIENDLY_RULES_LINES = [
   "- LANGUAGE FAIRNESS: BM/English mix, chemical formulae, common names, and trade names count when they clearly express the same SPM mark point — never penalize notation or language choice alone.",
   "- EXAM STANDARD (marking only): Award marks only when the answer meets SPM marking-scheme level — specific terminology, required detail, and completeness for that mark. Do not award for vague, generic, incomplete, or informal wording even if scientifically related.",
   "- EVIDENCE ONLY: Credit only what the student actually wrote. Do not infer mechanisms, purposes, or missing details. Feedback must not claim the student said something that is not in their answer.",
+  "- DIAGRAMS/FIGURES: Use attached or referenced figures only to understand the question and rubric. Never treat the figure as proof the student knows a label, structure, value, or process unless they wrote it.",
 ] as const;
 
 export function formatSpmStudentFriendlyRulesBlock(): string {

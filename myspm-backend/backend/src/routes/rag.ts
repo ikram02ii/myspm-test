@@ -6,6 +6,8 @@ import { gradeSubmission } from "../services/rag/gradeService";
 import { buildGradingContextPayload, retrieveChunks } from "../services/rag/retrievalService";
 import { listTextbooks, registerTextbook } from "../services/rag/textbookService";
 import { generateWithRag } from "../services/ai gen/generateFromRag";
+import { runGenerateFromUpload } from "../services/ai gen/generateFromUpload";
+import { ingestMarkSchemeImage } from "../services/ai gen/markSchemeImageIngest";
 import { listTextbookChaptersForSubjectForm } from "../services/rag/textbookChaptersService";
 import { createRubricsFromTextbookChunks } from "../services/rag/rubricFromTextbookChunksService";
 import { gradeSpeakingPhase } from "../services/rag/speakingGradeService";
@@ -249,6 +251,133 @@ router.post("/generate", async (req, res) => {
     const message = error instanceof Error ? error.message : "Failed to generate questions";
     console.error("[rag] generate failed", error);
     return res.status(500).json({ error: message });
+  }
+});
+
+router.post("/generate-upload", upload.single("file"), async (req, res) => {
+  try {
+    const file = req.file;
+    if (!file?.buffer) {
+      return res.status(400).json({ error: "Missing file. Use multipart/form-data with field name \"file\" (PDF or image)." });
+    }
+
+    const subject = typeof req.body?.subject === "string" ? req.body.subject.trim() : "";
+    const topic = typeof req.body?.topic === "string" ? req.body.topic.trim() : "";
+    const questionType = typeof req.body?.questionType === "string" ? req.body.questionType.trim() : "";
+    const difficulty = typeof req.body?.difficulty === "string" ? req.body.difficulty.trim() : "";
+    const query = typeof req.body?.query === "string" ? req.body.query.trim() : "";
+
+    if (!subject || !topic || !questionType || !difficulty || !query) {
+      return res.status(400).json({
+        error: "subject, topic, questionType, difficulty, and query are required (multipart text fields).",
+      });
+    }
+
+    const saveRaw = typeof req.body?.save === "string" ? req.body.save.trim().toLowerCase() : "";
+    const saveToQuestionsTable =
+      saveRaw === "true" || saveRaw === "1" || saveRaw === "yes" || req.body?.save === true;
+
+    const createdBy =
+      typeof req.body?.createdBy === "string" && req.body.createdBy.trim()
+        ? req.body.createdBy.trim()
+        : "RAG";
+
+    const source =
+      typeof req.body?.source === "string" && req.body.source.trim()
+        ? req.body.source.trim().slice(0, 50)
+        : "generated_upload";
+
+    const maxPdfPagesRaw = req.body?.maxPdfPages;
+    const maxPdfPages =
+      maxPdfPagesRaw !== undefined && String(maxPdfPagesRaw).trim() !== ""
+        ? Math.min(40, Math.max(1, Math.trunc(Number(maxPdfPagesRaw))))
+        : undefined;
+
+    const result = await runGenerateFromUpload({
+      fileBuffer: file.buffer,
+      mimeType: file.mimetype || "",
+      originalName: file.originalname,
+      subject,
+      topic,
+      questionType,
+      difficulty,
+      query,
+      saveToQuestionsTable,
+      createdBy,
+      source,
+      maxPdfPages,
+    });
+
+    return res.status(201).json(result);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to generate from upload";
+    const statusCode =
+      message.includes("Missing file") ||
+      message.includes("required") ||
+      message.includes("Unsupported file") ||
+      message.includes("No pages") ||
+      message.includes("Expected a JSON array")
+        ? 400
+        : 500;
+    console.error("[rag] generate-upload failed", error);
+    return res.status(statusCode).json({ error: message });
+  }
+});
+
+router.post("/past-paper/mark-scheme-image", upload.single("image"), async (req, res) => {
+  try {
+    const file = req.file;
+    if (!file?.buffer || !(file.mimetype || "").toLowerCase().startsWith("image/")) {
+      return res.status(400).json({ error: "Missing image. Use multipart/form-data with image field 'image'." });
+    }
+
+    const subject = typeof req.body?.subject === "string" ? req.body.subject.trim() : "";
+    const form = typeof req.body?.form === "string" ? req.body.form.trim() : "";
+    const title = typeof req.body?.title === "string" ? req.body.title.trim() : "";
+    if (!subject || !form || !title) {
+      return res.status(400).json({ error: "subject, form, and title are required" });
+    }
+
+    const sourceName =
+      typeof req.body?.sourceName === "string" && req.body.sourceName.trim()
+        ? req.body.sourceName.trim()
+        : file.originalname || null;
+    const year =
+      Number.isFinite(Number(req.body?.year)) && String(req.body?.year ?? "").trim().length > 0
+        ? Math.trunc(Number(req.body.year))
+        : null;
+    const paperLabel =
+      typeof req.body?.paperLabel === "string" && req.body.paperLabel.trim()
+        ? req.body.paperLabel.trim()
+        : null;
+    const paperId =
+      typeof req.body?.paperId === "string" && req.body.paperId.trim()
+        ? req.body.paperId.trim()
+        : undefined;
+
+    const result = await ingestMarkSchemeImage({
+      file,
+      subject,
+      form,
+      title,
+      sourceName,
+      year,
+      paperLabel,
+      paperId,
+    });
+
+    return res.status(201).json(result);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to ingest mark scheme image";
+    const statusCode =
+      message.includes("Missing image") ||
+      message.includes("required") ||
+      message.includes("not valid JSON")
+        ? 400
+        : 500;
+
+    console.error("[rag] mark scheme image ingest failed", error);
+    return res.status(statusCode).json({ error: message });
   }
 });
 

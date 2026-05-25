@@ -41,6 +41,7 @@ import {
 } from "../services/mobileOnboarding";
 import {
   fetchPracticeSetList,
+  type MathLineDiagram,
   type PracticeSetQuestion,
   type PracticeSetSummary,
 } from "../services/mobilePracticeSets";
@@ -59,11 +60,72 @@ const BRAND = theme.brand;
 const BRAND_SOFT = theme.brandSoftSage;
 const AnimatedLinearGradient = Animated.createAnimatedComponent(LinearGradient);
 
+type RagGeneratedImage = {
+  url: string;
+  prompt: string;
+  questionIndex?: number;
+};
+
 type RagGenerateResponse = {
   answer: string;
   sources?: unknown;
   openEndedQuestions?: PracticeSetQuestion[];
+  diagram?: MathLineDiagram;
+  diagrams?: MathLineDiagram[];
+  generatedImages?: RagGeneratedImage[];
 };
+
+function isScienceDiagramSubject(subject: string): boolean {
+  return /^(biology|chemistry|physics|science)$/i.test(subject.trim());
+}
+
+function hasRenderableDiagram(diagram: MathLineDiagram | undefined): diagram is MathLineDiagram {
+  return diagram?.type === "line-chart" && Array.isArray(diagram.points) && diagram.points.length >= 2;
+}
+
+function attachGeneratedImagesToQuestions(
+  questions: PracticeSetQuestion[],
+  generatedImages: RagGeneratedImage[] | undefined,
+): PracticeSetQuestion[] {
+  const images = generatedImages?.filter((img) => img.url?.trim()) ?? [];
+  if (images.length === 0 || questions.length === 0) return questions;
+
+  const byIndex = new Map<number, string>();
+  images.forEach((img, i) => {
+    const qIdx =
+      typeof img.questionIndex === "number" && Number.isInteger(img.questionIndex) && img.questionIndex > 0
+        ? img.questionIndex
+        : i + 1;
+    if (!byIndex.has(qIdx)) byIndex.set(qIdx, img.url);
+  });
+
+  return questions.map((question, i) => {
+    const url = byIndex.get(question.sortOrder) ?? byIndex.get(i + 1);
+    return url ? { ...question, diagramImageUrl: url } : question;
+  });
+}
+
+function attachDiagramsToQuestions(
+  questions: PracticeSetQuestion[],
+  diagrams: MathLineDiagram[] | undefined,
+): PracticeSetQuestion[] {
+  const renderableDiagrams = (diagrams ?? []).filter(hasRenderableDiagram);
+  if (renderableDiagrams.length === 0 || questions.length === 0) return questions;
+
+  const diagramsByQuestion = new Map<number, MathLineDiagram>();
+  renderableDiagrams.forEach((diagram, index) => {
+    const questionIndex =
+      typeof diagram.questionIndex === "number" && Number.isInteger(diagram.questionIndex)
+        ? diagram.questionIndex
+        : index + 1;
+    diagramsByQuestion.set(questionIndex, diagram);
+  });
+
+  return questions.map((question, index) => {
+    const diagram = diagramsByQuestion.get(question.sortOrder) ?? diagramsByQuestion.get(index + 1);
+    return diagram ? { ...question, diagram } : question;
+  });
+}
 
 type Props = NativeStackScreenProps<PracticeStackParamList, "PracticeLibrary">;
 
@@ -157,7 +219,6 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
   const [metaFormLevel, setMetaFormLevel] = useState<string>("Form 4");
   const [aiModalOpen, setAiModalOpen] = useState(false);
   const [aiMode, setAiMode] = useState<"general" | "topic">("general");
-  const [aiTopic, setAiTopic] = useState("");
   /** Exact `rag_textbook_chunks.chapter` string from DB when user picks topic-specific mode. */
   const [aiSelectedChapter, setAiSelectedChapter] = useState("");
   const [ragChapters, setRagChapters] = useState<string[]>([]);
@@ -424,11 +485,26 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
         ? ` aligned to this syllabus chapter heading (stay within its scope): ${chapterDbLabel}`
         : "";
 
+    const isMathSubject = /^(mathematics|math|additional mathematics|additional math)$/i.test(subject.trim());
+    const graphInstructions = isMathSubject
+      ? `For graph-based questions, append DIAGRAM_JSON after all questions with a diagrams array; set questionIndex to the matching Soalan number. `
+      : "";
+    const bilingualStemRule =
+      /^(sejarah|bm)$/i.test(subject.trim())
+        ? ""
+        : `Each stem: first line "EN: ...", second line "BM: ..." (BM on a new line). `;
+    const diagramHint = isScienceDiagramSubject(subject)
+      ? "After each BM line, add Perlu rajah: Ya or Perlu rajah: Tidak (Ya only when a diagram helps). "
+      : "";
+    const matrixFormatHint = isMathSubject
+      ? "Matrix MCQ options: semicolon row form e.g. [3 2; 1 4]. "
+      : "";
+
     if (aiQuestionType === "mcq") {
-      return `Generate ${aiQuestionCount} SPM ${subject} ${questionTypeLabel} questions${topicPart}. Include A-D options, Jawapan and Penjelasan.`;
+      return `Generate ${aiQuestionCount} SPM ${subject} MCQ (A-D) questions${topicPart}. ${graphInstructions}${bilingualStemRule}${diagramHint}${matrixFormatHint}Format: Soalan 1, EN/BM stems, A.–D., Jawapan: (one letter), Penjelasan:. Repeat for Soalan 2, 3, etc.`;
     }
 
-    return `Generate ${aiQuestionCount} short SPM ${subject} subjective questions${topicPart}. Each question must be worth 1 to 3 marks only, and the mark allocation must appear in every question stem, e.g. "(2 marks)" or "(3 marks)". Keep each stem concise so students can answer in a few sentences. For each question, include a concise model answer and marking points.`;
+    return `Generate ${aiQuestionCount} short SPM ${subject} subjective questions${topicPart}. ${bilingualStemRule}Each item: Soalan N, bilingual stem, Markah: <integer 1–3>, Jawapan:, Marking points:. Keep stems concise.`;
   };
 
   const runAiGenerate = async () => {
@@ -439,13 +515,12 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
       showComingSoonWithSound();
       return;
     }
-    const chapterDb =
-      aiMode === "topic" ? (aiSelectedChapter.trim() || aiTopic.trim()) : "";
+    const chapterDb = aiMode === "topic" ? aiSelectedChapter.trim() : "";
     if (aiMode === "topic" && chapterDb.length === 0) {
       showToast(
         ragChapters.length > 0
           ? "Please select a chapter from the list."
-          : "No textbook chapters loaded — type a chapter phrase, or check subject/form and RAG ingest.",
+          : "No textbook chapters loaded for this subject and form. Ingest a textbook first.",
       );
       return;
     }
@@ -460,6 +535,7 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
           subject: backendSubject,
           form: metaFormLevel,
           topK: 8,
+          generateImage: aiQuestionType === "mcq" && isScienceDiagramSubject(backendSubject),
           createOpenEndedRubrics: aiQuestionType === "subjective",
           ...(aiMode === "topic" && topicTrim.length > 0
             ? {
@@ -471,7 +547,13 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
       );
 
       if (aiQuestionType === "mcq") {
-        const parsed = parseAiGeneratedMcqAnswer(result.answer);
+        const parsed = attachGeneratedImagesToQuestions(
+          attachDiagramsToQuestions(
+            parseAiGeneratedMcqAnswer(result.answer),
+            result.diagrams ?? (result.diagram ? [result.diagram] : []),
+          ),
+          result.generatedImages,
+        );
         if (parsed.length === 0) {
           showToast("AI did not return parseable MCQ questions. Try again.");
           return;
@@ -951,10 +1033,7 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
                         <Pressable
                           key={ch}
                           style={[styles.topicChapterRow, active && styles.topicChapterRowActive]}
-                          onPress={() => {
-                            setAiSelectedChapter(ch);
-                            setAiTopic("");
-                          }}
+                          onPress={() => setAiSelectedChapter(ch)}
                         >
                           <Text
                             style={[styles.topicChapterRowText, active && styles.topicChapterRowTextActive]}
@@ -969,22 +1048,9 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
                 ) : (
                   <Text style={styles.modalHint}>
                     No chapter headings found for this subject and form. Ingest a textbook or pick another
-                    form. You can still type a phrase below as a soft retrieval hint.
+                    form.
                   </Text>
                 )}
-                <Text style={styles.fieldLabel}>
-                  {ragChapters.length > 0 ? "Or type a custom chapter hint" : "Chapter hint (typed)"}
-                </Text>
-                <TextInput
-                  value={aiTopic}
-                  onChangeText={(t) => {
-                    setAiTopic(t);
-                    if (t.trim().length > 0) setAiSelectedChapter("");
-                  }}
-                  placeholder="Only if list is empty or you need a different phrase"
-                  placeholderTextColor="#94A3B8"
-                  style={styles.topicInput}
-                />
               </>
             ) : null}
 

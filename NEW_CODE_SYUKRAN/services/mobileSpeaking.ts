@@ -5,6 +5,17 @@ import { ragApiPostFormData } from "./ragApi";
 
 export type SpeakingGradePhase = "prepare" | "speak";
 
+export type SpeakingCriterionBand = "weak" | "adequate" | "strong";
+
+export type SpeakingCriterionScore = {
+  id: string;
+  label: string;
+  score: number;
+  maxScore: number;
+  band: SpeakingCriterionBand;
+  justification: string;
+};
+
 export type SpeakingGradeResponse = {
   phase: SpeakingGradePhase;
   score: number;
@@ -13,6 +24,8 @@ export type SpeakingGradeResponse = {
   feedback: string;
   strengths: string[];
   improvements: string[];
+  criteria: SpeakingCriterionScore[];
+  modelResponse?: string;
 };
 
 export type SpeakingTranscribeResponse = {
@@ -48,17 +61,40 @@ export async function gradeSpeakingResponse(params: {
   return ragApiPost<SpeakingGradeResponse>("/rag/speaking/grade", params);
 }
 
+function bandLabel(band: string): string {
+  const b = band.toLowerCase();
+  if (b === "strong") return "Strong";
+  if (b === "adequate") return "Adequate";
+  if (b === "weak") return "Weak";
+  return band;
+}
+
 export function formatSpeakingGradeSummary(result: SpeakingGradeResponse): string {
+  const phaseLabel = result.phase === "prepare" ? "Preparation" : "Response";
   const lines = [
-    `${result.phase === "prepare" ? "Preparation" : "Long turn"}: ${result.score}/${result.maxScore} (${result.band})`,
+    `${phaseLabel}: ${result.score}/${result.maxScore} (${result.band})`,
     "",
     result.feedback,
   ];
+
+  if (result.criteria?.length > 0) {
+    lines.push("", "Criterion scores:");
+    for (const row of result.criteria) {
+      lines.push(
+        `• ${row.label}: ${row.score}/${row.maxScore} (${bandLabel(row.band)}) — ${row.justification}`,
+      );
+    }
+  }
+
   if (result.strengths.length > 0) {
     lines.push("", "Strengths:", ...result.strengths.map((s) => `• ${s}`));
   }
   if (result.improvements.length > 0) {
-    lines.push("", "Improve:", ...result.improvements.map((s) => `• ${s}`));
+    lines.push("", "Areas for improvement:", ...result.improvements.map((s) => `• ${s}`));
   }
+  if (result.modelResponse?.trim()) {
+    lines.push("", "Model response (higher band):", result.modelResponse.trim());
+  }
+
   return lines.join("\n");
 }

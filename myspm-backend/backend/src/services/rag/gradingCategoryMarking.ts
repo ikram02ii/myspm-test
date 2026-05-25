@@ -58,7 +58,7 @@ export function buildCategoryRubricPromptInstructions(question: string): string[
   const lines: string[] = [];
   if (strict) {
     lines.push(
-      "CONTEXT-BOUND STEM: the question refers to a specific diagram, text, passage, table, or experiment. Mark ideas must be consistent with that source. Retrieved past-paper snippets are secondary references only — do not replace the stem's bound source.",
+      "CONTEXT-BOUND STEM: the question refers to a specific diagram, text, passage, table, or experiment. Use that source to shape expected rubric points only. Marks still require the student to state each point in their written answer — the diagram/figure is never evidence of what the student knows.",
     );
   }
   if (open) {
