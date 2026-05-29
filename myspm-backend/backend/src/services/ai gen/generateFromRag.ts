@@ -4,6 +4,7 @@ import {
   isScienceDiagramSubject,
   shouldGenerateEducationalDiagrams,
 } from "./educationalDiagramService";
+import type { StructuredQuestionDiagram } from "./structuredDiagramPlanner";
 import {
   buildPastPaperMarksGuidance,
   isMcqGenerationQuery,
@@ -26,6 +27,7 @@ export type GenerateRagResult = {
   answer: string;
   diagram?: GenerateRagDiagram;
   diagrams?: GenerateRagDiagram[];
+  structuredDiagrams?: StructuredQuestionDiagram[];
   sources: Array<{
     documentId: number;
     chunkIndex: number;
@@ -137,8 +139,143 @@ function systemPromptForSubject(subject: string | null | undefined): string {
   return SYSTEM_PROMPT_BASE.replace("{{LANGUAGE_RULE}}", rule);
 }
 
+function systemPromptForNoRetrievalFallback(subject: string | null | undefined): string {
+  const base = systemPromptForSubject(subject).replace(
+    "Use ONLY the provided context excerpts when stating specific facts. If context is insufficient, say so in one short sentence.\n",
+    "No context excerpts are available for this request. Use general Malaysian SPM knowledge and still follow the exact requested output template.\n",
+  );
+  return `${base}
+
+Temporary fallback mode when no knowledge-base chunks are available:
+- Do NOT say that context is missing, insufficient, or unavailable.
+- Do NOT apologise or explain retrieval failure.
+- Still fulfill generation requests using general SPM knowledge.
+- Keep the exact output template requested by the user and the system prompt so the client parser can consume it.
+- Output only the requested question blocks, with no preamble, disclaimer, or notes before Soalan 1.`;
+}
+
+const NO_RETRIEVAL_GENERAL_PROMPT = `You generate Malaysian SPM practice content from general subject knowledge only.
+Return only the final question blocks in the exact requested format.
+Never say you lack context, data, syllabus chunks, sources, or verification.
+Never apologise.
+Never add preambles, notes, warnings, or explanations before Soalan 1.`;
+
+function requestedQuestionCount(query: string): number {
+  const m = query.match(/\b(?:generate|buat|hasilkan)\s+(\d{1,2})\b/i);
+  const n = m ? Number(m[1]) : 5;
+  if (!Number.isFinite(n)) return 5;
+  return Math.max(1, Math.min(20, Math.floor(n)));
+}
+
+function fallbackTopicLabel(query: string): string {
+  const m = query.match(/focused on topic:\s*(.+?)(?:\.\s|$)/i);
+  return (m?.[1] ?? "the requested topic").trim();
+}
+
+function looksParseableMcqAnswer(answer: string): boolean {
+  const text = answer.trim();
+  return (
+    /(?:^|\n)\s*Soalan\s+1\b/i.test(text) &&
+    /(?:^|\n)\s*A\.\s+/m.test(text) &&
+    /(?:^|\n)\s*B\.\s+/m.test(text) &&
+    /(?:^|\n)\s*C\.\s+/m.test(text) &&
+    /(?:^|\n)\s*D\.\s+/m.test(text) &&
+    /(?:^|\n)\s*Jawapan\s*:\s*[A-D]\b/i.test(text) &&
+    /(?:^|\n)\s*Penjelasan\s*:/i.test(text)
+  );
+}
+
+function looksParseableSubjectiveAnswer(answer: string): boolean {
+  const text = answer.trim();
+  return (
+    /(?:^|\n)\s*Soalan\s+1\b/i.test(text) &&
+    /(?:^|\n)\s*Markah\s*:\s*\d+/i.test(text) &&
+    /(?:^|\n)\s*Jawapan\s*:/i.test(text)
+  );
+}
+
+function buildEmergencyMcqFallback(query: string, subject: string | null | undefined): string {
+  const count = requestedQuestionCount(query);
+  const topic = fallbackTopicLabel(query);
+  const subjectLabel = subject?.trim() || "the subject";
+  const items: string[] = [];
+
+  for (let i = 1; i <= count; i += 1) {
+    items.push(
+      [
+        `Soalan ${i}`,
+        `EN: Temporary fallback practice item ${i} for ${subjectLabel} on ${topic}. Which option is the placeholder answer for this backup question set?`,
+        `BM: Item latihan sandaran sementara ${i} bagi ${subjectLabel} untuk topik ${topic}. Pilihan manakah ialah jawapan placeholder bagi set soalan sandaran ini?`,
+        "A. Placeholder answer",
+        "B. Alternative placeholder",
+        "C. Another placeholder",
+        "D. Last placeholder",
+        "Jawapan: A",
+        "Penjelasan: Temporary fallback item returned because no matching knowledge-base chunks were available.",
+      ].join("\n"),
+    );
+  }
+
+  return items.join("\n\n");
+}
+
+function buildEmergencySubjectiveFallback(query: string, subject: string | null | undefined): string {
+  const count = requestedQuestionCount(query);
+  const topic = fallbackTopicLabel(query);
+  const subjectLabel = subject?.trim() || "the subject";
+  const items: string[] = [];
+
+  for (let i = 1; i <= count; i += 1) {
+    items.push(
+      [
+        `Soalan ${i}`,
+        `EN: Temporary fallback structured item ${i} for ${subjectLabel} on ${topic}. State one relevant point for this backup question set.`,
+        `BM: Item berstruktur sandaran sementara ${i} bagi ${subjectLabel} untuk topik ${topic}. Nyatakan satu poin yang berkaitan untuk set soalan sandaran ini.`,
+        "Markah: 2",
+        "Jawapan: Any simple relevant point for the requested topic.",
+        "Marking points:",
+        "- Accept one relevant point linked to the requested topic.",
+        "- Award full marks only when the point is clear and topic-related.",
+      ].join("\n"),
+    );
+  }
+
+  return items.join("\n\n");
+}
+
+function ensureNoRetrievalParseableAnswer(
+  query: string,
+  subject: string | null | undefined,
+  answer: string,
+): string {
+  if (isMcqGenerationQuery(query)) {
+    return looksParseableMcqAnswer(answer) ? answer : buildEmergencyMcqFallback(query, subject);
+  }
+  if (isSubjectiveGenerationQuery(query)) {
+    return looksParseableSubjectiveAnswer(answer) ? answer : buildEmergencySubjectiveFallback(query, subject);
+  }
+  return answer;
+}
+
 function normalizeBilingualAnswer(answer: string): string {
   return answer.replace(/(EN:\s*[^\n]+?)\s+(BM:)/gi, "$1\n$2");
+}
+
+function promoteBiologyDiagramFlags(
+  answer: string,
+  query: string,
+  subject: string | null | undefined,
+): string {
+  if (!shouldBiasBiologyDiagram(query, subject)) return answer;
+  const yaCount = (answer.match(/^\s*Perlu rajah\s*:\s*Ya\b/gim) ?? []).length;
+  if (yaCount > 0) return answer;
+
+  let promoted = 0;
+  return answer.replace(/(^\s*Perlu rajah\s*:\s*)Tidak\b/gim, (_m, prefix: string) => {
+    if (promoted >= 2) return `${prefix}Tidak`;
+    promoted += 1;
+    return `${prefix}Ya`;
+  });
 }
 
 function bilingualStemReminder(subject: string | null | undefined): string {
@@ -149,6 +286,40 @@ Each soalan stem must be bilingual on two lines:
 EN: <English stem>
 BM: <Bahasa Melayu stem — new line, not same line as EN>
 Then A–D, Jawapan:, Penjelasan:.`;
+}
+
+function isPhysicsSubject(subject: string | null | undefined): boolean {
+  return /^physics$/i.test(subject?.trim() ?? "");
+}
+
+function isPhysicsGraphTopicQuery(query: string): boolean {
+  return /\b(motion|graph|graphs|graf|plot|chart|linear|velocity|speed|acceleration|displacement|distance[- ]time|speed[- ]time|velocity[- ]time|acceleration[- ]time)\b/i.test(
+    query,
+  );
+}
+
+function shouldUseGraphJsonFlow(subject: string | null | undefined, query: string): boolean {
+  return isPhysicsSubject(subject) && isPhysicsGraphTopicQuery(query);
+}
+
+function shouldBiasBiologyDiagram(query: string, subject?: string | null): boolean {
+  return (
+    /^biology$/i.test(subject?.trim() ?? "") &&
+    /\b(cell|cells|organelle|osmosis|plasma membrane|microscope|plant cell|animal cell|vacuole|chloroplast|mitochondr|golgi|endoplasmic|nucleus|ribosome|membrane|turgid|plasmolysis|compare|comparison)\b/i.test(
+      query,
+    )
+  );
+}
+
+function usesStructuredBiologyDiagramFlow(subject: string | null | undefined): boolean {
+  return /^biology$/i.test(subject?.trim() ?? "");
+}
+
+function biologyDiagramBiasRule(query: string, subject?: string | null): string {
+  if (!shouldBiasBiologyDiagram(query, subject)) return "";
+  return `
+
+Biology visual bias: for cell structure, organelle identification, microscope observation, osmosis, plasmolysis/turgidity, plasma-membrane transport, or plant-vs-animal-cell comparison questions, prefer "Perlu rajah: Ya" more often because a visual commonly helps students interpret the item. Use "Tidak" only when the stem is fully clear without any diagram.`;
 }
 
 function formatGeneratorContextBlock(chunk: RetrievedChunk, index: number): string {
@@ -167,15 +338,9 @@ function mcqFormatReminder(query: string, subject?: string | null): string {
   const scienceDiagramRule = isScience
     ? `
 
-Science diagram rule: After the BM: line and BEFORE the first A. option line, add exactly one line in this exact form (choose one):
-Perlu rajah: Tidak
-or
-Perlu rajah: Ya
-Use Ya only if a diagram genuinely helps answer that question (e.g. apparatus, cell structure, circuit, ray diagram, molecular structure shown in the stem). Use Tidak for theory-only, calculations, periodic trends without a figure, or when the stem does not reference a diagram. Most questions should be Perlu rajah: Tidak.`
+Science diagram rule: Do not add any "Perlu rajah" or diagram-needed line inside the MCQ blocks. The app will decide diagram rendering in a second pass after the questions are generated.`
     : "";
-  const mcqLine = isScience
-    ? "Soalan 1 → EN: / BM: (two lines) → Perlu rajah: Ya or Perlu rajah: Tidak → A. B. C. D. → Jawapan: <one letter> → Penjelasan:"
-    : "Soalan 1 → EN: / BM: (two lines) → A. B. C. D. → Jawapan: <one letter> → Penjelasan:";
+  const mcqLine = "Soalan 1 → EN: / BM: (two lines) → A. B. C. D. → Jawapan: <one letter> → Penjelasan:";
 
   return `
 
@@ -195,15 +360,16 @@ Assign each Markah: from past-paper mark patterns in the excerpts — not arbitr
 ${marksGuide ? `\n${marksGuide}\n` : "\n(No past-paper mark samples in context — use typical SPM weights: 2–4 marks for short explain, 5–8 for KBAT/essay parts.)\n"}`;
 }
 
-function mathBilingualReminder(subject: string | null | undefined): string {
-  if (subject?.trim() !== "Math") return bilingualStemReminder(subject);
+function graphJsonReminder(subject: string | null | undefined, query: string): string {
+  if (!shouldUseGraphJsonFlow(subject, query)) return bilingualStemReminder(subject);
+  const subjectLabel = isPhysicsSubject(subject) ? "Physics" : "Math";
   return `
 
-Subject is **Math**: use bilingual stems for every soalan (EN: on one line, BM: on the next line), then options A–D, then Jawapan: and Penjelasan: as usual. Penjelasan should be in Bahasa Melayu when the rest is mixed EN/BM.
-If the user requests a diagram, prefer returning a JSON field "rajah_spec" (deterministic shape spec) and optionally "rajah_svg". Supported rajah_spec kinds are:
+Subject is **${subjectLabel}**: use bilingual stems for every soalan (EN: on one line, BM: on the next line), then options A–D, then Jawapan: and Penjelasan: as usual. Penjelasan should be in Bahasa Melayu when the rest is mixed EN/BM.
+For graph-based or motion-graph questions, prefer returning a JSON field "rajah_spec" (deterministic shape spec) and optionally "rajah_svg". Supported rajah_spec kinds are:
 - {"kind":"triangle","points":[{"x":0,"y":0,"label":"A"},{"x":4,"y":0,"label":"B"},{"x":1,"y":3,"label":"C"}],"title":"..."}
 - {"kind":"cartesian_line","xMin":0,"xMax":10,"yMin":0,"yMax":20,"points":[{"x":0,"y":0,"label":"P"},{"x":5,"y":10,"label":"Q"}],"title":"..."}
-For every generated question, decide whether a line graph or coordinate graph would help. If one or more generated questions need a graph, generate the questions FIRST using the normal Soalan/Jawapan/Penjelasan format. Then append this block AFTER all questions and explanations:
+For every generated question, decide whether a line graph, coordinate graph, or motion graph would help. If one or more generated questions need a graph, generate the questions FIRST using the normal Soalan/Jawapan/Penjelasan format. Then append this block AFTER all questions and explanations:
 DIAGRAM_JSON_START
 {"diagrams":[{"questionIndex":1,"type":"line-chart","title":"...","subtitle":"...","equationLabel":"...","xAxisLabel":"x","yAxisLabel":"y","points":[{"x":-2,"y":-3},{"x":-1,"y":-1},{"x":0,"y":1,"label":"y-intercept"},{"x":1,"y":3},{"x":2,"y":5}]},{"questionIndex":3,"type":"line-chart","title":"...","equationLabel":"...","points":[{"x":0,"y":0},{"x":1,"y":2},{"x":2,"y":4}]}]}
 DIAGRAM_JSON_END
@@ -214,6 +380,10 @@ Only include diagrams for questions that actually need graphs. Include one diagr
 
 function shouldPostProcessMathSvg(subject: string | null | undefined): boolean {
   return subject?.trim() === "Math";
+}
+
+function shouldPostProcessGraphDiagrams(subject: string | null | undefined, query: string): boolean {
+  return shouldUseGraphJsonFlow(subject, query);
 }
 
 function isFinitePoint(point: unknown): point is { x: number; y: number; label?: string } {
@@ -299,51 +469,14 @@ function diagramsFromRajahSpec(answer: string): GenerateRagDiagram[] {
   return diagrams;
 }
 
-function numberFromToken(token: string | undefined): number | null {
-  if (token === undefined) return null;
-  const normalized = token.replace(/\s+/g, "");
-  if (normalized === "" || normalized === "+") return 1;
-  if (normalized === "-") return -1;
-  const value = Number(normalized);
-  return Number.isFinite(value) ? value : null;
-}
-
-function lineDiagramFromQuery(query: string): GenerateRagDiagram | undefined {
-  const wantsGraph = /\b(graph|graphs|plot|chart|line|linear|coordinate|cartesian|diagram|rajah|graf|motion)\b/i.test(query);
-  if (!wantsGraph) return undefined;
-
-  const match = query.match(/y\s*=\s*([+-]?\s*(?:\d+(?:\.\d+)?)?)\s*x\s*([+-]\s*\d+(?:\.\d+)?)?/i);
-  const m = match ? numberFromToken(match[1]) : null;
-  const c = match ? numberFromToken(match[2]) ?? 0 : 0;
-
-  const xs = [-2, -1, 0, 1, 2, 3];
-  const hasEquation = m !== null;
-  const gradient = m ?? 2;
-  const cleanEquation = hasEquation
-    ? `y = ${gradient === 1 ? "" : gradient === -1 ? "-" : gradient}x${c === 0 ? "" : c > 0 ? ` + ${c}` : ` - ${Math.abs(c)}`}`
-    : "sample linear graph";
-
-  return {
-    type: "line-chart",
-    questionIndex: 1,
-    title: hasEquation ? `Graph of ${cleanEquation}` : "Graph for Soalan 1",
-    subtitle: hasEquation ? "Generated from the Math query" : "Fallback graph for a graph-based Math question",
-    equationLabel: hasEquation ? cleanEquation : "linear relationship",
-    xAxisLabel: "x",
-    yAxisLabel: "y",
-    points: xs.map((x) => ({
-      x,
-      y: gradient * x + c,
-      label: x === 0 ? "y-intercept" : undefined,
-    })),
-  };
-}
-
 async function buildGeneratedImages(
   input: GenerateRagInput,
   answer: string,
 ): Promise<GenerateRagResult["generatedImages"]> {
   const subject = input.subject?.trim() ?? "";
+  if (shouldUseGraphJsonFlow(subject, input.query)) {
+    return [];
+  }
   if (!shouldGenerateEducationalDiagrams(subject, input.query, input.generateImage)) {
     if (input.generateImage && input.imagePrompt?.trim()) {
       const urls = await generateImage(input.imagePrompt.trim());
@@ -365,17 +498,16 @@ async function buildGeneratedImages(
   }));
 }
 
-function buildMathDiagrams(
+function buildGraphDiagrams(
   input: GenerateRagInput,
   answer: string,
   diagramsFromBlock: GenerateRagDiagram[],
 ): GenerateRagDiagram[] {
-  if (!shouldPostProcessMathSvg(input.subject)) return [];
+  if (!shouldPostProcessGraphDiagrams(input.subject, input.query)) return [];
   if (diagramsFromBlock.length > 0) return diagramsFromBlock;
   const fromRajahSpec = diagramsFromRajahSpec(answer);
   if (fromRajahSpec.length > 0) return fromRajahSpec;
-  const fallback = lineDiagramFromQuery(input.query);
-  return fallback ? [fallback] : [];
+  return [];
 }
 
 export async function generateWithRag(
@@ -390,27 +522,36 @@ export async function generateWithRag(
   const hits = retrieval.chunks;
 
   if (hits.length === 0) {
-    const answerRaw = await chatCompletion([
-      { role: "system", content: systemPromptForSubject(input.subject) },
+    let answerRaw = await chatCompletion([
+      { role: "system", content: `${systemPromptForNoRetrievalFallback(input.subject)}\n\n${NO_RETRIEVAL_GENERAL_PROMPT}` },
       {
         role: "user",
-        content: `${input.query}\n\n(Note: No knowledge-base chunks were retrieved. Answer from general knowledge and clearly label uncertainty.)${mathBilingualReminder(input.subject)}${mcqFormatReminder(input.query, input.subject)}${subjectiveGenerationReminder(input.query, [])}`,
+        content: `User request:
+${input.query}
+
+Follow the appropriate template from the system message (MCQ vs subjective). Use general SPM knowledge only, and output the final question blocks directly with no preamble.${graphJsonReminder(input.subject, input.query)}${mcqFormatReminder(input.query, input.subject)}${subjectiveGenerationReminder(input.query, [])}`,
       },
     ], { subject: input.subject, query: input.query });
+    answerRaw = ensureNoRetrievalParseableAnswer(input.query, input.subject, answerRaw);
     const answerWithSvg = shouldPostProcessMathSvg(input.subject)
       ? enrichMathAnswerWithSvg(answerRaw)
       : answerRaw;
     const { answer: answerRaw2, diagrams: diagramsFromBlock } = extractDiagramBlock(answerWithSvg);
-    const answer = normalizeBilingualAnswer(answerRaw2);
-    const diagrams = buildMathDiagrams(input, answer, diagramsFromBlock);
+    const answer = promoteBiologyDiagramFlags(
+      normalizeBilingualAnswer(answerRaw2),
+      input.query,
+      input.subject,
+    );
+    const structuredDiagrams: StructuredQuestionDiagram[] = [];
+    const diagrams = buildGraphDiagrams(input, answer, diagramsFromBlock);
     const diagram = diagrams[0];
     const generatedImages = await buildGeneratedImages(input, answer);
-    return { answer, diagram, diagrams, sources: [], sourcePageImages: [], generatedImages };
+    return { answer, diagram, diagrams, structuredDiagrams, sources: [], sourcePageImages: [], generatedImages };
   }
 
   const contextBlocks = hits.map((h, i) => formatGeneratorContextBlock(h, i + 1));
 
-  const userContent = `Below are short excerpts from the syllabus/material (numbered for your use only; never show these numbers or any reference to them in your reply):\n\n${contextBlocks.join("\n\n---\n\n")}\n\nUser request:\n${input.query}\n\nFollow the appropriate template from the system message (MCQ vs subjective).${mathBilingualReminder(input.subject)}${mcqFormatReminder(input.query, input.subject)}${subjectiveGenerationReminder(input.query, hits)}`;
+  const userContent = `Below are short excerpts from the syllabus/material (numbered for your use only; never show these numbers or any reference to them in your reply):\n\n${contextBlocks.join("\n\n---\n\n")}\n\nUser request:\n${input.query}\n\nFollow the appropriate template from the system message (MCQ vs subjective).${graphJsonReminder(input.subject, input.query)}${mcqFormatReminder(input.query, input.subject)}${subjectiveGenerationReminder(input.query, hits)}`;
 
   const answerRaw = await chatCompletion([
     { role: "system", content: systemPromptForSubject(input.subject) },
@@ -420,8 +561,13 @@ export async function generateWithRag(
     ? enrichMathAnswerWithSvg(answerRaw)
     : answerRaw;
   const { answer: answerRaw2, diagrams: diagramsFromBlock } = extractDiagramBlock(answerWithSvg);
-  const answer = normalizeBilingualAnswer(answerRaw2);
-  const diagrams = buildMathDiagrams(input, answer, diagramsFromBlock);
+  const answer = promoteBiologyDiagramFlags(
+    normalizeBilingualAnswer(answerRaw2),
+    input.query,
+    input.subject,
+  );
+  const structuredDiagrams: StructuredQuestionDiagram[] = [];
+  const diagrams = buildGraphDiagrams(input, answer, diagramsFromBlock);
   const diagram = diagrams[0];
 
   const sourcePageImages: GenerateRagResult["sourcePageImages"] = [];
@@ -431,6 +577,7 @@ export async function generateWithRag(
     answer,
     diagram,
     diagrams,
+    structuredDiagrams,
     sources: hits.map((h) => ({
       documentId: Number(h.textbookId) || 0,
       chunkIndex: h.chunkIndex,

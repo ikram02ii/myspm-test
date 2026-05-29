@@ -18,7 +18,7 @@ export type PracticeSubjectDef = {
 export const PRACTICE_SUBJECT_CATALOG: PracticeSubjectDef[] = [
   { id: "math", label: "Mathematics", topicsActive: 12, icon: "calc" },
   { id: "history", label: "History", topicsActive: 8, icon: "landmark" },
-  { id: "addmath", label: "Add Maths", topicsActive: 15, icon: "sigma" },
+  { id: "addmath", label: "Add Maths", topicsActive: 18, icon: "sigma" },
   { id: "physics", label: "Physics", topicsActive: 14, icon: "atom" },
   { id: "chemistry", label: "Chemistry", topicsActive: 11, icon: "flask" },
   { id: "biology", label: "Biology", topicsActive: 13, icon: "leaf" },

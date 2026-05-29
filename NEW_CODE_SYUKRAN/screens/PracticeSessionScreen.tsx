@@ -21,14 +21,8 @@ import { colors } from "../constants/colors";
 import { fonts } from "../constants/fonts";
 import { theme } from "../constants/palette";
 import { MathLineChart } from "../components/math/MathLineChart";
-import { AnimalCellDiagramWithLabels } from "../components/biology/AnimalCellDiagramWithLabels";
-import { LabeledAnimalCellDiagram } from "../components/biology/LabeledAnimalCellDiagram";
+import { BiologyStructuredDiagram } from "../components/biology/BiologyStructuredDiagram";
 import { MathFormattedText } from "../components/math/MathFormattedText";
-import {
-  inferOrganelleHighlights,
-  isBiologySubject,
-  shouldShowLabeledCellDiagram,
-} from "../utils/biologyDiagramHighlights";
 import { isMatrixOnlyOption } from "../utils/parseMatrixNotation";
 import type { PracticeStackParamList } from "../navigation/PracticeStack";
 import {
@@ -530,18 +524,12 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
               />
             </View>
           ) : null}
-          {isBiologySubject(routeSubject) && shouldShowLabeledCellDiagram(q.questionText) ? (
+          {q.structuredDiagram?.type === "biology-cell" ? (
             <View style={styles.diagramWrap}>
-              {q.diagramImageUrl ? (
-                <AnimalCellDiagramWithLabels
-                  imageUrl={q.diagramImageUrl}
-                  highlights={inferOrganelleHighlights(q.questionText)}
-                />
-              ) : (
-                <LabeledAnimalCellDiagram highlights={inferOrganelleHighlights(q.questionText)} />
-              )}
+              <BiologyStructuredDiagram spec={q.structuredDiagram} />
             </View>
-          ) : q.diagramImageUrl ? (
+          ) : null}
+          {q.diagramImageUrl && !q.structuredDiagram ? (
             <View style={styles.diagramWrap}>
               <Image
                 source={{ uri: q.diagramImageUrl }}

@@ -40,6 +40,7 @@ import {
 } from "../services/mobileOnboarding";
 import {
   fetchPracticeSetList,
+  type StructuredQuestionDiagram,
   type MathLineDiagram,
   type PracticeSetQuestion,
   type PracticeSetSummary,
@@ -103,6 +104,13 @@ const AI_TOPIC_OPTIONS_BY_SUBJECT_AND_FORM: Record<string, AiTopicsByForm> = {
       "Chapter 1: Functions",
       "Chapter 2: Quadratic Functions",
       "Chapter 3: Systems of Equations",
+      "Chapter 4: Indices, Surds and Logarithms",
+      "Chapter 5: Progressions",
+      "Chapter 6: Linear Law",
+      "Chapter 7: Coordinate Geometry",
+      "Chapter 8: Vectors",
+      "Chapter 9: Solution of Triangles",
+      "Chapter 10: Index Numbers",
     ],
     form5: [
       "Chapter 1: Circular Measure",
@@ -272,11 +280,12 @@ type RagGenerateResponse = {
   sources?: unknown;
   diagram?: MathLineDiagram;
   diagrams?: MathLineDiagram[];
+  structuredDiagrams?: StructuredQuestionDiagram[];
   generatedImages?: RagGeneratedImage[];
 };
 
 function isScienceDiagramSubject(subject: string): boolean {
-  return /^(biology|chemistry|physics|science)$/i.test(subject.trim());
+  return /^(biology|chemistry|physics|science|math|additional math)$/i.test(subject.trim());
 }
 
 function hasRenderableDiagram(diagram: MathLineDiagram | undefined): diagram is MathLineDiagram {
@@ -302,6 +311,28 @@ function attachGeneratedImagesToQuestions(
   return questions.map((question, i) => {
     const url = byIndex.get(question.sortOrder) ?? byIndex.get(i + 1);
     return url ? { ...question, diagramImageUrl: url } : question;
+  });
+}
+
+function attachStructuredDiagramsToQuestions(
+  questions: PracticeSetQuestion[],
+  structuredDiagrams: StructuredQuestionDiagram[] | undefined,
+): PracticeSetQuestion[] {
+  const specs = (structuredDiagrams ?? []).filter((spec) => spec?.type === "biology-cell");
+  if (specs.length === 0 || questions.length === 0) return questions;
+
+  const byIndex = new Map<number, StructuredQuestionDiagram>();
+  specs.forEach((spec, index) => {
+    const questionIndex =
+      typeof spec.questionIndex === "number" && Number.isInteger(spec.questionIndex) && spec.questionIndex > 0
+        ? spec.questionIndex
+        : index + 1;
+    if (!byIndex.has(questionIndex)) byIndex.set(questionIndex, spec);
+  });
+
+  return questions.map((question, index) => {
+    const spec = byIndex.get(question.sortOrder) ?? byIndex.get(index + 1);
+    return spec ? { ...question, structuredDiagram: spec } : question;
   });
 }
 
@@ -693,8 +724,12 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
       `Avoid repeating common wording or previously generated question patterns. ` +
       avoidInstructions +
       `Variation seed: ${variationSeed}.`;
-    const isMathSubject = /^(math|additional math)$/i.test(subject.trim());
-    const graphInstructions = isMathSubject
+    const isPhysicsGraphTopic =
+      /^physics$/i.test(subject.trim()) &&
+      /\b(motion|graph|graphs|graf|plot|chart|velocity|speed|acceleration|displacement|distance[- ]time|speed[- ]time|velocity[- ]time|acceleration[- ]time)\b/i.test(
+        selectedTopic,
+      );
+    const graphInstructions = isPhysicsGraphTopic
       ? `For every generated question, decide whether a line graph, coordinate graph, function graph, or motion graph would help. If yes, append DIAGRAM_JSON after all questions. Use a diagrams array and include one diagram object per graph-based question. Set questionIndex to the matching Soalan number, for example questionIndex 1 for Soalan 1 and questionIndex 4 for Soalan 4. Graph-related chapters may include diagrams for multiple Soalan, not only the first one. `
       : "";
 
@@ -704,10 +739,10 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
         : `Each question stem must be bilingual on two separate lines: first line "EN: ...", second line "BM: ..." (BM must start on a new line, not the same line as EN). `;
 
     const diagramHint = isScienceDiagramSubject(subject)
-      ? " After each BM: line, output exactly one line Perlu rajah: Ya or Perlu rajah: Tidak (Ya only when a diagram truly helps that question). "
+      ? " Do not output any Perlu rajah or diagram-needed line inside the questions. Diagram decisions will be made in a second pass after the questions are generated. "
       : " ";
 
-    const matrixFormatHint = isMathSubject
+    const matrixFormatHint = /^(math|additional math)$/i.test(subject.trim())
       ? " For matrix MCQ options, write each matrix as one token in semicolon row form, e.g. [3 2; 1 4] (rows separated by ;, entries by spaces). "
       : " ";
 
@@ -800,9 +835,12 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
 
       if (aiQuestionType === "mcq") {
         const parsed = attachGeneratedImagesToQuestions(
-          attachDiagramsToQuestions(
-            parseAiGeneratedMcqAnswer(result.answer),
-            result.diagrams ?? (result.diagram ? [result.diagram] : []),
+          attachStructuredDiagramsToQuestions(
+            attachDiagramsToQuestions(
+              parseAiGeneratedMcqAnswer(result.answer),
+              result.diagrams ?? (result.diagram ? [result.diagram] : []),
+            ),
+            result.structuredDiagrams,
           ),
           result.generatedImages,
         );
@@ -822,9 +860,12 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
       }
 
       const parsedOpen = attachGeneratedImagesToQuestions(
-        attachDiagramsToQuestions(
-          parseAiGeneratedOpenEnded(result.answer, "short"),
-          result.diagrams ?? (result.diagram ? [result.diagram] : []),
+        attachStructuredDiagramsToQuestions(
+          attachDiagramsToQuestions(
+            parseAiGeneratedOpenEnded(result.answer, "short"),
+            result.diagrams ?? (result.diagram ? [result.diagram] : []),
+          ),
+          result.structuredDiagrams,
         ),
         result.generatedImages,
       );
