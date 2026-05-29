@@ -9,6 +9,10 @@ import {
   shouldGenerateEducationalDiagrams,
 } from "./educationalDiagramService";
 import {
+  planStructuredQuestionDiagrams,
+  type StructuredQuestionDiagram,
+} from "./structuredDiagramPlanner";
+import {
   buildPastPaperMarksGuidance,
   isMcqGenerationQuery,
   isSubjectiveGenerationQuery,
@@ -44,8 +48,11 @@ export type FinalizeGenerateAnswerResult = {
   answer: string;
   diagram?: GenerateRagDiagram;
   diagrams?: GenerateRagDiagram[];
+  structuredDiagrams?: StructuredQuestionDiagram[];
   generatedImages: GenerateImageItem[];
 };
+
+export type { StructuredQuestionDiagram };
 
 function normalizeBilingualAnswer(answer: string): string {
   return answer.replace(/(EN:\s*[^\n]+?)\s+(BM:)/gi, "$1\n$2");
@@ -183,17 +190,64 @@ function shouldPostProcessMathSvg(subject: string | null | undefined): boolean {
   return subject?.trim() === "Math";
 }
 
-function buildMathDiagrams(
+function isPhysicsSubject(subject: string | null | undefined): boolean {
+  return /^physics$/i.test(subject?.trim() ?? "");
+}
+
+function isPhysicsGraphTopicQuery(query: string): boolean {
+  return /\b(motion|graph|graphs|graf|plot|chart|linear|velocity|speed|acceleration|displacement|distance[- ]time|speed[- ]time|velocity[- ]time|acceleration[- ]time)\b/i.test(
+    query,
+  );
+}
+
+function shouldUseGraphJsonFlow(subject: string | null | undefined, query: string): boolean {
+  return isPhysicsSubject(subject) && isPhysicsGraphTopicQuery(query);
+}
+
+function shouldPostProcessGraphDiagrams(subject: string | null | undefined, query: string): boolean {
+  return shouldUseGraphJsonFlow(subject, query) || shouldPostProcessMathSvg(subject);
+}
+
+function shouldBiasBiologyDiagram(query: string, subject?: string | null): boolean {
+  return (
+    /^biology$/i.test(subject?.trim() ?? "") &&
+    /\b(cell|cells|organelle|osmosis|plasma membrane|microscope|plant cell|animal cell|vacuole|chloroplast|mitochondr|golgi|endoplasmic|nucleus|ribosome|membrane|turgid|plasmolysis|compare|comparison)\b/i.test(
+      query,
+    )
+  );
+}
+
+function promoteBiologyDiagramFlags(
+  answer: string,
+  query: string,
+  subject: string | null | undefined,
+): string {
+  if (!shouldBiasBiologyDiagram(query, subject)) return answer;
+  const yaCount = (answer.match(/^\s*Perlu rajah\s*:\s*Ya\b/gim) ?? []).length;
+  if (yaCount > 0) return answer;
+
+  let promoted = 0;
+  return answer.replace(/(^\s*Perlu rajah\s*:\s*)Tidak\b/gim, (_m, prefix: string) => {
+    if (promoted >= 2) return `${prefix}Tidak`;
+    promoted += 1;
+    return `${prefix}Ya`;
+  });
+}
+
+function buildGraphDiagrams(
   input: FinalizeGenerateAnswerInput,
   answer: string,
   diagramsFromBlock: GenerateRagDiagram[],
 ): GenerateRagDiagram[] {
-  if (!shouldPostProcessMathSvg(input.subject)) return [];
+  if (!shouldPostProcessGraphDiagrams(input.subject, input.query)) return [];
   if (diagramsFromBlock.length > 0) return diagramsFromBlock;
   const fromRajahSpec = diagramsFromRajahSpec(answer);
   if (fromRajahSpec.length > 0) return fromRajahSpec;
-  const fallback = lineDiagramFromQuery(input.query);
-  return fallback ? [fallback] : [];
+  if (shouldPostProcessMathSvg(input.subject)) {
+    const fallback = lineDiagramFromQuery(input.query);
+    return fallback ? [fallback] : [];
+  }
+  return [];
 }
 
 async function buildGeneratedImages(
@@ -201,6 +255,9 @@ async function buildGeneratedImages(
   answer: string,
 ): Promise<GenerateImageItem[]> {
   const subject = input.subject?.trim() ?? "";
+  if (shouldUseGraphJsonFlow(subject, input.query)) {
+    return [];
+  }
   if (!shouldGenerateEducationalDiagrams(subject, input.query, input.generateImage)) {
     if (input.generateImage && input.imagePrompt?.trim()) {
       const urls = await generateImage(input.imagePrompt.trim());
@@ -246,11 +303,7 @@ export function buildGenerationReminders(
     const scienceDiagramRule = isScience
       ? `
 
-Science diagram rule: After the BM: line and BEFORE the first A. option line, add exactly one line:
-Perlu rajah: Tidak
-or
-Perlu rajah: Ya
-Use Ya only if a diagram genuinely helps answer that question. Most questions should be Perlu rajah: Tidak.`
+Science diagram rule: Do not output any Perlu rajah or diagram-needed line inside the questions. Diagram decisions are made in a second pass after the questions are generated.`
       : "";
     parts.push(`
 The user wants objective MCQ (A–D) questions ONLY. Use the MCQ template from the system message.
@@ -273,6 +326,15 @@ DIAGRAM_JSON_END
 (valid JSON only; one object per graph-based question)`);
   }
 
+  if (opts?.includeMathDiagramJson !== false && isPhysicsSubject(subject) && isPhysicsGraphTopicQuery(query)) {
+    parts.push(`
+For Physics motion/graph questions, append after all Soalan blocks:
+DIAGRAM_JSON_START
+{"diagrams":[{"questionIndex":1,"type":"line-chart","title":"...","xAxisLabel":"x","yAxisLabel":"y","points":[{"x":0,"y":0},{"x":1,"y":2}]}]}
+DIAGRAM_JSON_END
+(Set questionIndex to each graph-based Soalan number.)`);
+  }
+
   return parts.join("");
 }
 
@@ -282,10 +344,25 @@ export async function finalizeGeneratedAnswer(
 ): Promise<FinalizeGenerateAnswerResult> {
   const withSvg = shouldPostProcessMathSvg(input.subject) ? enrichMathAnswerWithSvg(answerRaw) : answerRaw;
   const { answer: stripped, diagrams: diagramsFromBlock } = extractDiagramBlock(withSvg);
-  const answer = normalizeBilingualAnswer(stripped);
-  const diagrams = buildMathDiagrams(input, answer, diagramsFromBlock);
+  const answer = promoteBiologyDiagramFlags(
+    normalizeBilingualAnswer(stripped),
+    input.query,
+    input.subject,
+  );
+  const diagrams = buildGraphDiagrams(input, answer, diagramsFromBlock);
   const diagram = diagrams[0];
   const generatedImages = await buildGeneratedImages(input, answer);
+  const structuredDiagrams = await planStructuredQuestionDiagrams({
+    subject: input.subject,
+    query: input.query,
+    answer,
+  });
 
-  return { answer, diagram, diagrams: diagrams.length > 0 ? diagrams : undefined, generatedImages };
+  return {
+    answer,
+    diagram,
+    diagrams: diagrams.length > 0 ? diagrams : undefined,
+    structuredDiagrams: structuredDiagrams.length > 0 ? structuredDiagrams : undefined,
+    generatedImages,
+  };
 }

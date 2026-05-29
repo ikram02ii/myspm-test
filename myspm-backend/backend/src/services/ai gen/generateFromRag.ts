@@ -4,6 +4,7 @@ import {
   finalizeGeneratedAnswer,
   formatGeneratorContextBlock,
   type GenerateRagDiagram,
+  type StructuredQuestionDiagram,
 } from "./generateFromRagEnhancements";
 import { retrieveChunks } from "../rag/retrieval/retrievalService";
 import { enrichMathAnswerWithSvg } from "./mathSvg";
@@ -52,12 +53,16 @@ export type GeneratedOpenEndedQuestion = {
   rubricIdeas: RubricIdea[];
 };
 
-export type { GenerateRagDiagram } from "./generateFromRagEnhancements";
+export type {
+  GenerateRagDiagram,
+  StructuredQuestionDiagram,
+} from "./generateFromRagEnhancements";
 
 export type GenerateRagResult = {
   answer: string;
   diagram?: GenerateRagDiagram;
   diagrams?: GenerateRagDiagram[];
+  structuredDiagrams?: StructuredQuestionDiagram[];
   sources: Array<{
     documentId: number;
     chunkIndex: number;
@@ -85,7 +90,7 @@ export type GenerateRagResult = {
 async function packageGeneratedAnswer(
   input: GenerateRagInput,
   answerRaw: string,
-  extras: Omit<GenerateRagResult, "answer" | "diagram" | "diagrams" | "generatedImages">,
+  extras: Omit<GenerateRagResult, "answer" | "diagram" | "diagrams" | "structuredDiagrams" | "generatedImages">,
 ): Promise<GenerateRagResult> {
   const finalized = await finalizeGeneratedAnswer(
     {
@@ -101,6 +106,7 @@ async function packageGeneratedAnswer(
     answer: finalized.answer,
     diagram: finalized.diagram,
     diagrams: finalized.diagrams,
+    structuredDiagrams: finalized.structuredDiagrams,
     generatedImages: finalized.generatedImages,
   };
 }

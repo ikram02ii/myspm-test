@@ -42,6 +42,7 @@ import {
 import {
   fetchPracticeSetList,
   type MathLineDiagram,
+  type StructuredQuestionDiagram,
   type PracticeSetQuestion,
   type PracticeSetSummary,
 } from "../services/mobilePracticeSets";
@@ -72,11 +73,12 @@ type RagGenerateResponse = {
   openEndedQuestions?: PracticeSetQuestion[];
   diagram?: MathLineDiagram;
   diagrams?: MathLineDiagram[];
+  structuredDiagrams?: StructuredQuestionDiagram[];
   generatedImages?: RagGeneratedImage[];
 };
 
 function isScienceDiagramSubject(subject: string): boolean {
-  return /^(biology|chemistry|physics|science)$/i.test(subject.trim());
+  return /^(biology|chemistry|physics|science|math|additional math)$/i.test(subject.trim());
 }
 
 function hasRenderableDiagram(diagram: MathLineDiagram | undefined): diagram is MathLineDiagram {
@@ -102,6 +104,28 @@ function attachGeneratedImagesToQuestions(
   return questions.map((question, i) => {
     const url = byIndex.get(question.sortOrder) ?? byIndex.get(i + 1);
     return url ? { ...question, diagramImageUrl: url } : question;
+  });
+}
+
+function attachStructuredDiagramsToQuestions(
+  questions: PracticeSetQuestion[],
+  structuredDiagrams: StructuredQuestionDiagram[] | undefined,
+): PracticeSetQuestion[] {
+  const specs = (structuredDiagrams ?? []).filter((spec) => spec?.type === "biology-cell");
+  if (specs.length === 0 || questions.length === 0) return questions;
+
+  const byIndex = new Map<number, StructuredQuestionDiagram>();
+  specs.forEach((spec, index) => {
+    const questionIndex =
+      typeof spec.questionIndex === "number" && Number.isInteger(spec.questionIndex) && spec.questionIndex > 0
+        ? spec.questionIndex
+        : index + 1;
+    if (!byIndex.has(questionIndex)) byIndex.set(questionIndex, spec);
+  });
+
+  return questions.map((question, index) => {
+    const spec = byIndex.get(question.sortOrder) ?? byIndex.get(index + 1);
+    return spec ? { ...question, structuredDiagram: spec } : question;
   });
 }
 
@@ -485,18 +509,24 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
         ? ` aligned to this syllabus chapter heading (stay within its scope): ${chapterDbLabel}`
         : "";
 
-    const isMathSubject = /^(mathematics|math|additional mathematics|additional math)$/i.test(subject.trim());
-    const graphInstructions = isMathSubject
-      ? `For graph-based questions, append DIAGRAM_JSON after all questions with a diagrams array; set questionIndex to the matching Soalan number. `
-      : "";
+    const isPhysicsGraphTopic =
+      /^physics$/i.test(subject.trim()) &&
+      /\b(motion|graph|graphs|graf|plot|chart|velocity|speed|acceleration|displacement|distance[- ]time|speed[- ]time|velocity[- ]time|acceleration[- ]time)\b/i.test(
+        chapterDbLabel,
+      );
+    const graphInstructions = isPhysicsGraphTopic
+      ? `For every generated question, if a line graph or motion graph would help, append DIAGRAM_JSON after all questions with a diagrams array. Set questionIndex to the matching Soalan number. `
+      : /^(mathematics|math|additional mathematics|additional math)$/i.test(subject.trim())
+        ? `For graph-based questions, append DIAGRAM_JSON after all questions with a diagrams array; set questionIndex to the matching Soalan number. `
+        : "";
     const bilingualStemRule =
       /^(sejarah|bm)$/i.test(subject.trim())
         ? ""
         : `Each stem: first line "EN: ...", second line "BM: ..." (BM on a new line). `;
     const diagramHint = isScienceDiagramSubject(subject)
-      ? "After each BM line, add Perlu rajah: Ya or Perlu rajah: Tidak (Ya only when a diagram helps). "
+      ? "Do not output any Perlu rajah line inside the questions; diagrams are planned in a second pass. "
       : "";
-    const matrixFormatHint = isMathSubject
+    const matrixFormatHint = /^(mathematics|math|additional mathematics|additional math)$/i.test(subject.trim())
       ? "Matrix MCQ options: semicolon row form e.g. [3 2; 1 4]. "
       : "";
 
@@ -548,9 +578,12 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
 
       if (aiQuestionType === "mcq") {
         const parsed = attachGeneratedImagesToQuestions(
-          attachDiagramsToQuestions(
-            parseAiGeneratedMcqAnswer(result.answer),
-            result.diagrams ?? (result.diagram ? [result.diagram] : []),
+          attachStructuredDiagramsToQuestions(
+            attachDiagramsToQuestions(
+              parseAiGeneratedMcqAnswer(result.answer),
+              result.diagrams ?? (result.diagram ? [result.diagram] : []),
+            ),
+            result.structuredDiagrams,
           ),
           result.generatedImages,
         );
@@ -585,9 +618,17 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
             rubricIdeas: Array.isArray(item?.rubricIdeas) ? item.rubricIdeas : undefined,
           })).filter((item) => item.questionText.trim().length > 0)
         : [];
-      const parsedOpen = structuredOpen.length > 0
-        ? structuredOpen
-        : parseAiGeneratedOpenEnded(result.answer, "short");
+      const parsedOpenRaw =
+        structuredOpen.length > 0
+          ? structuredOpen
+          : parseAiGeneratedOpenEnded(result.answer, "short");
+      const parsedOpen = attachStructuredDiagramsToQuestions(
+        attachDiagramsToQuestions(
+          parsedOpenRaw,
+          result.diagrams ?? (result.diagram ? [result.diagram] : []),
+        ),
+        result.structuredDiagrams,
+      );
       if (parsedOpen.length === 0) {
         showToast("AI did not return parseable questions. Try again.");
         return;

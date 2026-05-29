@@ -21,6 +21,7 @@ import { colors } from "../constants/colors";
 import { fonts } from "../constants/fonts";
 import { theme } from "../constants/palette";
 import { MathLineChart } from "../components/math/MathLineChart";
+import { BiologyStructuredDiagram } from "../components/biology/BiologyStructuredDiagram";
 import { AnimalCellDiagramWithLabels } from "../components/biology/AnimalCellDiagramWithLabels";
 import { LabeledAnimalCellDiagram } from "../components/biology/LabeledAnimalCellDiagram";
 import { MathFormattedText } from "../components/math/MathFormattedText";
@@ -907,7 +908,15 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
               />
             </View>
           ) : null}
-          {!isSpeakingQuestion && isBiologySubject(routeSubject) && shouldShowLabeledCellDiagram(q.questionText) ? (
+          {!isSpeakingQuestion && q.structuredDiagram?.type === "biology-cell" ? (
+            <View style={styles.diagramWrap}>
+              <BiologyStructuredDiagram spec={q.structuredDiagram} />
+            </View>
+          ) : null}
+          {!isSpeakingQuestion &&
+          !q.structuredDiagram &&
+          isBiologySubject(routeSubject) &&
+          shouldShowLabeledCellDiagram(q.questionText) ? (
             <View style={styles.diagramWrap}>
               {q.diagramImageUrl ? (
                 <AnimalCellDiagramWithLabels
@@ -918,7 +927,7 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
                 <LabeledAnimalCellDiagram highlights={inferOrganelleHighlights(q.questionText)} />
               )}
             </View>
-          ) : !isSpeakingQuestion && q.diagramImageUrl ? (
+          ) : !isSpeakingQuestion && q.diagramImageUrl && !q.structuredDiagram ? (
             <View style={styles.diagramWrap}>
               <Image
                 source={{ uri: q.diagramImageUrl }}

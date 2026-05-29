@@ -20,6 +20,24 @@ export type MathLineDiagram = {
   points: Array<{ x: number; y: number; label?: string }>;
 };
 
+export type BiologyCellFocusLabel =
+  | "cellWall"
+  | "cellMembrane"
+  | "vacuole"
+  | "chloroplast"
+  | "nucleus"
+  | "cytoplasm";
+
+export type StructuredQuestionDiagram = {
+  type: "biology-cell";
+  questionIndex?: number;
+  title?: string;
+  subtitle?: string;
+  layout: "plant" | "animal" | "comparison";
+  state?: "normal" | "hypotonic" | "hypertonic";
+  focusLabels?: BiologyCellFocusLabel[];
+};
+
 export type PracticeSetQuestion = {
   id: number;
   sortOrder: number;
@@ -41,6 +59,8 @@ export type PracticeSetQuestion = {
   questionForGrade?: string;
   /** Optional diagram from /api/rag/generate (Math line charts). */
   diagram?: MathLineDiagram;
+  /** App-rendered structured diagram spec (e.g. biology cell). */
+  structuredDiagram?: StructuredQuestionDiagram;
   /** Qwen image URL for science educational diagrams. */
   diagramImageUrl?: string;
 };
