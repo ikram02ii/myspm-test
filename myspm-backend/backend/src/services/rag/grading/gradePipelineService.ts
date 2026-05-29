@@ -36,6 +36,10 @@ import {
   useExaminerEvidenceMatcher,
 } from "../rubric/rubricMatchingService";
 import { isSequenceMarkingQuestion } from "./sequenceMarkingService";
+import {
+  detectEquationPartialWins,
+  filterEquationGapsNotInAnswer,
+} from "./gradingEquationFeedback";
 
 /**
  * Grading pipeline (v2) â€” fixed stage order:
@@ -224,10 +228,20 @@ export async function extractStudentIdeas(question: string, studentAnswer: strin
     gradingUsesVisualFigure({ question }) || isDiagramDeixisAnswer(studentAnswer)
       ? "Do NOT extract meta-comments about the diagram/figure/part. Only extract scientific points the student actually wrote (names, functions, processes, values)."
       : "",
-    "When one sentence contains several distinct written points, split them into separate ideas.",
+    [
+      "ATOMIZE COMPOUND LISTS (mandatory):",
+      "Aggressively split compound clauses into separate ideas.",
+      "If the student lists multiple distinct points in ONE sentence or phrase — using conjunctions",
+      "(and, or, with, serta, dan, atau, serta dengan) OR commas/semicolons — you MUST output each",
+      "distinct point as its own standalone string in the ideas array.",
+      "Example: \"gloves and goggles\" → two ideas: \"gloves\" and \"goggles\".",
+      "Example: \"wear gloves, use goggles, tie hair\" → three separate ideas.",
+      "Do not leave merged lists in a single idea when the items are independently markable.",
+      "Each atomized fragment must still be grounded in words the student actually wrote.",
+    ].join("\n"),
     [
       "SHORT ANSWER RULE:",
-      "If the answer is a single word, name, or short phrase, extract it exactly as written â€” do not expand it.",
+      "If the answer is only one word or one indivisible phrase with no list structure, extract it exactly as written — do not expand it.",
     ].join("\n"),
   ].join("\n");
   const sequenceQ = isSequenceMarkingQuestion(question);
@@ -240,8 +254,9 @@ export async function extractStudentIdeas(question: string, studentAnswer: strin
           "SEQUENCE QUESTION: split the answer into one idea per stage/level/step (e.g. cell, tissue, organ, or each model name).",
           "Keep fragments in the order the student wrote them. Include every stage mentioned, even if only one word.",
         ].join("\n")
-      : "Split into short ideas using only wording from the student answer.",
-    "Split only when the student wrote genuinely separate points. Incomplete answers stay as one idea â€” do not fill gaps.",
+      : "Split into short atomized ideas using only wording from the student answer.",
+    "Apply ATOMIZE COMPOUND LISTS: split on and/or/commas whenever multiple distinct markable items appear.",
+    "Do not fill gaps or invent points the student did not write.",
     "hasCausalLink=true only if this idea line explicitly contains because/so that/to/kerana/supaya/untuk etc.",
   ].join("\n\n");
   const parsed = await qwenGradingJson(system, user);
@@ -266,8 +281,16 @@ function fallbackFeedback(params: {
   missingIdeas: string[];
   language: "english" | "malay" | "mixed";
   usesVisualFigure?: boolean;
+  studentAnswer?: string;
+  isEquationQuestion?: boolean;
 }): string {
   const lang = params.language === "malay" ? "malay" : "english";
+  const isEq = params.isEquationQuestion === true && (params.studentAnswer?.trim().length ?? 0) > 0;
+  const partialWins = isEq ? detectEquationPartialWins(params.studentAnswer!) : [];
+  const missingGaps =
+    isEq && params.studentAnswer
+      ? filterEquationGapsNotInAnswer(params.missingIdeas, params.studentAnswer)
+      : params.missingIdeas;
   const visualHint =
     params.usesVisualFigure && params.score < params.maxScore
       ? lang === "malay"
@@ -279,7 +302,14 @@ function fallbackFeedback(params: {
       return `Bagus â€” betul. Anda sudah nyatakan perkara utama: ${params.matchedIdeas.slice(0, 3).join(", ")}.`;
     }
     if (params.score === 0) {
-      return `Jawapan ini kurang tepat atau terlalu kosong. Cuba sertakan: ${params.missingIdeas.slice(0, 2).join("; ")}.${visualHint}`;
+      if (partialWins.length > 0) {
+        const ack = partialWins.slice(0, 2).join(" ");
+        const gaps = missingGaps.slice(0, 2).join("; ");
+        return gaps.length > 0
+          ? `${ack} Walau bagaimanapun, persamaan penuh belum lengkap: ${gaps}.${visualHint}`
+          : `${ack} Walau bagaimanapun, persamaan penuh belum lengkap atau tidak seimbang.${visualHint}`;
+      }
+      return `Jawapan ini kurang tepat atau terlalu kosong. Cuba sertakan: ${missingGaps.slice(0, 2).join("; ")}.${visualHint}`;
     }
     return `Ada bahagian betul: ${params.matchedIdeas.slice(0, 2).join(", ")}. Tambah atau betulkan: ${params.missingIdeas.slice(0, 2).join("; ")}.${visualHint}`;
   }
@@ -287,7 +317,14 @@ function fallbackFeedback(params: {
     return `Well done â€” correct. You gave the main points: ${params.matchedIdeas.slice(0, 3).join(", ")}.`;
   }
   if (params.score === 0) {
-    return `This answer is not clear enough or is wrong. Try to include: ${params.missingIdeas.slice(0, 2).join("; ")}.${visualHint}`;
+    if (partialWins.length > 0) {
+      const ack = partialWins.slice(0, 2).join(" ");
+      const gaps = missingGaps.slice(0, 2).join("; ");
+      return gaps.length > 0
+        ? `${ack} However, the full equation is not complete yet: ${gaps}.${visualHint}`
+        : `${ack} However, the full equation is not complete or balanced yet.${visualHint}`;
+    }
+    return `This answer is not clear enough or is wrong. Try to include: ${missingGaps.slice(0, 2).join("; ")}.${visualHint}`;
   }
   return `Partly right: ${params.matchedIdeas.slice(0, 2).join(", ")}. You still need to add or fix: ${params.missingIdeas.slice(0, 2).join("; ")}.${visualHint}`;
 }
@@ -518,12 +555,25 @@ export async function gradeWithPipelineV2(input: GradeSubmissionInput): Promise<
 
   const acceptedConcepts: AcceptedConceptBundle[] = rubric.ideas.map((idea) => ({
     rubricIdea: idea.idea,
-    acceptedPhrases: [...(idea.keywords ?? []), ...(idea.acceptedConcepts ?? [])],
+    acceptedPhrases: [
+      ...(idea.keywords ?? []),
+      ...(idea.acceptedConcepts ?? []),
+      ...(idea.acceptedSynonyms ?? []),
+    ],
   }));
 
   // â”€â”€ 9. Feedback Generator â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const usesVisualFigure = gradingUsesVisualFigure(markingPolicyOptions);
   let modelAnswer = buildModelAnswer(matchedRows2, missingRows2);
+
+  const isEquationQuestion =
+    questionAnalysis?.isEquationQuestion === true || questionAnalysis?.demandType === "equation";
+
+  const feedbackMaxSentences = isMcqLetterOnlyExplanationRequest(question, studentAnswer, maxScore)
+    ? 8
+    : isEquationQuestion && score < maxScore
+      ? 5
+      : undefined;
 
   let feedback = sanitizeFeedback(
     fallbackFeedback({
@@ -533,10 +583,10 @@ export async function gradeWithPipelineV2(input: GradeSubmissionInput): Promise<
       missingIdeas,
       language,
       usesVisualFigure,
+      studentAnswer,
+      isEquationQuestion,
     }),
-    {
-      maxSentences: isMcqLetterOnlyExplanationRequest(question, studentAnswer, maxScore) ? 8 : undefined,
-    },
+    { maxSentences: feedbackMaxSentences },
   );
 
   try {
@@ -555,9 +605,7 @@ export async function gradeWithPipelineV2(input: GradeSubmissionInput): Promise<
       usesVisualFigure,
     });
     if (post.feedback.trim().length > 0) {
-      feedback = sanitizeFeedback(post.feedback, {
-        maxSentences: isMcqLetterOnlyExplanationRequest(question, studentAnswer, maxScore) ? 8 : undefined,
-      });
+      feedback = sanitizeFeedback(post.feedback, { maxSentences: feedbackMaxSentences });
     }
     if (score < maxScore && post.modelAnswer?.trim()) {
       modelAnswer = post.modelAnswer.trim();

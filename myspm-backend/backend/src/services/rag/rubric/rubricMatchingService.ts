@@ -923,6 +923,15 @@ const EXAMINER_MATCH_SYSTEM = `You are an SPM examiner performing evidence-based
 Your task is to determine whether each student idea satisfies each rubric criterion.
 Reason about meaning and concept — not surface wording.
 
+SEMANTIC MATCHING (mandatory):
+- Each criterion includes core_concept, accepted_concepts, and accepted_synonyms (cached at rubric build).
+- Student ideas are short, atomized phrases — often colloquial or list fragments.
+- Award a mark when the student idea shows SEMANTIC CONTAINMENT: the same scientific intent
+  as the criterion, even if wording differs from the textbook idea string.
+- Check accepted_synonyms and accepted_concepts first for colloquial / action-verb / BM forms.
+- Do NOT require exact keyword overlap with criterion_description or core_concept alone.
+- One student idea may match at most one criterion unless it clearly expresses two independent concepts.
+
 Marking philosophy:
 - A student answer is correct if it conveys the same core_concept as the criterion,
   regardless of the specific words used.
@@ -984,6 +993,7 @@ function rubricCriteriaForPrompt(rubricIdeas: RubricIdea[]): unknown[] {
     kind: r.kind,
     keywords: r.keywords ?? [],
     accepted_concepts: r.acceptedConcepts ?? [],
+    accepted_synonyms: r.acceptedSynonyms ?? [],
     open_ended: r.openEnded === true,
     requires_causal_link: r.requiresCausalLink === true,
   }));
@@ -1048,6 +1058,7 @@ export async function runEvidenceBasedCriterionMatching(params: {
     `Subject: ${params.subject}`,
     `Question: ${params.question}`,
     `Full student answer (for context only — award only from ideas list): ${params.fullStudentAnswer}`,
+    "Student ideas are atomized short phrases — match each against accepted_synonyms and accepted_concepts using semantic containment and intent, not exact wording.",
     params.studentIdeas.length === 0
       ? "No ideas were extracted — treat all criteria as no_match unless the question accepts an empty recall answer."
       : null,

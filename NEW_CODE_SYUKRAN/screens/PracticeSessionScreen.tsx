@@ -14,7 +14,7 @@ import {
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
-import { Camera, Check, ImageUp } from "lucide-react-native";
+import { Camera, Check, ChevronLeft, ImageUp } from "lucide-react-native";
 import * as ImagePicker from "expo-image-picker";
 
 import { colors } from "../constants/colors";
@@ -184,6 +184,33 @@ type QuestionMarkResult = {
   max: number;
 };
 
+/** Per-question UI state so students can go back and review answers without re-solving. */
+type QuestionSessionState = {
+  selectedIndices: number[];
+  openEndedAnswer: string;
+  showFeedback: boolean;
+  aiFeedbackText: string | null;
+  gradeModelAnswer: string | null;
+  modelAnswerExpanded: boolean;
+  speakingTranscript: string | null;
+  speakingMarkingText: string | null;
+  speakingReadyForNext: boolean;
+};
+
+function emptyQuestionSession(): QuestionSessionState {
+  return {
+    selectedIndices: [],
+    openEndedAnswer: "",
+    showFeedback: false,
+    aiFeedbackText: null,
+    gradeModelAnswer: null,
+    modelAnswerExpanded: false,
+    speakingTranscript: null,
+    speakingMarkingText: null,
+    speakingReadyForNext: false,
+  };
+}
+
 function isSpeakingQuestionType(questionType: string | null | undefined): boolean {
   const t = (questionType ?? "").toLowerCase();
   return t === "speaking_part1" || t === "speaking_part2" || t === "speaking_part3";
@@ -244,7 +271,7 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
   const feedbackFade = useRef(new Animated.Value(0)).current;
   const feedbackLift = useRef(new Animated.Value(8)).current;
   const skipQuestionEnterAnim = useRef(true);
-
+  const sessionByQuestionIdRef = useRef<Record<number, QuestionSessionState>>({});
   const load = useCallback(async () => {
     if (!setId) return;
     setError(null);
@@ -257,6 +284,7 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
       setSelected(new Set());
       setShowFeedback(false);
       setQuestionResults({});
+      sessionByQuestionIdRef.current = {};
       setFinished(false);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load questions");
@@ -295,17 +323,63 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
     }).start();
   }, [index, questions.length, progressFillAnim]);
 
-  useEffect(() => {
-    setSpeakingReadyForNext(false);
-    setSpeakingTranscript(null);
-    setSpeakingMarkingText(null);
-    setOpenEndedAnswer("");
-    setShowFeedback(false);
-    setAiFeedbackText(null);
-    setGradeModelAnswer(null);
-    setModelAnswerExpanded(false);
+  const snapshotCurrentSession = useCallback((): QuestionSessionState => {
+    return {
+      selectedIndices: Array.from(selected),
+      openEndedAnswer,
+      showFeedback,
+      aiFeedbackText,
+      gradeModelAnswer,
+      modelAnswerExpanded,
+      speakingTranscript,
+      speakingMarkingText,
+      speakingReadyForNext,
+    };
+  }, [
+    selected,
+    openEndedAnswer,
+    showFeedback,
+    aiFeedbackText,
+    gradeModelAnswer,
+    modelAnswerExpanded,
+    speakingTranscript,
+    speakingMarkingText,
+    speakingReadyForNext,
+  ]);
+
+  const applyQuestionSession = useCallback((state: QuestionSessionState) => {
+    setSelected(new Set(state.selectedIndices));
+    setOpenEndedAnswer(state.openEndedAnswer);
+    setShowFeedback(state.showFeedback);
+    setAiFeedbackText(state.aiFeedbackText);
+    setGradeModelAnswer(state.gradeModelAnswer);
+    setModelAnswerExpanded(state.modelAnswerExpanded);
+    setSpeakingTranscript(state.speakingTranscript);
+    setSpeakingMarkingText(state.speakingMarkingText);
+    setSpeakingReadyForNext(state.speakingReadyForNext);
     setOcrError(null);
-  }, [index, questions[index]?.id]);
+    setAiDrawerOpen(false);
+    setAiBusy(false);
+    setOcrBusy(false);
+  }, []);
+
+  const navigateToIndex = useCallback(
+    (nextIndex: number) => {
+      if (nextIndex < 0 || nextIndex >= questions.length) return;
+      const currentQ = questions[index];
+      if (currentQ) {
+        sessionByQuestionIdRef.current = {
+          ...sessionByQuestionIdRef.current,
+          [currentQ.id]: snapshotCurrentSession(),
+        };
+      }
+      const targetQ = questions[nextIndex];
+      const saved = targetQ ? sessionByQuestionIdRef.current[targetQ.id] : undefined;
+      setIndex(nextIndex);
+      applyQuestionSession(saved ?? emptyQuestionSession());
+    },
+    [applyQuestionSession, index, questions, snapshotCurrentSession],
+  );
 
   useEffect(() => {
     const current = questions[index];
@@ -359,12 +433,15 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
 
   const q = questions[index];
   const total = questions.length;
+
   const speakingSubject = routeSubject ?? "English";
   const speakingForm = routeFormLevel ?? "Form 4";
   const isSpeakingQuestion =
     practiceMode === "speaking" || (q ? isSpeakingQuestionType(q.questionType) : false);
   const isSpeakingPart2 =
     isSpeakingQuestion && (q?.questionType ?? "").toLowerCase() === "speaking_part2";
+  const isReviewMode = showFeedback || (isSpeakingQuestion && speakingReadyForNext);
+  const speakingCompleted = isSpeakingQuestion && (showFeedback || speakingReadyForNext);
   const isMcq =
     q &&
     !isSpeakingQuestion &&
@@ -467,24 +544,24 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
     }
   }
 
+  const onPrevious = () => {
+    if (index <= 0) return;
+    navigateToIndex(index - 1);
+  };
+
   const onNext = () => {
-    setAiDrawerOpen(false);
-    setAiBusy(false);
-    setAiFeedbackText(null);
-    setGradeModelAnswer(null);
-    setModelAnswerExpanded(false);
-    setOpenEndedAnswer("");
-    setOcrBusy(false);
-    setSpeakingReadyForNext(false);
-    setSpeakingTranscript(null);
-    setSpeakingMarkingText(null);
+    const currentQ = questions[index];
+    if (currentQ) {
+      sessionByQuestionIdRef.current = {
+        ...sessionByQuestionIdRef.current,
+        [currentQ.id]: snapshotCurrentSession(),
+      };
+    }
     if (index + 1 >= total) {
       setFinished(true);
       return;
     }
-    setIndex((i) => i + 1);
-    setSelected(new Set());
-    setShowFeedback(false);
+    navigateToIndex(index + 1);
   };
 
   const recordSpeakingResult = useCallback(
@@ -773,9 +850,21 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
           {title}
         </Text>
         <View style={styles.progressRow}>
-          <Text style={styles.progressText}>
-            Question {index + 1} of {total}
-          </Text>
+          <View style={styles.progressHeaderRow}>
+            <Text style={styles.progressText}>
+              Question {index + 1} of {total}
+            </Text>
+            {index > 0 ? (
+              <Pressable
+                style={({ pressed }) => [styles.backLink, pressed && styles.backLinkPressed]}
+                onPress={onPrevious}
+                accessibilityLabel="Previous question"
+              >
+                <ChevronLeft size={18} color={BRAND} strokeWidth={2.5} />
+                <Text style={styles.backLinkText}>Previous</Text>
+              </Pressable>
+            ) : null}
+          </View>
           <View style={styles.progressTrack}>
             <Animated.View
               style={[
@@ -840,7 +929,7 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
             </View>
           ) : null}
 
-          {isSpeakingQuestion ? (
+          {isSpeakingQuestion && !speakingCompleted ? (
         isSpeakingPart2 ? (
           <EnglishSpeakingPart2Exam
             key={q.id}
@@ -917,11 +1006,14 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
             onChangeText={setOpenEndedAnswer}
             placeholder="Type your answer, or scan it with the options below"
             placeholderTextColor="#94A3B8"
-            style={styles.openEndedInput}
+            style={[styles.openEndedInput, isReviewMode && styles.openEndedInputReadOnly]}
             multiline
             textAlignVertical="top"
+            editable={!isReviewMode}
           />
 
+          {!isReviewMode ? (
+          <>
           <View style={styles.ocrButtonsRow}>
             <Pressable
               style={({ pressed }) => [
@@ -974,6 +1066,8 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
             </View>
           ) : null}
           {ocrError ? <Text style={styles.ocrErrorText}>{ocrError}</Text> : null}
+          </>
+          ) : null}
         </View>
       ) : null}
         </Animated.View>
@@ -1051,18 +1145,42 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
           </LinearGradient>
         </Pressable>
       ) : speakingReadyForNext || showFeedback ? (
-        <Pressable style={styles.primaryBtn} onPress={onNext}>
-          <LinearGradient
-            colors={[...theme.gradientCta]}
-            start={{ x: 0, y: 0.5 }}
-            end={{ x: 1, y: 0.5 }}
-            style={styles.primaryGrad}
-          >
-            <Text style={styles.primaryBtnText}>
-              {index + 1 >= total ? "See results" : "Next question"}
-            </Text>
-          </LinearGradient>
-        </Pressable>
+        index > 0 ? (
+          <View style={styles.navFooter}>
+            <Pressable
+              style={({ pressed }) => [styles.secondaryNavBtn, pressed && styles.secondaryNavBtnPressed]}
+              onPress={onPrevious}
+            >
+              <ChevronLeft size={18} color={BRAND} strokeWidth={2.5} />
+              <Text style={styles.secondaryNavBtnText}>Previous</Text>
+            </Pressable>
+            <Pressable style={[styles.primaryBtn, styles.primaryBtnFlex]} onPress={onNext}>
+              <LinearGradient
+                colors={[...theme.gradientCta]}
+                start={{ x: 0, y: 0.5 }}
+                end={{ x: 1, y: 0.5 }}
+                style={styles.primaryGrad}
+              >
+                <Text style={styles.primaryBtnText}>
+                  {index + 1 >= total ? "See results" : "Next question"}
+                </Text>
+              </LinearGradient>
+            </Pressable>
+          </View>
+        ) : (
+          <Pressable style={styles.primaryBtn} onPress={onNext}>
+            <LinearGradient
+              colors={[...theme.gradientCta]}
+              start={{ x: 0, y: 0.5 }}
+              end={{ x: 1, y: 0.5 }}
+              style={styles.primaryGrad}
+            >
+              <Text style={styles.primaryBtnText}>
+                {index + 1 >= total ? "See results" : "Next question"}
+              </Text>
+            </LinearGradient>
+          </Pressable>
+        )
       ) : null}
     </ScrollView>
 
@@ -1119,11 +1237,30 @@ const styles = StyleSheet.create({
     color: "#B91C1C",
   },
   progressRow: { marginBottom: 16 },
+  progressHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 8,
+  },
   progressText: {
     fontSize: 13,
     fontFamily: fonts.semiBold,
     color: colors.textSecondary,
-    marginBottom: 8,
+    flex: 1,
+  },
+  backLink: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 2,
+    paddingVertical: 4,
+    paddingHorizontal: 6,
+  },
+  backLinkPressed: { opacity: 0.7 },
+  backLinkText: {
+    fontSize: 13,
+    fontFamily: fonts.semiBold,
+    color: BRAND,
   },
   progressTrack: {
     height: 6,
@@ -1216,6 +1353,34 @@ const styles = StyleSheet.create({
     color: colors.text,
     backgroundColor: "#FFFFFF",
   },
+  openEndedInputReadOnly: {
+    backgroundColor: "#F8FAFC",
+    color: colors.textSecondary,
+  },
+  navFooter: {
+    flexDirection: "row",
+    alignItems: "stretch",
+    gap: 10,
+  },
+  secondaryNavBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+    minWidth: 108,
+    paddingHorizontal: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "rgba(15, 23, 42, 0.12)",
+    backgroundColor: "#FFFFFF",
+  },
+  secondaryNavBtnPressed: { opacity: 0.85 },
+  secondaryNavBtnText: {
+    fontSize: 15,
+    fontFamily: fonts.semiBold,
+    color: BRAND,
+  },
+  primaryBtnFlex: { flex: 1 },
   ocrButtonsRow: {
     marginTop: 8,
     flexDirection: "row",

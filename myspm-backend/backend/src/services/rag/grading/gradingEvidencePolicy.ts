@@ -52,6 +52,7 @@ export const FEEDBACK_EVIDENCE_ONLY_LINES = [
   "- Do NOT paraphrase missing rubric points as if the student said them.",
   "- Never attribute model-answer or rubric wording to the student unless the same idea appears in their answer text.",
   "- If a mark point was not awarded, say it was missing or not stated clearly enough â€” do not imply they partially said it unless their exact wording supports that.",
+  "- Chemical equations: if a formula, arrow, or state symbol appears in the student's answer, validate it — never tell them to include it again.",
 ] as const;
 
 export function formatCriticalEvidenceRuleBlock(): string {

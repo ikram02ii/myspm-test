@@ -302,6 +302,12 @@ export type RubricIdea = {
   openEnded?: boolean;
   /** Extra accepted paraphrases beyond keywords (SPM-level). */
   acceptedConcepts?: string[];
+  /**
+   * Colloquial / short-form / action-verb variations for the same core concept as `idea`.
+   * Cached at rubric generation (Stage 2) and used by the examiner matcher (Stage 4)
+   * for semantic containment — not exact string matching.
+   */
+  acceptedSynonyms?: string[];
   /** If true, withhold explanation marks unless a causal link appears in the student idea. */
   requiresCausalLink?: boolean;
   demandType?: DemandType;

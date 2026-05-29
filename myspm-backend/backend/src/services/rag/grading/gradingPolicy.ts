@@ -1,4 +1,4 @@
-﻿/**
+/**
  * SPM grading policy: student language, diagram rules, examiner prompts, question category heuristics.
  */
 
@@ -216,6 +216,22 @@ export function buildAcceptedConceptsRubricInstructions(): string {
     "- any phrasing a trained SPM examiner would reasonably accept",
     "Never restrict acceptedConcepts to paraphrases of one model answer phrase.",
     "A term belongs in acceptedConcepts if it expresses the correct concept — not because it resembles the model answer.",
+  ].join("\n");
+}
+
+/** Rubric LLM: cached colloquial and short-form targets for Stage 4 semantic matching. */
+export function buildAcceptedSynonymsRubricInstructions(): string {
+  return [
+    "ACCEPTED SYNONYMS (mandatory for every row — separate from acceptedConcepts):",
+    "Populate acceptedSynonyms with 6–14 short phrases a Malaysian SPM student might actually write for this mark point.",
+    "Include:",
+    "- colloquial or informal labels (not only textbook wording)",
+    "- phrases with action verbs (e.g. stops, blocks, carries, protects, causes)",
+    "- BM / English / mixed classroom shorthand",
+    "- abbreviated or list-style fragments students use in compound answers",
+    "Derive from the CORE CONCEPT the row tests — never copy only from a single model answer line.",
+    "acceptedSynonyms is for semantic matching; acceptedConcepts remains the broader paraphrase list.",
+    "Also accept semanticTargets as an alias field name in JSON if you prefer — same meaning as acceptedSynonyms.",
   ].join("\n");
 }
 

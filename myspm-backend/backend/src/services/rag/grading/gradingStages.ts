@@ -18,6 +18,13 @@ import {
   isStrictContextBindingQuestion,
 } from "./gradingPolicy";
 import { formatCriticalEvidenceRuleBlock, formatFeedbackEvidenceOnlyBlock } from "./gradingEvidencePolicy";
+import {
+  detectEquationPartialWins,
+  ensureEquationPartialAcknowledgment,
+  filterEquationGapsNotInAnswer,
+  formatEquationFeedbackBlock,
+  softenEquationFeedbackContradictions,
+} from "./gradingEquationFeedback";
 import { qwenGradingJson, resolveQwenGradingConfig } from "./qwenGradingClient";
 
 export type ExaminerCreditPassInput = {
@@ -475,6 +482,13 @@ export async function buildPostScoreFeedback(
     input.usesVisualFigure ??
     gradingUsesVisualFigure({ question: input.question });
   const evidence = buildEvidenceSummary(input.markBreakdown);
+  const isEquationQuestion =
+    input.questionAnalysis?.isEquationQuestion === true ||
+    input.questionAnalysis?.demandType === "equation";
+  const equationPartialWins = isEquationQuestion ? detectEquationPartialWins(input.studentAnswer) : [];
+  const missingForPrompt = isEquationQuestion
+    ? filterEquationGapsNotInAnswer(input.missingIdeas, input.studentAnswer)
+    : input.missingIdeas;
 
   const system = [
     "Write feedback for a Malaysian SPM student after their answer has already been marked.",
@@ -483,6 +497,7 @@ export async function buildPostScoreFeedback(
     formatSufficiencyMarkingBlock(),
     formatCriticalEvidenceRuleBlock(),
     formatFeedbackEvidenceOnlyBlock(),
+    isEquationQuestion ? formatEquationFeedbackBlock() : null,
     usesVisual ? formatDiagramImageEvidenceBlock() : null,
     "Return JSON only: { \"feedback\": string, \"modelAnswer\": string | null }.",
     [
@@ -493,7 +508,15 @@ export async function buildPostScoreFeedback(
       "- You MUST link comments to the student's actual wording from the evidence section below.",
       "- Mention at least one correct thing the student wrote when score > 0, and at least one missing/incorrect concept when score < maxScore.",
       "- For partial marks: say which type of point was missing or unclear â€” do not list rubric jargon.",
-      "- For zero marks: encourage them to write the science in their own words; never say they were correct.",
+      isEquationQuestion
+        ? "- For zero marks on an equation: your FIRST sentence MUST validate any partial equation parts listed below (formulas, arrows, +, state symbols) before explaining structural failure."
+        : "- For zero marks: encourage them to write the science in their own words; never say they were correct.",
+      isEquationQuestion && input.score === 0 && equationPartialWins.length > 0
+        ? "- Mandatory opening: acknowledge at least one item from EQUATION PARTS ALREADY WRITTEN before any correction."
+        : null,
+      isEquationQuestion
+        ? "- Never ask the student to include a formula, symbol, or arrow that already appears in their answer — validate it."
+        : null,
       "- Never claim they mentioned a term or idea unless it appears in the student answer below.",
       "- Never say a concept was missing if the awarded evidence links show it was credited.",
       "- Never ask for a vague umbrella phrase (general protection, safety, unsafe) when the student already stated a specific hazard, injury, or mechanism in their answer.",
@@ -542,7 +565,10 @@ export async function buildPostScoreFeedback(
         ].join("\n")
       : null,
     `Points credited: ${input.matchedIdeas.join(" | ") || "(none)"}`,
-    `Gaps / mark points missed: ${input.missingIdeas.join(" | ") || "(none)"}`,
+    `Gaps / mark points missed: ${missingForPrompt.join(" | ") || "(none)"}`,
+    isEquationQuestion && equationPartialWins.length > 0
+      ? `EQUATION PARTS ALREADY WRITTEN (validate in feedback — do NOT tell the student to add these again):\n- ${equationPartialWins.join("\n- ")}`
+      : null,
     evidence.awardedEvidence.length > 0
       ? `Awarded evidence links:\n- ${evidence.awardedEvidence.join("\n- ")}`
       : "Awarded evidence links: (none)",
@@ -563,7 +589,19 @@ export async function buildPostScoreFeedback(
       if (raw.length > 0) modelAnswer = raw;
     }
     if (feedback.length > 0) {
-      return { feedback, modelAnswer };
+      let adjusted = isEquationQuestion
+        ? softenEquationFeedbackContradictions(feedback, input.studentAnswer)
+        : feedback;
+      if (isEquationQuestion) {
+        adjusted = ensureEquationPartialAcknowledgment(
+          adjusted,
+          input.studentAnswer,
+          input.score,
+          input.maxScore,
+          input.language,
+        );
+      }
+      return { feedback: adjusted, modelAnswer };
     }
   } catch {
     // fall through

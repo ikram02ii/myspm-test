@@ -1,4 +1,4 @@
-﻿import { createHash, randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { and, desc, eq } from "drizzle-orm";
 import { ragDb, ragPastPaperChunksTable, ragPastPapersTable, ragRubricsTable } from "../../../lib/ragDb";
 import { cosineSimilarity, embedText, embedTexts } from "../retrieval/embeddingsService";
@@ -7,6 +7,7 @@ import { formatSpmStudentFriendlyRulesBlock } from "../grading/gradingPolicy";
 import { pastPaperFormWhereClause } from "../retrieval/pastPaperFormFilter";
 import {
   buildAcceptedConceptsRubricInstructions,
+  buildAcceptedSynonymsRubricInstructions,
   buildCausalChainRubricInstructions,
   buildCategoryRubricPromptInstructions,
   buildOpenTopicPoolRubricInstructions,
@@ -163,6 +164,15 @@ function parseRubricIdeas(text: string): RubricIdea[] {
         const acceptedConcepts = Array.isArray(row["acceptedConcepts"])
           ? row["acceptedConcepts"].filter((v): v is string => typeof v === "string").map((v) => v.trim()).filter(Boolean)
           : [];
+        const synonymSources = [
+          ...(Array.isArray(row["acceptedSynonyms"])
+            ? row["acceptedSynonyms"].filter((v): v is string => typeof v === "string")
+            : []),
+          ...(Array.isArray(row["semanticTargets"])
+            ? row["semanticTargets"].filter((v): v is string => typeof v === "string")
+            : []),
+        ];
+        const acceptedSynonyms = synonymSources.map((v) => v.trim()).filter(Boolean);
         const openEndedRaw = row["openEnded"];
         const openEnded =
           typeof openEndedRaw === "boolean"
@@ -215,6 +225,7 @@ function parseRubricIdeas(text: string): RubricIdea[] {
         if (dependsOnRowId) item.dependsOnRowId = dependsOnRowId;
         if (keywordsRaw.length > 0) item.keywords = [...new Set(keywordsRaw)];
         if (acceptedConcepts.length > 0) item.acceptedConcepts = [...new Set(acceptedConcepts)];
+        if (acceptedSynonyms.length > 0) item.acceptedSynonyms = [...new Set(acceptedSynonyms)].slice(0, 16);
         if (openEnded) item.openEnded = true;
         if (validMembers.length > 0) item.validMembers = validMembers;
         if (CONCEPT_TYPES.has(conceptTypeRaw)) item.conceptType = conceptTypeRaw as RubricIdea["conceptType"];
@@ -428,8 +439,9 @@ async function qwenBuildRubric(params: {
     "You build strict JSON rubrics for Malaysian SPM grading.",
     formatSpmStudentFriendlyRulesBlock(),
     "Each \"idea\" string must be short, plain, and readable by Form 4/5 students (classroom wording, not abstract examiner notes).",
-    'Return JSON only: { "ideas": [{ "id": string, "idea": string, "marks": number, "kind": "feature|function|point|step|comparison|knowledge|explanation|example|use|calculation|definition", "linkedToId"?: string, "keywords"?: string[], "acceptedConcepts"?: string[], "openEnded"?: boolean, "requiresCausalLink"?: boolean, "conceptType"?: "open_set|fixed_sequence|mechanism_chain|single_fact|paired_feature_function", "gradingMode"?: "open_pool|open_set|semantic_match|exact_match|ordered_sequence", "validMembers"?: [{"value": string, "aliases": string[]}], "allowSemanticEquivalence"?: boolean }] }.',
+    'Return JSON only: { "ideas": [{ "id": string, "idea": string, "marks": number, "kind": "feature|function|point|step|comparison|knowledge|explanation|example|use|calculation|definition", "linkedToId"?: string, "keywords"?: string[], "acceptedConcepts"?: string[], "acceptedSynonyms"?: string[], "openEnded"?: boolean, "requiresCausalLink"?: boolean, "conceptType"?: "open_set|fixed_sequence|mechanism_chain|single_fact|paired_feature_function", "gradingMode"?: "open_pool|open_set|semantic_match|exact_match|ordered_sequence", "validMembers"?: [{"value": string, "aliases": string[]}], "allowSemanticEquivalence"?: boolean }] }.',
     buildAcceptedConceptsRubricInstructions(),
+    buildAcceptedSynonymsRubricInstructions(),
     buildOpenTopicPoolRubricInstructions(),
     buildCausalChainRubricInstructions(),
     "CONCEPT SCHEMA RULES:",
@@ -455,6 +467,7 @@ async function qwenBuildRubric(params: {
     "For function/purpose stems: main-purpose wording at SPM level is sufficient. Do NOT require advanced mechanism details unless the stem explicitly asks (e.g. osmosis, water potential, concentration, isotonic/hypertonic/hypotonic).",
     "For sequence/order/hierarchy/process stems (list the sequence, levels of organisation, atomic model history, steps in a process): include ONE rubric row per stage/level/step IN ORDER (first row = first stage). Order is compulsory â€” wrong order must not earn the mark for that position.",
     "For EVERY idea, set \"keywords\" to 4-8 short synonym phrases students might write (same scientific meaning).",
+    "For EVERY idea, set \"acceptedSynonyms\" to colloquial/short/action-verb/BM variants (see ACCEPTED SYNONYMS rules).",
     "Set openEnded=true for any mark point where multiple valid SPM answers exist at the same level of correctness.",
     ...structureLines,
     [
