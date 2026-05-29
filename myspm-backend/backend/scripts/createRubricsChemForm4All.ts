@@ -43,7 +43,7 @@ async function main(): Promise<void> {
   }
 
   const { createRubricsFromTextbookChunks } = await import(
-    "../src/services/rag/rubricFromTextbookChunksService.js"
+    "../src/services/rag/rubric/rubricFromTextbookChunksService.js"
   );
 
   const batchSize = Math.max(1, Math.min(BATCH_CAP, argNum("maxChunks", BATCH_CAP)));
@@ -65,7 +65,7 @@ async function main(): Promise<void> {
 
   if (dryRun) {
     const { listTextbookChunksForRubricGeneration } = await import(
-      "../src/services/rag/rubricFromTextbookChunksService.js"
+      "../src/services/rag/rubric/rubricFromTextbookChunksService.js"
     );
     const { textbook, chunks } = await listTextbookChunksForRubricGeneration({
       subject: SUBJECT,

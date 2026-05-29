@@ -39,7 +39,7 @@ function blobIncludes(haystack: string, needle: string): boolean {
 }
 
 async function main(): Promise<void> {
-  const { gradeSubmission } = await import("../src/services/rag/gradeService");
+  const { gradeSubmission } = await import("../src/services/rag/grading/gradeService");
   const path = join(__dirname, "gradingRegressionTests.json");
   const bank = JSON.parse(readFileSync(path, "utf8")) as Bank;
   let passed = 0;

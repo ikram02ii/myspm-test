@@ -52,7 +52,7 @@ async function main(): Promise<void> {
   }
 
   const { createRubricsFromTextbookChunks } = await import(
-    "../src/services/rag/rubricFromTextbookChunksService.js"
+    "../src/services/rag/rubric/rubricFromTextbookChunksService.js"
   );
 
   const result = await createRubricsFromTextbookChunks({

@@ -115,22 +115,40 @@ function normalizeOcrCompare(text: string): string {
     .trim();
 }
 
+function bilingualStemLines(questionText: string): string[] {
+  const out: string[] = [];
+  for (const line of questionText.split("\n")) {
+    const t = line.trim();
+    if (!/^(?:en|bm)\s*:/i.test(t)) continue;
+    const body = t.replace(/^(?:en|bm)\s*:\s*/i, "").trim();
+    if (body.length >= 12) out.push(body);
+  }
+  return out;
+}
+
+function stemWordOverlap(ocrNorm: string, stemNorm: string): number {
+  const oWords = new Set(ocrNorm.split(" ").filter((w) => w.length > 3));
+  const sWords = stemNorm.split(" ").filter((w) => w.length > 3);
+  if (sWords.length === 0) return 0;
+  return sWords.filter((w) => oWords.has(w)).length / sWords.length;
+}
+
 /** True when OCR text is almost certainly the displayed question, not a student answer. */
 function ocrLooksLikeQuestionStem(ocrText: string, questionText: string): boolean {
   const o = normalizeOcrCompare(ocrText);
   const q = normalizeOcrCompare(questionText);
-  if (!o || !q || o.length < 16) return false;
-  if (o === q) return true;
-  if (q.length >= 24 && o.includes(q)) return true;
-  const bmLine = questionText
-    .split("\n")
-    .map((l) => l.trim())
-    .find((l) => /^bm\s*:/i.test(l))
-    ?.replace(/^bm\s*:\s*/i, "")
-    .trim();
-  if (bmLine) {
-    const b = normalizeOcrCompare(bmLine);
-    if (b.length >= 16 && (o === b || o.includes(b) || b.includes(o))) return true;
+  if (!o || o.length < 12) return false;
+  if (/^(?:en|bm)\s*:/i.test(ocrText.trim()) && o.length >= 16) return true;
+  if (q && o.length >= 16) {
+    if (o === q) return true;
+    if (q.length >= 24 && o.includes(q)) return true;
+    if (stemWordOverlap(o, q) >= 0.65) return true;
+  }
+  for (const stem of bilingualStemLines(questionText)) {
+    const s = normalizeOcrCompare(stem);
+    if (s.length < 12) continue;
+    if (o === s || o.includes(s) || s.includes(o)) return true;
+    if (stemWordOverlap(o, s) >= 0.65) return true;
   }
   return false;
 }
@@ -575,19 +593,24 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
     try {
       setOcrBusy(true);
       setOcrError(null);
+      const stem = (q?.questionForGrade ?? q?.questionText ?? "").trim();
       const result = await uploadScanImageWithAiTutor(photoUri, {
         mode: "extract",
         subject: routeSubject ?? "Biology",
+        question: stem || undefined,
       });
       const text = (result?.text ?? "").trim();
+      if (result.validationWarning) {
+        setOcrError(result.validationWarning);
+        return;
+      }
       if (!text) {
         setOcrError("No text found in the image. Try a clearer photo of your written answer.");
         return;
       }
-      const stem = (q?.questionText ?? "").trim();
       if (stem && ocrLooksLikeQuestionStem(text, stem)) {
         setOcrError(
-          "That looks like the question, not your answer. Photo only your handwriting or typed working.",
+          "That looks like the question (e.g. BM/EN stem), not your answer. Photo only your handwriting or typed working.",
         );
         return;
       }

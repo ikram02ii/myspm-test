@@ -2,8 +2,9 @@ import { Router, type IRouter } from "express";
 import multer from "multer";
 import OSS from "ali-oss";
 import { randomUUID } from "node:crypto";
-import { normalizeOcrExtractedText, OCR_EXTRACTION_PROMPT } from "../services/rag/ocrTextNormalize";
-import { runOcrPostProcessPipeline } from "../services/rag/ocrPipelineService";
+import { removeQuestionStemFromOcrText } from "../services/rag/ocr/ocrAnswerFilter";
+import { normalizeOcrExtractedText, OCR_EXTRACTION_PROMPT } from "../services/rag/ocr/ocrTextNormalize";
+import { runOcrPostProcessPipeline } from "../services/rag/ocr/ocrPipelineService";
 
 const router: IRouter = Router();
 
@@ -274,11 +275,25 @@ async function runExtractOnlyScan(
   buffer: Buffer,
   mime: string,
   email: string,
-): Promise<{ text: string; format: "plain" }> {
+  context?: { question?: string },
+): Promise<{ text: string; format: "plain"; validationWarning?: string }> {
   const oss = makeOssClient();
   await uploadScanImageToOss(oss, buffer, mime, email);
   const rawOcr = await qwenOcrFromImageBuffer(buffer, mime);
-  const text = normalizeOcrExtractedText(rawOcr).trim();
+  let text = normalizeOcrExtractedText(rawOcr).trim();
+  const question = context?.question?.trim();
+  if (question) {
+    const filtered = removeQuestionStemFromOcrText(text, question);
+    text = filtered.text;
+    if (filtered.lookedLikeQuestionOnly) {
+      return {
+        text: "",
+        format: "plain",
+        validationWarning:
+          "The scan looks like the question text (e.g. BM/EN stem), not your answer. Photo only your written answer.",
+      };
+    }
+  }
   return { text, format: "plain" };
 }
 
@@ -353,7 +368,9 @@ router.post("/scan", upload.any(), async (req, res) => {
       typeof (req.body as any)?.subject === "string" ? (req.body as any).subject.trim() : "";
 
     const { text, format, validationWarning } = extractOnly
-      ? await runExtractOnlyScan(imageFile.buffer, mime, emailForStorage)
+      ? await runExtractOnlyScan(imageFile.buffer, mime, emailForStorage, {
+          question: question || undefined,
+        })
       : await runScanPipeline(imageFile.buffer, mime, emailForStorage, {
           question: question || undefined,
           subject: subject || undefined,

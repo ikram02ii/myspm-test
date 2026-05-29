@@ -22,6 +22,7 @@
     "create:rubrics-from-chunks": "cross-env NODE_ENV=development tsx ./scripts/createRubricsFromTextbookChunks.ts",
     "create:rubrics-bio-f5": "cross-env NODE_ENV=development tsx ./scripts/createRubricsBioForm5All.ts",
     "create:rubrics-chem-f4": "cross-env NODE_ENV=development tsx ./scripts/createRubricsChemForm4All.ts",
+    "create:rubrics-chem-f5": "cross-env NODE_ENV=development tsx ./scripts/createRubricsChemForm5All.ts",
     "generate:english-speaking": "cross-env NODE_ENV=development tsx ./scripts/generateEnglishSpeakingFromPdf.ts"
   },
   "dependencies": {

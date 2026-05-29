@@ -1,7 +1,7 @@
 [
-  { "chapter": "Chapter 1: Redox Equilibrium", "pageStart": 10, "pageEnd": 69 },
-  { "chapter": "Chapter 2: Carbon Compound", "pageStart": 70, "pageEnd": 121 },
-  { "chapter": "Chapter 3: Thermochemistry", "pageStart": 122, "pageEnd": 149 },
-  { "chapter": "Chapter 4: Polymer", "pageStart": 150, "pageEnd": 171 },
-  { "chapter": "Chapter 5: Consumer and Industrial Chemistry", "pageStart": 172, "pageEnd": 205 }
+  { "chapter": "Chapter 1: Redox Equilibrium", "pageStart": 1, "pageEnd": 59 },
+  { "chapter": "Chapter 2: Carbon Compound", "pageStart": 60, "pageEnd": 111 },
+  { "chapter": "Chapter 3: Thermochemistry", "pageStart": 112, "pageEnd": 139 },
+  { "chapter": "Chapter 4: Polymer", "pageStart": 140, "pageEnd": 162 },
+  { "chapter": "Chapter 5: Consumer and Industrial Chemistry", "pageStart": 163, "pageEnd": 197 }
 ]

@@ -148,6 +148,14 @@ export type QuestionAnalysisQuestionType =
   | "sequence_order"
   | "general";
 
+export type QuestionUnderstandingDepth =
+  | "single_concept"
+  | "short_conceptual_explanation"
+  | "linked_multi_concept_explanation"
+  | "detailed_multi_step_reasoning";
+
+export type QuestionGradingStrictness = "strict" | "moderate" | "flexible";
+
 export type QuestionAnalysis = {
   subject: string;
   topicKeywords: string[];
@@ -163,6 +171,16 @@ export type QuestionAnalysis = {
   suggestedMaxScore: number;
   requiresCausalLink: boolean;
   requiresFeatureFunction: boolean;
+  /** Estimated answer depth expected from command word + marks. */
+  requiredDepth?: QuestionUnderstandingDepth;
+  /** Concepts that must be demonstrated to earn core marks. */
+  coreConcepts?: string[];
+  /** Supporting examples/elaborations that should not be forced as compulsory. */
+  optionalDetails?: string[];
+  /** True when question explicitly asks examples (e.g. "give one example"). */
+  requiresExamples?: boolean;
+  /** How strict marking should be for wording/evidence interpretation. */
+  gradingStrictness?: QuestionGradingStrictness;
 };
 
 export type GradeSubmissionInput = {
@@ -215,6 +233,45 @@ export type MarkBreakdownItem = {
   awardedOutsideRubric?: boolean;
 };
 
+/**
+ * One accepted answer value for an open-set rubric concept,
+ * together with alternate phrasings / BM translations.
+ */
+export type RubricConceptMember = {
+  value: string;
+  aliases: string[];
+};
+
+/**
+ * Structural type of a rubric row — drives matching strategy.
+ * open_set:            any-N-from-pool (state N, list N, give N)
+ * fixed_sequence:      ordered steps where position matters
+ * mechanism_chain:     causal/linked explanation chain
+ * single_fact:         one specific correct answer
+ * paired_feature_function: feature + its function as a unit
+ */
+export type RubricConceptType =
+  | "open_set"
+  | "fixed_sequence"
+  | "mechanism_chain"
+  | "single_fact"
+  | "paired_feature_function";
+
+/**
+ * How the matcher should evaluate student evidence against this row.
+ * open_set:      student names any valid member (+ aliases)
+ * semantic_match: concept meaning must match, wording flexible
+ * exact_match:   specific term / value required
+ * ordered_sequence: position in sequence must also be correct
+ */
+export type RubricGradingMode =
+  | "open_set"
+  /** Topic-domain recall ("state any two safety rules") — same matching as open_set. */
+  | "open_pool"
+  | "semantic_match"
+  | "exact_match"
+  | "ordered_sequence";
+
 export type RubricIdeaKind =
   | "feature"
   | "function"
@@ -251,6 +308,24 @@ export type RubricIdea = {
   equationType?: EquationType;
   /** Accuracy row depends on its method row being awarded first. */
   dependsOnRowId?: string;
+  /**
+   * Structural type of this rubric row — drives matching mode selection.
+   * When set, takes precedence over kind-based strategy resolution.
+   */
+  conceptType?: RubricConceptType;
+  /**
+   * Explicit matching mode for this row.
+   * open_set: student must name any valid member from validMembers pool.
+   */
+  gradingMode?: RubricGradingMode;
+  /**
+   * Full pool of accepted answers with their aliases.
+   * Used for open_set rubric rows (state N / list N / give N questions).
+   * Replaces flat keywords[] + acceptedConcepts[] for richer alias matching.
+   */
+  validMembers?: RubricConceptMember[];
+  /** Allow semantic paraphrase when matching validMembers (default true for open_set). */
+  allowSemanticEquivalence?: boolean;
 };
 
 export type RubricSource = "past_paper" | "llm_generated" | "manual";

@@ -113,7 +113,7 @@ async function run(): Promise<void> {
   }
 
   const { ensureRagSchema } = await import("../src/database/initRagDatabase");
-  const { ingestPastPaperPdfToRagDb } = await import("../src/services/rag/ingestionService");
+  const { ingestPastPaperPdfToRagDb } = await import("../src/services/rag/ingestion/ingestionService");
 
   await ensureRagSchema();
 

@@ -7,7 +7,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: join(__dirname, "../.env") });
 
 async function main(): Promise<void> {
-  const { listTextbooks } = await import("../src/services/rag/textbookService");
+  const { listTextbooks } = await import("../src/services/rag/ingestion/textbookService");
   const { ragDb, ragTextbookChunksTable, ragTextbooksTable } = await import("../src/lib/ragDb");
 
   const subjectFilter = process.argv.find((a) => a.startsWith("--subject="))?.split("=")[1];

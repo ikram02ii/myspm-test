@@ -1,9 +1,9 @@
 /**
- * Create saved rubrics for every Biology Form 5 textbook chunk (batched).
+ * Create saved rubrics for every Chemistry Form 5 textbook chunk (batched).
  *
- *   npx tsx scripts/createRubricsBioForm5All.ts
- *   npx tsx scripts/createRubricsBioForm5All.ts --maxChunks 50 --offset 0
- *   npx tsx scripts/createRubricsBioForm5All.ts --chapterFilter "Chapter 4"
+ *   npx tsx scripts/createRubricsChemForm5All.ts
+ *   npx tsx scripts/createRubricsChemForm5All.ts --chapterFilter "Chapter 3"
+ *   npx tsx scripts/createRubricsChemForm5All.ts --offset 200
  */
 
 import * as dotenv from "dotenv";
@@ -31,6 +31,8 @@ function flag(name: string): boolean {
 }
 
 const BATCH_CAP = 200;
+const SUBJECT = "Chemistry";
+const FORM = "Form 5";
 
 async function main(): Promise<void> {
   if (!process.env["RAG_DATABASE_URL"]?.trim()) {
@@ -57,7 +59,7 @@ async function main(): Promise<void> {
   let batchNum = 0;
 
   console.info(
-    `[bio-f5-rubrics] subject=Biology form=Form 5 batchSize=${batchSize} concurrency=${concurrency} maxMarks=${maxMarks}` +
+    `[chem-f5-rubrics] subject=${SUBJECT} form=${FORM} batchSize=${batchSize} concurrency=${concurrency} maxMarks=${maxMarks}` +
       (chapterFilter ? ` chapterFilter=${chapterFilter}` : ""),
   );
 
@@ -66,25 +68,25 @@ async function main(): Promise<void> {
       "../src/services/rag/rubric/rubricFromTextbookChunksService.js"
     );
     const { textbook, chunks } = await listTextbookChunksForRubricGeneration({
-      subject: "Biology",
-      form: "Form 5",
+      subject: SUBJECT,
+      form: FORM,
       chapterFilter,
       maxChunks: batchSize,
       offset,
     });
     console.info(
-      `[bio-f5-rubrics] dry-run textbook=${textbook.textbookId} chunksInBatch=${chunks.length} offset=${offset}`,
+      `[chem-f5-rubrics] dry-run textbook=${textbook.textbookId} chunksInBatch=${chunks.length} offset=${offset}`,
     );
     return;
   }
 
   for (;;) {
     batchNum += 1;
-    console.info(`[bio-f5-rubrics] batch ${batchNum} offset=${offset} ...`);
+    console.info(`[chem-f5-rubrics] batch ${batchNum} offset=${offset} ...`);
 
     const result = await createRubricsFromTextbookChunks({
-      subject: "Biology",
-      form: "Form 5",
+      subject: SUBJECT,
+      form: FORM,
       chapterFilter,
       maxChunks: batchSize,
       offset,
@@ -98,7 +100,7 @@ async function main(): Promise<void> {
     totalFailed += result.failed;
 
     console.info(
-      `[bio-f5-rubrics] batch ${batchNum} done: processed=${result.processed} created=${result.created} skipped=${result.skipped} failed=${result.failed}`,
+      `[chem-f5-rubrics] batch ${batchNum} done: processed=${result.processed} created=${result.created} skipped=${result.skipped} failed=${result.failed}`,
     );
 
     if (result.errors.length > 0) {
@@ -111,15 +113,14 @@ async function main(): Promise<void> {
     }
 
     if (result.processed === 0) {
-      console.info("[bio-f5-rubrics] no more chunks at this offset — finished.");
+      console.info("[chem-f5-rubrics] no more chunks at this offset — finished.");
       break;
     }
 
-    // Advance by DB page size (not filtered count) so we do not stop early when < batchSize pass quality filter.
     offset += batchSize;
 
     if (result.failed > 0 && result.created === 0) {
-      console.error("[bio-f5-rubrics] batch had failures and no creates — stopping.");
+      console.error("[chem-f5-rubrics] batch had failures and no creates — stopping.");
       process.exit(1);
     }
   }
@@ -127,8 +128,8 @@ async function main(): Promise<void> {
   console.info(
     JSON.stringify(
       {
-        subject: "Biology",
-        form: "Form 5",
+        subject: SUBJECT,
+        form: FORM,
         batches: batchNum,
         totalCreated,
         totalSkipped,

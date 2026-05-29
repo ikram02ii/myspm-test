@@ -24,7 +24,7 @@ async function main(): Promise<void> {
   const topic = arg("topic") ?? "Random";
   const pdfPath = arg("pdfPath");
 
-  const { buildEnglishSpeakingPdfContext } = await import("../src/services/rag/englishSpeakingPdfService.js");
+  const { buildEnglishSpeakingPdfContext } = await import("../src/services/rag/speaking/englishSpeakingPdfService.js");
   const ctx = await buildEnglishSpeakingPdfContext({ pdfPath, part });
 
   console.log("PDF:", ctx.pdfPath);

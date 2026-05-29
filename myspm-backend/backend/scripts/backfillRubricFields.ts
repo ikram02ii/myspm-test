@@ -9,8 +9,8 @@ import * as dotenv from "dotenv";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ragDb, ragRubricsTable } from "../src/lib/ragDb";
-import { analyzeQuestion } from "../src/services/rag/questionAnalysisService";
-import { finalizeRubricIdeas } from "../src/services/rag/rubricService";
+import { analyzeQuestion } from "../src/services/rag/grading/questionAnalysisService";
+import { finalizeRubricIdeas } from "../src/services/rag/rubric/rubricService";
 import type { RubricIdea } from "../src/services/rag/types";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));

@@ -1,4 +1,4 @@
-import { extractPdfPages } from "../src/services/rag/pdfTextExtract";
+import { extractPdfPages } from "../src/services/rag/ingestion/pdfTextExtract";
 
 const pdfPath =
   process.argv[2] ??

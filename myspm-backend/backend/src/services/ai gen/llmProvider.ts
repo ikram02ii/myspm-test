@@ -1,4 +1,4 @@
-import { embedTexts as embedTextsViaQwen } from "../rag/embeddingsService";
+import { embedTexts as embedTextsViaQwen } from "../rag/retrieval/embeddingsService";
 
 type ChatMessage = {
   role: "system" | "user" | "assistant";

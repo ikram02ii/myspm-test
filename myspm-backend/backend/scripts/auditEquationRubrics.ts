@@ -12,8 +12,8 @@ const EQ_Q =
 async function main(): Promise<void> {
   const subject = "Chemistry";
   const { ragDb, ragRubricsTable } = await import("../src/lib/ragDb");
-  const { parseRubricIdeas } = await import("../src/services/rag/rubricService");
-  const { analyzeQuestion } = await import("../src/services/rag/questionAnalysisService");
+  const { parseRubricIdeas } = await import("../src/services/rag/rubric/rubricService");
+  const { analyzeQuestion } = await import("../src/services/rag/grading/questionAnalysisService");
 
   const rows = await ragDb
     .select({

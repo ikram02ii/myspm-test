@@ -5,12 +5,12 @@ import {
   formatGeneratorContextBlock,
   type GenerateRagDiagram,
 } from "./generateFromRagEnhancements";
-import { retrieveChunks } from "../rag/retrievalService";
+import { retrieveChunks } from "../rag/retrieval/retrievalService";
 import { enrichMathAnswerWithSvg } from "./mathSvg";
-import { analyzeQuestion } from "../rag/questionAnalysisService";
-import { buildEnglishSpeakingPdfContext } from "../rag/englishSpeakingPdfService";
-import { englishSpeakingPartFromQuery } from "../rag/englishSpeakingTypes";
-import { finalizeRubricIdeas, saveGeneratedRubric } from "../rag/rubricService";
+import { analyzeQuestion } from "../rag/grading/questionAnalysisService";
+import { buildEnglishSpeakingPdfContext } from "../rag/speaking/englishSpeakingPdfService";
+import { englishSpeakingPartFromQuery } from "../rag/speaking/englishSpeakingTypes";
+import { finalizeRubricIdeas, saveGeneratedRubric } from "../rag/rubric/rubricService";
 import type { RetrievedChunk, RubricIdea, RubricIdeaKind } from "../rag/types";
 
 export type GenerateRagInput = {
@@ -374,13 +374,16 @@ async function generateOpenEndedWithSavedRubrics(params: {
   const system = [
     "You generate short Malaysian SPM subjective practice questions and strict marking rubrics.",
     "Return JSON only, no prose, no code fences.",
-    "Schema: { \"questions\": [{ \"questionText\": string, \"maxMarks\": number, \"modelAnswer\": string, \"rubricIdeas\": [{ \"id\": string, \"idea\": string, \"marks\": number, \"kind\": \"feature|function|point|step|comparison|knowledge|explanation|example|use|calculation|definition\", \"keywords\"?: string[], \"acceptedConcepts\"?: string[] }] }] }.",
+    "Schema: { \"questions\": [{ \"questionText\": string, \"maxMarks\": number, \"modelAnswer\": string, \"rubricIdeas\": [{ \"id\": string, \"idea\": string, \"marks\": number, \"kind\": \"feature|function|point|step|comparison|knowledge|explanation|example|use|calculation|definition\", \"keywords\"?: string[], \"acceptedConcepts\"?: string[], \"openEnded\"?: boolean }] }] }.",
+    "For EVERY rubric idea: set acceptedConcepts to a broad list of ALL valid SPM-level phrasings a Form 4/5 student might write — including simplified, informal, BM, mixed-language, concise, and paraphrased forms. Cover the FULL valid answer space so correct student answers are never rejected due to unexpected phrasing.",
+    "Set openEnded=true for any mark point where multiple valid SPM-level answers exist at the same correctness level.",
     "Each rubric idea must be one atomic separately markable point — no vague summary rows that repeat several atomic points.",
     "Do not set requiresCausalLink. Use atomic mark points matched to the question shape (mechanism steps, function + route, example + use, etc.) — never one summary row that bundles multiple independent marks.",
     "Every questionText must include the mark allocation at the end, e.g. '(2 marks)'.",
     "maxMarks must be an integer from 1 to 3 only.",
     "Each question must be short and answerable in a few sentences.",
-    "For each question, rubricIdeas marks must sum exactly to maxMarks.",
+    "ANSWER POOL RULE: If the question uses 'state N', 'list N', 'give N', 'mention N', or any 'pick N from many' phrasing, the rubricIdeas MUST contain ALL valid SPM-level answers as separate 1-mark rows — not just N rows. The pool total may exceed maxMarks. The marking engine will award any correct answers up to the maxMarks cap. Do NOT limit the pool to exactly N rows.",
+    "For mechanism/explain/describe questions with a fixed answer chain: rubricIdeas marks must sum exactly to maxMarks.",
     "Each rubric idea must be one examinable SPM mark point, not a model paragraph.",
     "Use SPM Form 4/5 depth only.",
   ].join("\n");

@@ -82,7 +82,7 @@ export type AiScanOcrOptions = {
    * Default — full cleanup/validation pipeline (other flows).
    */
   mode?: "extract" | "full";
-  /** Only used with mode `full`; optional question context for repair/validation. */
+  /** Current question stem — used to strip EN:/BM: lines accidentally OCR'd from the screen. */
   question?: string;
 };
 
@@ -125,10 +125,8 @@ export async function uploadScanImageWithAiTutor(
   form.append("mode", mode);
   const subject = options?.subject?.trim();
   if (subject) form.append("subject", subject);
-  if (mode === "full") {
-    const question = options?.question?.trim();
-    if (question) form.append("question", question);
-  }
+  const question = options?.question?.trim();
+  if (question) form.append("question", question);
   await appendImageToFormData(form, photoUri);
 
   const base = await resolveAiScanBaseUrl();

@@ -12,7 +12,7 @@ import {
   buildPastPaperMarksGuidance,
   isMcqGenerationQuery,
   isSubjectiveGenerationQuery,
-} from "../rag/pastPaperMarksHints";
+} from "../rag/retrieval/pastPaperMarksHints";
 import type { RetrievedChunk } from "../rag/types";
 import { enrichMathAnswerWithSvg } from "./mathSvg";
 
