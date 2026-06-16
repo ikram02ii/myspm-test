@@ -24,6 +24,12 @@ export const PRACTICE_SUBJECT_CATALOG: PracticeSubjectDef[] = [
   { id: "biology", label: "Biology", topicsActive: 13, icon: "leaf" },
   { id: "english", label: "English", topicsActive: 10, icon: "book" },
   { id: "bm", label: "Bahasa Melayu", topicsActive: 9, icon: "languages" },
+  { id: "pisislam", label: "Pendidikan Islam", topicsActive: 9, icon: "book" },
+  { id: "pismoral", label: "Pendidikan Moral", topicsActive: 6, icon: "book" },
+  { id: "perniagaan", label: "Perniagaan", topicsActive: 6, icon: "book" },
+  { id: "akaun", label: "Prinsip Perakaunan", topicsActive: 6, icon: "book" },
+  { id: "ekonomi", label: "Ekonomi", topicsActive: 6, icon: "book" },
+  { id: "geografi", label: "Geografi", topicsActive: 6, icon: "book" },
 ];
 
 export const TOPICS_BY_SUBJECT: Record<string, string[]> = {
@@ -35,6 +41,19 @@ export const TOPICS_BY_SUBJECT: Record<string, string[]> = {
   biology: ["Cell", "Genetics", "Ecology", "Human Physiology", "Evolution"],
   english: ["Comprehension", "Writing", "Literature", "Grammar", "Summary"],
   bm: ["Komsas", "Karangan", "Tatabahasa", "Ramalan", "Novel"],
+  pisislam: ["Akidah", "Ibadah", "Sirah", "Adab", "Al-Quran"],
+  pismoral: ["Nilai murni", "Keprihatinan sosial", "Patriotisme", "Keberanian moral"],
+  perniagaan: ["Pemasaran", "Kewangan", "Pengurusan", "Dokumentasi"],
+  akaun: ["Jurnal", "Lejar", "Imbangan duga", "Penyata kewangan"],
+  ekonomi: [
+    "Pengenalan kepada Ekonomi",
+    "Pasaran",
+    "Wang, Bank dan Pendapatan Individu",
+    "Pengeluaran",
+    "Ekonomi dan Kerajaan",
+    "Malaysia dan Ekonomi Global",
+  ],
+  geografi: ["Bentuk muka bumi", "Cuaca", "Penduduk", "Pembangunan lestari"],
 };
 
 export const DEFAULT_PRACTICE_SUBJECT_IDS: string[] = ["math", "history", "addmath"];

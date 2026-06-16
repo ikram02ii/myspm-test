@@ -1,4 +1,5 @@
 import { embedTexts as embedTextsViaQwen } from "../rag/embeddingsService";
+import { isSubjectiveGenerationQuery } from "../rag/pastPaperMarksHints";
 
 type ChatMessage = {
   role: "system" | "user" | "assistant";
@@ -109,14 +110,29 @@ function resolveChatModel(opts?: ChatOpts): string {
     "chemistry",
     "science",
   ]);
+  const sejarahSubjects = new Set([
+    "sejarah",
+    "history",
+    "pendidikan islam",
+    "pendidikan moral",
+  ]);
   const languageSubjects = new Set(["bm", "bahasa melayu", "english", "chinese"]);
-  const wantsKbat = /\bkbat\b|essay|karangan|subjective|open[- ]ended/.test(query);
+  // KBAT/essay model is for BM/English/Chinese only. Subjective prompts for other subjects
+  // still contain "KBAT/HOTS" in variation boilerplate — do not route those to the KBAT model.
+  const wantsKbatModel =
+    languageSubjects.has(subject) &&
+    (isSubjectiveGenerationQuery(query) ||
+      /\bessay\b|karangan|open[- ]ended/.test(query));
 
   if (mathScienceSubjects.has(subject)) {
     return process.env["RAG_MODEL_MATH_SCIENCE"]?.trim() || explicitModel || "qwen-plus";
   }
 
-  if (languageSubjects.has(subject) || wantsKbat) {
+  if (sejarahSubjects.has(subject)) {
+    return process.env["RAG_MODEL_SEJARAH"]?.trim() || "qwen-plus";
+  }
+
+  if (wantsKbatModel) {
     return process.env["RAG_MODEL_LANGUAGE_KBAT"]?.trim() || explicitModel || "qwen-plus";
   }
 

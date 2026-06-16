@@ -124,7 +124,7 @@ function parseForceBmSubjects(): Set<string> {
   const raw = process.env.RAG_FORCE_BM_SUBJECTS?.trim();
   const parts = raw
     ? raw.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean)
-    : ["sejarah"];
+    : ["sejarah", "pendidikan islam", "pendidikan moral"];
   return new Set(parts);
 }
 
@@ -134,9 +134,18 @@ function isForceBmSubject(subject: string | null | undefined): boolean {
   return parseForceBmSubjects().has(s);
 }
 
+const BM_ONLY_SUBJECT_FORMAT_APPEND = `
+
+BM-only subject rules (override any bilingual instruction above):
+- Write every soalan stem, option, Jawapan, Penjelasan, Marking points, and model answer in Bahasa Melayu only.
+- Do NOT use EN: or BM: prefixes. Do not include any English question stem.
+- For MCQ: Soalan N → BM stem → A. B. C. D. → Jawapan: → Penjelasan:
+- For subjective: Soalan N → BM stem → Markah: → Jawapan: → Marking points:`;
+
 function systemPromptForSubject(subject: string | null | undefined): string {
   const rule = isForceBmSubject(subject) ? LANGUAGE_RULE_FORCE_BM : LANGUAGE_RULE_DEFAULT;
-  return SYSTEM_PROMPT_BASE.replace("{{LANGUAGE_RULE}}", rule);
+  const base = SYSTEM_PROMPT_BASE.replace("{{LANGUAGE_RULE}}", rule);
+  return isForceBmSubject(subject) ? `${base}${BM_ONLY_SUBJECT_FORMAT_APPEND}` : base;
 }
 
 function systemPromptForNoRetrievalFallback(subject: string | null | undefined): string {
@@ -198,21 +207,24 @@ function buildEmergencyMcqFallback(query: string, subject: string | null | undef
   const count = requestedQuestionCount(query);
   const topic = fallbackTopicLabel(query);
   const subjectLabel = subject?.trim() || "the subject";
+  const bmOnly = isForceBmSubject(subject);
   const items: string[] = [];
 
   for (let i = 1; i <= count; i += 1) {
+    const stemBlock = bmOnly
+      ? `Item latihan sandaran sementara ${i} bagi ${subjectLabel} untuk topik ${topic}. Pilihan manakah ialah jawapan placeholder bagi set soalan sandaran ini?`
+      : [
+          `EN: Temporary fallback practice item ${i} for ${subjectLabel} on ${topic}. Which option is the placeholder answer for this backup question set?`,
+          `BM: Item latihan sandaran sementara ${i} bagi ${subjectLabel} untuk topik ${topic}. Pilihan manakah ialah jawapan placeholder bagi set soalan sandaran ini?`,
+        ].join("\n");
+    const options = bmOnly
+      ? ["A. Jawapan placeholder", "B. Pilihan alternatif", "C. Pilihan lain", "D. Pilihan terakhir"]
+      : ["A. Placeholder answer", "B. Alternative placeholder", "C. Another placeholder", "D. Last placeholder"];
+    const explanation = bmOnly
+      ? "Item sandaran sementara kerana tiada petikan pangkalan pengetahuan yang sepadan."
+      : "Temporary fallback item returned because no matching knowledge-base chunks were available.";
     items.push(
-      [
-        `Soalan ${i}`,
-        `EN: Temporary fallback practice item ${i} for ${subjectLabel} on ${topic}. Which option is the placeholder answer for this backup question set?`,
-        `BM: Item latihan sandaran sementara ${i} bagi ${subjectLabel} untuk topik ${topic}. Pilihan manakah ialah jawapan placeholder bagi set soalan sandaran ini?`,
-        "A. Placeholder answer",
-        "B. Alternative placeholder",
-        "C. Another placeholder",
-        "D. Last placeholder",
-        "Jawapan: A",
-        "Penjelasan: Temporary fallback item returned because no matching knowledge-base chunks were available.",
-      ].join("\n"),
+      [`Soalan ${i}`, stemBlock, ...options, "Jawapan: A", `Penjelasan: ${explanation}`].join("\n"),
     );
   }
 
@@ -223,19 +235,31 @@ function buildEmergencySubjectiveFallback(query: string, subject: string | null 
   const count = requestedQuestionCount(query);
   const topic = fallbackTopicLabel(query);
   const subjectLabel = subject?.trim() || "the subject";
+  const bmOnly = isForceBmSubject(subject);
   const items: string[] = [];
 
   for (let i = 1; i <= count; i += 1) {
+    const stemBlock = bmOnly
+      ? `Item berstruktur sandaran sementara ${i} bagi ${subjectLabel} untuk topik ${topic}. Nyatakan satu poin yang berkaitan untuk set soalan sandaran ini.`
+      : [
+          `EN: Temporary fallback structured item ${i} for ${subjectLabel} on ${topic}. State one relevant point for this backup question set.`,
+          `BM: Item berstruktur sandaran sementara ${i} bagi ${subjectLabel} untuk topik ${topic}. Nyatakan satu poin yang berkaitan untuk set soalan sandaran ini.`,
+        ].join("\n");
     items.push(
       [
         `Soalan ${i}`,
-        `EN: Temporary fallback structured item ${i} for ${subjectLabel} on ${topic}. State one relevant point for this backup question set.`,
-        `BM: Item berstruktur sandaran sementara ${i} bagi ${subjectLabel} untuk topik ${topic}. Nyatakan satu poin yang berkaitan untuk set soalan sandaran ini.`,
+        stemBlock,
         "Markah: 2",
-        "Jawapan: Any simple relevant point for the requested topic.",
+        bmOnly
+          ? "Jawapan: Mana-mana poin yang berkaitan dengan topik yang diminta."
+          : "Jawapan: Any simple relevant point for the requested topic.",
         "Marking points:",
-        "- Accept one relevant point linked to the requested topic.",
-        "- Award full marks only when the point is clear and topic-related.",
+        bmOnly
+          ? "- Terima satu poin yang berkaitan dengan topik yang diminta."
+          : "- Accept one relevant point linked to the requested topic.",
+        bmOnly
+          ? "- Beri markah penuh hanya jika poin itu jelas dan berkaitan dengan topik."
+          : "- Award full marks only when the point is clear and topic-related.",
       ].join("\n"),
     );
   }
@@ -340,7 +364,9 @@ function mcqFormatReminder(query: string, subject?: string | null): string {
 
 Science diagram rule: Do not add any "Perlu rajah" or diagram-needed line inside the MCQ blocks. The app will decide diagram rendering in a second pass after the questions are generated.`
     : "";
-  const mcqLine = "Soalan 1 → EN: / BM: (two lines) → A. B. C. D. → Jawapan: <one letter> → Penjelasan:";
+  const mcqLine = isForceBmSubject(subject)
+    ? "Soalan 1 → BM stem only (no EN:) → A. B. C. D. → Jawapan: <one letter> → Penjelasan:"
+    : "Soalan 1 → EN: / BM: (two lines) → A. B. C. D. → Jawapan: <one letter> → Penjelasan:";
 
   return `
 
@@ -350,12 +376,19 @@ Do NOT use Markah:, Marking points:, or essay-style model answers for MCQ.
 Output at least one full Soalan block before any other text.${scienceDiagramRule}`;
 }
 
-function subjectiveGenerationReminder(query: string, hits: RetrievedChunk[]): string {
+function subjectiveGenerationReminder(
+  query: string,
+  hits: RetrievedChunk[],
+  subject?: string | null,
+): string {
   if (!isSubjectiveGenerationQuery(query)) return "";
   const marksGuide = buildPastPaperMarksGuidance(hits);
+  const templateLine = isForceBmSubject(subject)
+    ? "The user wants subjective (structured) questions. Use Soalan / BM stem only / Markah / Jawapan / Marking points (Bahasa Melayu only, no EN: line)."
+    : "The user wants subjective (structured) questions. Use the subjective Soalan / EN / BM / Markah / Jawapan / Marking points template.";
   return `
 
-The user wants subjective (structured) questions. Use the subjective Soalan / EN / BM / Markah / Jawapan / Marking points template.
+${templateLine}
 Assign each Markah: from past-paper mark patterns in the excerpts — not arbitrary defaults.
 ${marksGuide ? `\n${marksGuide}\n` : "\n(No past-paper mark samples in context — use typical SPM weights: 2–4 marks for short explain, 5–8 for KBAT/essay parts.)\n"}`;
 }
@@ -529,7 +562,7 @@ export async function generateWithRag(
         content: `User request:
 ${input.query}
 
-Follow the appropriate template from the system message (MCQ vs subjective). Use general SPM knowledge only, and output the final question blocks directly with no preamble.${graphJsonReminder(input.subject, input.query)}${mcqFormatReminder(input.query, input.subject)}${subjectiveGenerationReminder(input.query, [])}`,
+Follow the appropriate template from the system message (MCQ vs subjective). Use general SPM knowledge only, and output the final question blocks directly with no preamble.${graphJsonReminder(input.subject, input.query)}${mcqFormatReminder(input.query, input.subject)}${subjectiveGenerationReminder(input.query, [], input.subject)}`,
       },
     ], { subject: input.subject, query: input.query });
     answerRaw = ensureNoRetrievalParseableAnswer(input.query, input.subject, answerRaw);
@@ -551,12 +584,15 @@ Follow the appropriate template from the system message (MCQ vs subjective). Use
 
   const contextBlocks = hits.map((h, i) => formatGeneratorContextBlock(h, i + 1));
 
-  const userContent = `Below are short excerpts from the syllabus/material (numbered for your use only; never show these numbers or any reference to them in your reply):\n\n${contextBlocks.join("\n\n---\n\n")}\n\nUser request:\n${input.query}\n\nFollow the appropriate template from the system message (MCQ vs subjective).${graphJsonReminder(input.subject, input.query)}${mcqFormatReminder(input.query, input.subject)}${subjectiveGenerationReminder(input.query, hits)}`;
+  const userContent = `Below are short excerpts from the syllabus/material (numbered for your use only; never show these numbers or any reference to them in your reply):\n\n${contextBlocks.join("\n\n---\n\n")}\n\nUser request:\n${input.query}\n\nFollow the appropriate template from the system message (MCQ vs subjective).${graphJsonReminder(input.subject, input.query)}${mcqFormatReminder(input.query, input.subject)}${subjectiveGenerationReminder(input.query, hits, input.subject)}`;
 
-  const answerRaw = await chatCompletion([
+  let answerRaw = await chatCompletion([
     { role: "system", content: systemPromptForSubject(input.subject) },
     { role: "user", content: userContent },
   ], { subject: input.subject, query: input.query });
+  if (isForceBmSubject(input.subject)) {
+    answerRaw = ensureNoRetrievalParseableAnswer(input.query, input.subject, answerRaw);
+  }
   const answerWithSvg = shouldPostProcessMathSvg(input.subject)
     ? enrichMathAnswerWithSvg(answerRaw)
     : answerRaw;

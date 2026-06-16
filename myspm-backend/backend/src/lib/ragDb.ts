@@ -1,6 +1,7 @@
 import { drizzle } from "drizzle-orm/node-postgres";
 import pg from "pg";
 import * as schema from "./ragSchema";
+import { RAG_DB_SCHEMA_NAME } from "./ragSchema";
 
 const { Pool } = pg;
 
@@ -31,7 +32,12 @@ function buildRagDatabaseUrl(): string {
 }
 
 const ragConnectionString = buildRagDatabaseUrl();
-export const ragPool = new Pool({ connectionString: ragConnectionString });
+
+export const ragPool = new Pool({
+  connectionString: ragConnectionString,
+});
+
 export const ragDb = drizzle(ragPool, { schema });
 
+export { RAG_DB_SCHEMA_NAME };
 export * from "./ragSchema";

@@ -1,8 +1,12 @@
-import { ragPool } from "../lib/ragDb";
+import { ragPool, RAG_DB_SCHEMA_NAME } from "../lib/ragDb";
 
 export async function ensureRagSchema(): Promise<void> {
+  const s = RAG_DB_SCHEMA_NAME;
+
+  await ragPool.query(`CREATE SCHEMA IF NOT EXISTS ${s}`);
+
   await ragPool.query(`
-    CREATE TABLE IF NOT EXISTS rag_textbooks (
+    CREATE TABLE IF NOT EXISTS ${s}.rag_textbooks (
       id SERIAL PRIMARY KEY,
       textbook_id VARCHAR(64) NOT NULL UNIQUE,
       subject VARCHAR(120) NOT NULL,
@@ -17,9 +21,9 @@ export async function ensureRagSchema(): Promise<void> {
   `);
 
   await ragPool.query(`
-    CREATE TABLE IF NOT EXISTS rag_textbook_chunks (
+    CREATE TABLE IF NOT EXISTS ${s}.rag_textbook_chunks (
       id SERIAL PRIMARY KEY,
-      textbook_db_id INTEGER NOT NULL REFERENCES rag_textbooks(id) ON DELETE CASCADE,
+      textbook_db_id INTEGER NOT NULL REFERENCES ${s}.rag_textbooks(id) ON DELETE CASCADE,
       chunk_id VARCHAR(64) NOT NULL,
       chunk_index INTEGER NOT NULL,
       concept_title VARCHAR(255),
@@ -35,7 +39,7 @@ export async function ensureRagSchema(): Promise<void> {
   `);
 
   await ragPool.query(`
-    ALTER TABLE rag_textbook_chunks
+    ALTER TABLE ${s}.rag_textbook_chunks
       ADD COLUMN IF NOT EXISTS concept_title VARCHAR(255),
       ADD COLUMN IF NOT EXISTS concept_summary TEXT,
       ADD COLUMN IF NOT EXISTS keywords TEXT,
@@ -47,7 +51,7 @@ export async function ensureRagSchema(): Promise<void> {
   `);
 
   await ragPool.query(`
-    CREATE TABLE IF NOT EXISTS rag_grading_results (
+    CREATE TABLE IF NOT EXISTS ${s}.rag_grading_results (
       id SERIAL PRIMARY KEY,
       submission_id VARCHAR(120) NOT NULL,
       user_id INTEGER,
@@ -63,26 +67,26 @@ export async function ensureRagSchema(): Promise<void> {
 
   await ragPool.query(`
     CREATE INDEX IF NOT EXISTS idx_rag_textbooks_subject_form
-      ON rag_textbooks (subject, form);
+      ON ${s}.rag_textbooks (subject, form);
   `);
 
   await ragPool.query(`
     CREATE INDEX IF NOT EXISTS idx_rag_chunks_textbook_id
-      ON rag_textbook_chunks (textbook_db_id);
+      ON ${s}.rag_textbook_chunks (textbook_db_id);
   `);
 
   await ragPool.query(`
     CREATE INDEX IF NOT EXISTS idx_rag_chunks_concept_title
-      ON rag_textbook_chunks (concept_title);
+      ON ${s}.rag_textbook_chunks (concept_title);
   `);
 
   await ragPool.query(`
     CREATE INDEX IF NOT EXISTS idx_rag_grading_submission_id
-      ON rag_grading_results (submission_id);
+      ON ${s}.rag_grading_results (submission_id);
   `);
 
   await ragPool.query(`
-    CREATE TABLE IF NOT EXISTS rag_past_papers (
+    CREATE TABLE IF NOT EXISTS ${s}.rag_past_papers (
       id SERIAL PRIMARY KEY,
       paper_id VARCHAR(96) NOT NULL UNIQUE,
       subject VARCHAR(120) NOT NULL,
@@ -96,9 +100,9 @@ export async function ensureRagSchema(): Promise<void> {
   `);
 
   await ragPool.query(`
-    CREATE TABLE IF NOT EXISTS rag_past_paper_chunks (
+    CREATE TABLE IF NOT EXISTS ${s}.rag_past_paper_chunks (
       id SERIAL PRIMARY KEY,
-      past_paper_db_id INTEGER NOT NULL REFERENCES rag_past_papers(id) ON DELETE CASCADE,
+      past_paper_db_id INTEGER NOT NULL REFERENCES ${s}.rag_past_papers(id) ON DELETE CASCADE,
       chunk_id VARCHAR(64) NOT NULL,
       chunk_index INTEGER NOT NULL,
       question_ref VARCHAR(80),
@@ -111,7 +115,7 @@ export async function ensureRagSchema(): Promise<void> {
   `);
 
   await ragPool.query(`
-    ALTER TABLE rag_past_paper_chunks
+    ALTER TABLE ${s}.rag_past_paper_chunks
       ADD COLUMN IF NOT EXISTS page_start INTEGER,
       ADD COLUMN IF NOT EXISTS page_end INTEGER,
       ADD COLUMN IF NOT EXISTS source_image_url TEXT,
@@ -121,16 +125,16 @@ export async function ensureRagSchema(): Promise<void> {
 
   await ragPool.query(`
     CREATE INDEX IF NOT EXISTS idx_rag_past_papers_subject_form
-      ON rag_past_papers (subject, form);
+      ON ${s}.rag_past_papers (subject, form);
   `);
 
   await ragPool.query(`
     CREATE INDEX IF NOT EXISTS idx_rag_past_paper_chunks_paper_id
-      ON rag_past_paper_chunks (past_paper_db_id);
+      ON ${s}.rag_past_paper_chunks (past_paper_db_id);
   `);
 
   await ragPool.query(`
-    CREATE TABLE IF NOT EXISTS rag_rubrics (
+    CREATE TABLE IF NOT EXISTS ${s}.rag_rubrics (
       id SERIAL PRIMARY KEY,
       rubric_id VARCHAR(96) NOT NULL UNIQUE,
       question_hash VARCHAR(96) NOT NULL,
@@ -150,11 +154,11 @@ export async function ensureRagSchema(): Promise<void> {
 
   await ragPool.query(`
     CREATE INDEX IF NOT EXISTS idx_rag_rubrics_subject_form
-      ON rag_rubrics (subject, form);
+      ON ${s}.rag_rubrics (subject, form);
   `);
 
   await ragPool.query(`
     CREATE INDEX IF NOT EXISTS idx_rag_rubrics_question_hash
-      ON rag_rubrics (question_hash);
+      ON ${s}.rag_rubrics (question_hash);
   `);
 }

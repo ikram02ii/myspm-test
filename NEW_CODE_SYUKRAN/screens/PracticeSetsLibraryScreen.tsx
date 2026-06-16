@@ -236,6 +236,111 @@ const AI_TOPIC_OPTIONS_BY_SUBJECT_AND_FORM: Record<string, AiTopicsByForm> = {
     form4: ["Reading comprehension", "Essay writing", "Grammar", "Summary writing", "Literature"],
     form5: ["Reading comprehension", "Essay writing", "Grammar", "Summary writing", "Literature"],
   },
+  pisislam: {
+    form4: [
+      "Bab 1: Pengenalan ilmu dan amalan Islam",
+      "Akidah: Rukun Iman",
+      "Akidah: Sifat-sifat Allah",
+      "Ibadah: Solat fardhu",
+      "Ibadah: Puasa",
+      "Ibadah: Zakat",
+      "Sirah: Nabi Muhammad SAW di Mekah",
+      "Sirah: Nabi Muhammad SAW di Madinah",
+      "Adab dan akhlak Islam",
+    ],
+    form5: [
+      "Akidah: Konsep ketuhanan",
+      "Ibadah: Solat sunat dan amalan berkaitan",
+      "Ibadah: Haji dan umrah",
+      "Sirah: Khulafa al-Rasyidin",
+      "Isu semasa dan Islam",
+      "Adab berdasarkan al-Quran dan Hadis",
+    ],
+  },
+  pismoral: {
+    form4: [
+      "Nilai murni dalam kehidupan",
+      "Kemasyarakatan dan keharmonian",
+      "Keprihatinan sosial",
+      "Patriotisme",
+      "Kasih sayang",
+      "Kebebasan bertanggungjawab",
+    ],
+    form5: [
+      "Kesederhanaan",
+      "Kerajinan",
+      "Keberanian bersifat moral",
+      "Kesopanan dan budi bahasa",
+      "Nilai dalam membuat keputusan",
+      "Keprihatinan terhadap alam sekitar",
+    ],
+  },
+  perniagaan: {
+    form4: [
+      "Pengenalan kepada perniagaan",
+      "Bentuk pemilikan perniagaan",
+      "Dokumentasi perniagaan",
+      "Sumber kewangan perniagaan",
+      "Pemasaran asas",
+      "Pengurusan asas",
+    ],
+    form5: [
+      "Pengurusan perniagaan",
+      "Pemasaran",
+      "Kewangan perniagaan",
+      "Perniagaan antarabangsa",
+      "Etika dan tanggungjawab sosial",
+      "Teknologi maklumat dalam perniagaan",
+    ],
+  },
+  akaun: {
+    form4: [
+      "Asas perakaunan",
+      "Jurnal dan lejar",
+      "Imbangan duga",
+      "Penyata kewangan asas",
+      "Akaun belum terima dan belum bayar",
+      "Aset tetap",
+    ],
+    form5: [
+      "Perakaunan syarikat",
+      "Penyata kewangan syarikat",
+      "Analisis kewangan",
+      "Perakaunan kos",
+      "Perakaunan untuk entiti bukan untung",
+      "Prinsip dan amalan perakaunan",
+    ],
+  },
+  ekonomi: {
+    form4: [
+      "Bab 1: Pengenalan kepada Ekonomi",
+      "Bab 2: Pasaran",
+      "Bab 3: Wang, Bank dan Pendapatan Individu",
+      "Bab 4: Pengeluaran",
+    ],
+    form5: [
+      "Bab 1: Ekonomi dan Kerajaan",
+      "Bab 2: Malaysia dan Ekonomi Global",
+    ],
+  },
+  geografi: {
+    form4: [
+      "Bentuk muka bumi",
+      "Cuaca dan iklim",
+      "Hidrologi",
+      "Vegetasi",
+      "Penduduk",
+      "Pertanian",
+    ],
+    form5: [
+      "Pelesapan bandar",
+      "Perindustrian",
+      "Pengangkutan",
+      "Sumber dan pembangunan",
+      "Pembangunan lestari",
+      "Teknologi geografi (GIS)",
+    ],
+  },
 };
 
 function aiTopicsForSubjectAndForm(subjectKey: string, form: AiFormLevel): string[] {
@@ -265,8 +370,25 @@ function normalizeAiTopicSubjectKey(input: string | null | undefined): string | 
   if (compact === "history" || compact === "sejarah") return "history";
   if (compact === "bm" || compact === "bahasamelayu" || compact === "malay") return "bm";
   if (compact === "english" || compact === "eng") return "english";
+  if (compact === "pisislam" || compact === "pendidikanislam") return "pisislam";
+  if (compact === "pismoral" || compact === "pendidikanmoral") return "pismoral";
+  if (compact === "perniagaan" || compact === "business") return "perniagaan";
+  if (
+    compact === "akaun" ||
+    compact === "account" ||
+    compact === "accounting" ||
+    compact === "prinsipperakaunan"
+  ) {
+    return "akaun";
+  }
+  if (compact === "ekonomi" || compact === "economics") return "ekonomi";
+  if (compact === "geografi" || compact === "geography") return "geografi";
 
   return subjectHasAiTopicCatalog(compact) ? compact : null;
+}
+
+function isBmOnlyGenerationSubject(subject: string): boolean {
+  return /^(sejarah|bm|pendidikan islam|pendidikan moral)$/i.test(subject.trim());
 }
 
 type RagGeneratedImage = {
@@ -387,6 +509,12 @@ const CHAPTER_SUBJECT_TILES: SubjectTile[] = [
   { code: "physics", name: "Physics", topicKey: "physics" },
   { code: "chemistry", name: "Chemistry", topicKey: "chemistry" },
   { code: "history", name: "Sejarah", topicKey: "history" },
+  { code: "pisislam", name: "Pendidikan Islam", topicKey: "pisislam" },
+  { code: "pismoral", name: "Pendidikan Moral", topicKey: "pismoral" },
+  { code: "perniagaan", name: "Perniagaan", topicKey: "perniagaan" },
+  { code: "akaun", name: "Prinsip Perakaunan", topicKey: "akaun" },
+  { code: "ekonomi", name: "Ekonomi", topicKey: "ekonomi" },
+  { code: "geografi", name: "Geografi", topicKey: "geografi" },
 ];
 
 function getSubjectTileTopicKey(
@@ -458,6 +586,19 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
       addmaths: "Additional Math",
       additionalmath: "Additional Math",
       additionalmathematics: "Additional Math",
+      pisislam: "Pendidikan Islam",
+      pendidikanislam: "Pendidikan Islam",
+      pismoral: "Pendidikan Moral",
+      pendidikanmoral: "Pendidikan Moral",
+      perniagaan: "Perniagaan",
+      akaun: "Prinsip Perakaunan",
+      prinsipperakaunan: "Prinsip Perakaunan",
+      account: "Prinsip Perakaunan",
+      accounting: "Prinsip Perakaunan",
+      ekonomi: "Ekonomi",
+      economics: "Ekonomi",
+      geografi: "Geografi",
+      geography: "Geografi",
     };
     return map[c] ?? null;
   }
@@ -733,10 +874,10 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
       ? `For every generated question, decide whether a line graph, coordinate graph, function graph, or motion graph would help. If yes, append DIAGRAM_JSON after all questions. Use a diagrams array and include one diagram object per graph-based question. Set questionIndex to the matching Soalan number, for example questionIndex 1 for Soalan 1 and questionIndex 4 for Soalan 4. Graph-related chapters may include diagrams for multiple Soalan, not only the first one. `
       : "";
 
-    const bilingualStemRule =
-      /^(sejarah|bm)$/i.test(subject.trim())
-        ? ""
-        : `Each question stem must be bilingual on two separate lines: first line "EN: ...", second line "BM: ..." (BM must start on a new line, not the same line as EN). `;
+    const isBmOnlySubject = isBmOnlyGenerationSubject(subject);
+    const stemLanguageRule = isBmOnlySubject
+      ? `Write every soalan stem, all options A–D, Jawapan, and Penjelasan in Bahasa Melayu only (no EN: line, no English). `
+      : `Each question stem must be bilingual on two separate lines: first line "EN: ...", second line "BM: ..." (BM must start on a new line, not the same line as EN). `;
 
     const diagramHint = isScienceDiagramSubject(subject)
       ? " Do not output any Perlu rajah or diagram-needed line inside the questions. Diagram decisions will be made in a second pass after the questions are generated. "
@@ -747,10 +888,16 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
       : " ";
 
     if (aiQuestionType === "mcq") {
-      return `Generate ${aiQuestionCount} SPM ${subject} MCQ (A-D) objective questions${topicPart}. ${variationInstructions} ${graphInstructions}${bilingualStemRule}${diagramHint}${matrixFormatHint}Use exact format: Soalan 1, then EN: and BM: stems on separate lines, then A. B. C. D. options, then Jawapan: (one letter A-D only), then Penjelasan:. Do not use Markah or Marking points. Repeat for Soalan 2, 3, etc.`;
+      const mcqFormatRule = isBmOnlySubject
+        ? "Use exact format: Soalan 1, then the BM soalan stem (one or two sentences), then A. B. C. D. options, then Jawapan: (one letter A-D only), then Penjelasan:."
+        : "Use exact format: Soalan 1, then EN: and BM: stems on separate lines, then A. B. C. D. options, then Jawapan: (one letter A-D only), then Penjelasan:.";
+      return `Generate ${aiQuestionCount} SPM ${subject} MCQ (A-D) objective questions${topicPart}. ${variationInstructions} ${graphInstructions}${stemLanguageRule}${diagramHint}${matrixFormatHint}${mcqFormatRule} Do not use Markah or Marking points. Repeat for Soalan 2, 3, etc.`;
     }
 
-    return `Generate ${aiQuestionCount} SPM ${subject} subjective questions${topicPart}. ${variationInstructions} ${graphInstructions}${bilingualStemRule}Use past-paper excerpts to calibrate marks per question. For each item: Soalan N, bilingual stem (EN: then BM: on new line), Markah: <integer> (match typical mark weight from retrieved past papers for similar question type), Jawapan:, then Marking points: as bullet scheme. Repeat for Soalan 2, 3, etc.`;
+    const subjectiveFormatRule = isBmOnlySubject
+      ? "For each item: Soalan N, BM soalan stem only, Markah: <integer> (match typical mark weight from retrieved past papers for similar question type), Jawapan:, then Marking points: as bullet scheme."
+      : "For each item: Soalan N, bilingual stem (EN: then BM: on new line), Markah: <integer> (match typical mark weight from retrieved past papers for similar question type), Jawapan:, then Marking points: as bullet scheme.";
+    return `Generate ${aiQuestionCount} SPM ${subject} subjective questions${topicPart}. ${variationInstructions} ${graphInstructions}${stemLanguageRule}Use past-paper excerpts to calibrate marks per question. ${subjectiveFormatRule} Repeat for Soalan 2, 3, etc.`;
   };
 
   const buildAiOralQuery = (subject: string, practiceCode: string | null): string => {
