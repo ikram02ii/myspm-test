@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Shared Qwen chat/completions JSON helper for grading-related calls
  * (idea extraction, borderline match verify, feedback).
  */
@@ -7,6 +7,7 @@ import type { RubricIdeaKind, VerifierMode } from "../types";
 import { formatSpmExamStandardMarkingBlock, formatSufficiencyMarkingBlock } from "./gradingPolicy";
 import { formatEvidenceOnlyMarkingBlock, type EvidenceOnlyMarkingOptions } from "./gradingEvidencePolicy";
 import { formatSpmStudentFriendlyRulesBlock } from "./gradingPolicy";
+import { withMandatoryMarkingLanguage } from "./gradingMandatoryLanguage";
 
 export type QwenGradingConfig = { apiKey: string; baseUrl: string; model: string };
 
@@ -44,7 +45,16 @@ function extractJson(text: string): string {
   return trimmed;
 }
 
-export async function qwenGradingJson(system: string, user: string): Promise<any> {
+export type QwenGradingJsonOptions = {
+  /** Override sampling temperature; Half A rubric generation keeps the default. */
+  temperature?: number;
+};
+
+export async function qwenGradingJson(
+  system: string,
+  user: string,
+  options?: QwenGradingJsonOptions,
+): Promise<any> {
   const config = resolveQwenGradingConfig();
   const response = await fetch(`${config.baseUrl}/chat/completions`, {
     method: "POST",
@@ -54,7 +64,7 @@ export async function qwenGradingJson(system: string, user: string): Promise<any
     },
     body: JSON.stringify({
       model: config.model,
-      temperature: 0.1,
+      temperature: options?.temperature ?? 0.1,
       messages: [
         { role: "system", content: system },
         { role: "user", content: user },
@@ -79,66 +89,64 @@ export async function qwenGradingJson(system: string, user: string): Promise<any
 
 const VERIFIER_MODE_BLOCKS: Record<VerifierMode, string> = {
   meaning: [
-    "Task: does the student's answer EXPLICITLY STATE the required marking scheme concept for this rubric point?",
-    "EXPLICIT vs IMPLIED â€” the critical distinction:",
-    "  AWARD: the student wrote words that directly express the rubric concept, even if phrased differently (genuine paraphrase).",
-    "  WITHHOLD: the student wrote a related concept that implies or is consistent with the rubric concept but does not state it.",
-    "  Prerequisite knowledge and background science that must be added by the reader do NOT count as explicit evidence.",
-    "Do NOT require textbook wording or a full sentence unless the question type demands explanation.",
-    "Withhold if only vaguely related, generic, incomplete, scientifically true-but-unstated, or requires adding details the student never wrote.",
+    "Task: does the student's answer EXPLICITLY STATE the required marking scheme concept?",
+    "ONLY set awarded=true when the student wrote words that directly express the rubric concept (genuine paraphrase allowed ONLY when meaning is explicit).",
+    "NEVER award=true when the reader must infer, deduce, or add unstated science.",
+    "ALWAYS set awarded=false for vague, generic, related-but-unstated, or prerequisite-only overlap.",
+    "NEVER require textbook wording unless the question type demands explanation depth.",
   ].join("\n"),
   membership: [
-    "Task: did the student name a valid category member at SPM exam standard (specific enough to mark)?",
-    "Award for a clear, markable instance â€” not a vague label or unrelated example.",
-    "Withhold if too vague, wrong category, or scientifically related but not acceptable on an SPM mark scheme.",
+    "Task: did the student name a valid category member at SPM exam standard?",
+    "ONLY award=true for a clear, markable instance written by the student.",
+    "NEVER award=true for vague labels, wrong category, or related-but-unacceptable examples.",
   ].join("\n"),
   reasoning: [
     "Task: does the student's reasoning meet SPM marking-scheme standard for this mark point?",
-    "Award only if the logic is sound AND specific enough for the marks (steps/mechanism as required).",
-    "Withhold for wrong science, missing steps, or vague 'because' without the required mechanism.",
+    "ONLY award=true when logic is sound AND the required steps/mechanism are explicitly written.",
+    "NEVER award=true on vague outcomes or 'because' without the required mechanism.",
   ].join("\n"),
   method: [
-    "Task: did the student use a correct method, formula, or approach for this step regardless of whether the final value is correct?",
-    "Award if the approach is valid even with arithmetic errors.",
-    "Withhold only if the method itself is wrong.",
+    "Task: did the student use a correct method, formula, or approach for this step?",
+    "ONLY award=true when the valid method is explicit in the answer (arithmetic errors alone do NOT revoke).",
+    "ALWAYS set awarded=false when the method itself is wrong.",
   ].join("\n"),
   paired: [
     "Task: does this idea correctly describe the named item on this side of the comparison?",
-    "Award only if the idea is correct AND applies to the right item.",
-    "Withhold if the idea describes the other item even if correct.",
+    "ONLY award=true when the idea is correct AND explicitly applies to the named side.",
+    "NEVER award=true if the idea describes the other item, even if scientifically correct.",
   ].join("\n"),
   sequence: [
-    "Task: does the student's sequence/order meet SPM mark-scheme standard for this stage or full order?",
-    "Award only when the required stage is present in the correct position (or full order when required).",
-    "Withhold for wrong order, missing stages, or vague labels that do not name the required step.",
+    "Task: does the student's sequence/order meet SPM mark-scheme standard?",
+    "ONLY award=true when the required stage is in the correct position (or full order when required).",
+    "NEVER award=true for wrong order, missing stages, or vague labels that do not name the required step.",
   ].join("\n"),
   equation: [
-    "Task: check ALL of the following and award only if ALL pass â€”",
+    "Task: check ALL of the following — ONLY award=true if ALL pass —",
     "(1) all reactants present and correct,",
     "(2) all products present and correct â€” a missing product = wrong,",
     "(3) equation is balanced â€” count atoms of each element both sides,",
     "(4) coefficients correct â€” no fractional coefficients at SPM level unless the question explicitly requires them,",
     "(5) state symbols correct if the rubric includes them.",
-    "Never award partial credit in this mode.",
+    "NEVER award partial credit in this mode.",
     "Reason must identify the specific condition that failed or confirm all conditions passed.",
   ].join("\n"),
 };
 
 const LEAD_BY_MODE: Record<VerifierMode, string> = {
   meaning:
-    "Did the student EXPLICITLY WRITE the required concept in their own words (not merely imply or assume it)? Award true only if the student's text directly expresses the rubric point â€” not because a reader could infer it from related knowledge. Answer awarded true/false only â€” do NOT choose marks.",
+    "Did the student EXPLICITLY WRITE the required concept? ONLY set awarded=true if the student's text directly expresses the rubric point. NEVER award=true if a reader could only infer it. Return awarded true/false only.",
   membership:
-    "Is the student's answer a specific, markable SPM-level instance of this category? Answer awarded true/false only â€” do NOT choose marks.",
+    "Is the answer a specific, markable SPM-level instance of this category? ONLY award=true for a valid instance written by the student. NEVER award=true for vague category talk. Return awarded true/false only.",
   reasoning:
-    "Does the reasoning meet SPM mark-scheme standard for this point? Answer awarded true/false only â€” do NOT choose marks.",
+    "Does the reasoning meet SPM mark-scheme standard? ONLY award=true when the mark-point reasoning is clearly written. NEVER award=true on vague outcomes alone. Return awarded true/false only.",
   method:
-    "Did the student use a correct method or approach for this step? Answer with awarded true/false only â€” do NOT choose marks.",
+    "Did the student use a correct method for this step? ONLY award=true when the method is explicit in the answer. Return awarded true/false only.",
   paired:
-    "Does this student idea correctly describe the item named on this side of the comparison? Answer with awarded true/false only â€” do NOT choose marks.",
+    "Does this student idea correctly describe the named side of the comparison? ONLY award=true when that side is explicit. NEVER award=true on ambiguous entity reference. Return awarded true/false only.",
   equation:
-    "Does the student's equation satisfy ALL required species and balance conditions? Answer with awarded true/false only â€” do NOT choose marks.",
+    "Does the equation satisfy ALL required species and balance conditions? ONLY award=true when every condition passes. ALWAYS set awarded=false if any condition fails. Return awarded true/false only.",
   sequence:
-    "Does the student's sequence meet SPM mark-scheme standard for this rubric row? Answer awarded true/false only â€” do NOT choose marks.",
+    "Does the sequence meet SPM mark-scheme standard for this rubric row? ONLY award=true when order/position requirements are met. NEVER award=true when order is wrong. Return awarded true/false only.",
 };
 
 export async function verifyBorderlineMeaningMatch(params: {
@@ -147,6 +155,8 @@ export async function verifyBorderlineMeaningMatch(params: {
   rubricIdea: string;
   rubricKind: RubricIdeaKind;
   rubricKeywords?: string[];
+  /** Common misconceptions for this mark point — LLM must not award if student wrote one of these. */
+  rejectTriggers?: string[];
   studentIdea: string;
   similarity: number;
   fullStudentAnswer: string;
@@ -157,40 +167,42 @@ export async function verifyBorderlineMeaningMatch(params: {
   markingPolicyOptions?: EvidenceOnlyMarkingOptions;
 }): Promise<{ awarded: boolean; reason: string }> {
   const policyOpts = params.markingPolicyOptions;
-  const system = [
-    "Verify a student response against a rubric marking point at SPM Form 4/5 level.",
-    formatSpmExamStandardMarkingBlock(policyOpts),
-    formatSufficiencyMarkingBlock(),
-    formatEvidenceOnlyMarkingBlock(policyOpts),
-    formatSpmStudentFriendlyRulesBlock(),
-    "Return JSON only: { \"awarded\": boolean, \"reason\": string }.",
-    "Before awarding: (1) find an exact phrase in the student answer, (2) match it to this rubric point, (3) if no phrase exists, awarded=false.",
-    "EXPLICIT EVIDENCE RULE (highest priority): A mark is only awarded when the student's written text directly expresses the rubric concept.",
-    "  - Accepted: genuine paraphrase â€” the student's words convey the same scientific meaning, even if differently phrased.",
-    "  - Rejected: implied prerequisite â€” the student wrote a related concept and the rubric concept could be inferred as background knowledge.",
-    "  - Rejected: partial overlap â€” sharing one word or general term with the rubric idea is not sufficient.",
-    "  The question is always: did the student WRITE IT, not could a reader DEDUCE IT from what they wrote.",
-    "If awarded is true: reason must quote the student's exact words (short quotation) and state how it matches the rubric point.",
-    "If awarded is false: say the required point was not written in their answer (too vague / not mentioned / only implied).",
-    "Never award because the student 'probably meant' a scientific idea that is not expressed in the answer text.",
-    "Never copy concepts from the model answer or rubric into the analysis as if the student wrote them.",
-    "Never award because a diagram, figure, graph, or table shows the point if the student did not write it.",
-    VERIFIER_MODE_BLOCKS[params.mode],
-    params.openCategoryMarking || params.strictContextBound
-      ? "Open-category: award only a specific valid SPM instance of the criterion. Context-bound: must fit the named source in the question."
-      : null,
-    params.exampleUseCombo
-      ? "Example+use: only credit use/function if the student's written answer states that use â€” do not infer the example from the question stem alone."
-      : null,
-  ]
-    .filter((line): line is string => Boolean(line))
-    .join("\n");
+  const system = withMandatoryMarkingLanguage(
+    [
+      "Verify a student response against a rubric marking point at SPM Form 4/5 level.",
+      formatSpmExamStandardMarkingBlock(policyOpts),
+      formatSufficiencyMarkingBlock(),
+      formatEvidenceOnlyMarkingBlock(policyOpts),
+      formatSpmStudentFriendlyRulesBlock(),
+      "Return JSON only: { \"awarded\": boolean, \"reason\": string }.",
+      "Before awarding you MUST: (1) find an exact phrase in the student answer, (2) match it to this rubric point by meaning, (3) if no phrase exists for THIS point, awarded MUST be false — other points may still earn marks.",
+      "EXPLICIT EVIDENCE RULE (highest priority): ONLY award when the student's written text directly expresses the rubric concept.",
+      "  - ONLY award: genuine paraphrase with the same scientific meaning in the student's own words.",
+      "  - NEVER award: implied prerequisite or deduced background knowledge.",
+      "  - NEVER award: partial overlap or one shared general term.",
+      "  The question is always: did the student WRITE IT — you MUST NOT credit what a reader could DEDUCE.",
+      "If awarded is true: reason MUST quote the student's exact words (short quotation) and state how it matches the rubric point.",
+      "If awarded is false: you MUST state the required point was not written (too vague / not mentioned / only implied).",
+      "NEVER award because the student 'probably meant' an idea that is not expressed in the answer text.",
+      "NEVER copy concepts from the model answer or rubric into the analysis as if the student wrote them.",
+      "NEVER award because a diagram, figure, graph, or table shows the point if the student did not write it.",
+      VERIFIER_MODE_BLOCKS[params.mode],
+      params.openCategoryMarking || params.strictContextBound
+        ? "Open-category: ONLY award a specific valid SPM instance. Context-bound: MUST fit the named source in the question."
+        : null,
+      params.exampleUseCombo
+        ? "Example+use: ONLY credit use/function if the student's written answer states that use — NEVER infer from the question stem alone."
+        : null,
+    ]
+      .filter((line): line is string => Boolean(line))
+      .join("\n"),
+  );
 
   const userParts = [
     LEAD_BY_MODE[params.mode],
-    "Treat common SPM paraphrases as the same mark point only when specificity is sufficient.",
-    "For cause-effect questions, withhold if only a generic outcome is stated without the mark-point mechanism.",
-    "Do not require repeating context already in the question stem, but do require the mark-point detail itself.",
+    "ONLY treat common SPM paraphrases as the same mark point when specificity is sufficient.",
+    "For cause-effect questions, you MUST withhold if only a generic outcome is stated without the mark-point mechanism.",
+    "You MUST NOT require repeating context already in the question stem, but you MUST require the mark-point detail itself.",
     params.openCategoryMarking && !params.strictContextBound
       ? "OPEN CATEGORY: award only when the student gives a specific valid instance at SPM mark-scheme level."
       : null,
@@ -204,6 +216,9 @@ export async function verifyBorderlineMeaningMatch(params: {
     params.mode === "membership" && (params.rubricKeywords?.length ?? 0) > 0
       ? `Category keywords: ${params.rubricKeywords!.join(" | ")}`
       : null,
+    (params.rejectTriggers?.length ?? 0) > 0
+      ? `MISCONCEPTION GUARD — NEVER award if the student wrote any of these common wrong answers: ${params.rejectTriggers!.join(" | ")}`
+      : null,
     `Question: ${params.question}`,
     `Rubric marking point: ${params.rubricIdea}`,
     `Best student idea line: ${params.studentIdea || "(none)"}`,
@@ -211,7 +226,8 @@ export async function verifyBorderlineMeaningMatch(params: {
     params.similarity > 0 ? `Embedding similarity (hint only): ${params.similarity.toFixed(3)}` : null,
   ].filter((line): line is string => Boolean(line));
 
-  const parsed = await qwenGradingJson(system, userParts.join("\n\n"));
+  // consistency lock: Half B marking pipeline requires temperature 0
+  const parsed = await qwenGradingJson(system, userParts.join("\n\n"), { temperature: 0 });
   const awarded =
     typeof parsed?.awarded === "boolean"
       ? parsed.awarded

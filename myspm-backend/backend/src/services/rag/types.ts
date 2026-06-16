@@ -332,6 +332,22 @@ export type RubricIdea = {
   validMembers?: RubricConceptMember[];
   /** Allow semantic paraphrase when matching validMembers (default true for open_set). */
   allowSemanticEquivalence?: boolean;
+  /**
+   * For compare/difference questions: entities parsed from the question stem that this
+   * mark point relates to. Student must name each subject explicitly to earn the mark.
+   */
+  comparisonSubjects?: string[];
+  /**
+   * Common misconceptions / wrong answers that sound plausible but must NOT earn this mark.
+   * Generated at rubric build time. Used as a hint in the LLM verifier prompt.
+   * Example: wrong phrasings students commonly write that sound plausible but are scientifically incorrect for this mark point.
+   */
+  reject_triggers?: string[];
+  /**
+   * Role of this row in partial-credit marking.
+   * core_fact — award without causal language; mechanism — requires causal link when requiresCausalLink is set.
+   */
+  rowRole?: "core_fact" | "mechanism" | "detail" | "comparison_relation";
 };
 
 export type RubricSource = "past_paper" | "llm_generated" | "manual";
@@ -348,11 +364,25 @@ export type Rubric = {
   embedding?: number[];
   source: RubricSource;
   sourceRef?: string;
+  /** Reference exam answer from textbook (when stored in sourceRef JSON) or built at rubric creation. */
+  referenceModelAnswer?: string;
 };
 
 export type StudentIdea = {
   idea: string;
   hasCausalLink: boolean;
+  /** True when a comparison answer states a concept without naming which entity it applies to. */
+  ambiguousSubject?: boolean;
+  /**
+   * The exact clause from the student's original answer that best corresponds to this idea.
+   * Set by the answer segmenter after idea extraction. Used to narrow LLM verifier context
+   * to a specific text span rather than the full answer.
+   */
+  anchoredText?: string;
+  /** Start character index of anchoredText in the original answer string. */
+  anchorStart?: number;
+  /** End character index of anchoredText in the original answer string. */
+  anchorEnd?: number;
 };
 
 export type IdeaMatch = {

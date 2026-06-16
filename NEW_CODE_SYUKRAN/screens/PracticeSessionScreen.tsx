@@ -3,7 +3,6 @@ import {
   ActivityIndicator,
   Animated,
   Image,
-  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -34,10 +33,14 @@ import { isMatrixOnlyOption } from "../utils/parseMatrixNotation";
 import type { PracticeStackParamList } from "../navigation/PracticeStack";
 import {
   fetchPracticeSetDetail,
-  formatQuestionWithMarksAtEnd,
   resolveQuestionMarks,
   type PracticeSetQuestion,
 } from "../services/mobilePracticeSets";
+import {
+  fetchOpenEndedQuestionStep,
+  mapOpenEndedStepToPracticeQuestion,
+  type OpenEndedBackgroundJob,
+} from "../services/aiOpenEndedGeneration";
 import { ragApiPost } from "../services/ragApi";
 import { uploadScanImageWithAiTutor } from "../services/mobileScan";
 import { EnglishSpeakingPart1Exam } from "../components/EnglishSpeakingPart1Exam";
@@ -47,6 +50,11 @@ import {
   formatSpeakingGradeSummary,
   type SpeakingGradeResponse,
 } from "../services/mobileSpeaking";
+import {
+  formatQuestionStemForLangView,
+  questionHasBilingualStem,
+  type QuestionLangView,
+} from "../utils/bilingualQuestionStem";
 
 const BRAND = theme.brand;
 
@@ -235,9 +243,12 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
         subject?: string;
         formLevel?: string;
         practiceMode?: "speaking";
+        openEndedBackground?: OpenEndedBackgroundJob;
       };
   const hasQuestions = "questions" in routeParams && Array.isArray(routeParams.questions);
   const initialQuestions = hasQuestions ? routeParams.questions : [];
+  const openEndedBackground =
+    hasQuestions && "openEndedBackground" in routeParams ? routeParams.openEndedBackground : undefined;
   const practiceMode = routeParams.practiceMode;
 
   const setId = "setId" in routeParams ? routeParams.setId : undefined;
@@ -253,8 +264,6 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
   const [showFeedback, setShowFeedback] = useState(false);
   const [questionResults, setQuestionResults] = useState<Record<number, QuestionMarkResult>>({});
   const [finished, setFinished] = useState(false);
-  const [aiDrawerOpen, setAiDrawerOpen] = useState(false);
-  const [aiBusy, setAiBusy] = useState(false);
   const [aiFeedbackText, setAiFeedbackText] = useState<string | null>(null);
   const [gradeModelAnswer, setGradeModelAnswer] = useState<string | null>(null);
   const [modelAnswerExpanded, setModelAnswerExpanded] = useState(false);
@@ -265,6 +274,8 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
   const [speakingReadyForNext, setSpeakingReadyForNext] = useState(false);
   const [speakingTranscript, setSpeakingTranscript] = useState<string | null>(null);
   const [speakingMarkingText, setSpeakingMarkingText] = useState<string | null>(null);
+  const [openEndedBgBusy, setOpenEndedBgBusy] = useState(Boolean(openEndedBackground));
+  const [questionLangView, setQuestionLangView] = useState<QuestionLangView>("en");
 
   const questionFade = useRef(new Animated.Value(1)).current;
   const questionLift = useRef(new Animated.Value(0)).current;
@@ -312,7 +323,64 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
   }, [navigation, title]);
 
   useEffect(() => {
-    const len = questions.length;
+    const job = openEndedBackground;
+    if (!job || job.nextQuestionIndex > job.totalQuestions) {
+      setOpenEndedBgBusy(false);
+      return;
+    }
+
+    let cancelled = false;
+    setOpenEndedBgBusy(true);
+
+    (async () => {
+      let contextId = job.generationContextId;
+      let priorStems = [...job.priorStems];
+
+      for (let idx = job.nextQuestionIndex; idx <= job.totalQuestions; idx += 1) {
+        if (cancelled) return;
+        try {
+          const step = await fetchOpenEndedQuestionStep({
+            request: {
+              query: job.query,
+              subject: job.subject,
+              form: job.form,
+              topK: job.topK,
+              chapterHint: job.chapterHint,
+              chapterFilter: job.chapterFilter,
+            },
+            questionIndex: idx,
+            totalQuestions: job.totalQuestions,
+            priorStems,
+            generationContextId: contextId,
+          });
+          contextId = step.generationContextId;
+          if (cancelled || !step.question?.questionText?.trim()) continue;
+
+          const mapped = mapOpenEndedStepToPracticeQuestion(step.question, idx);
+          priorStems.push(mapped.questionText);
+          setQuestions((prev) => {
+            if (prev.some((q) => q.sortOrder === mapped.sortOrder)) return prev;
+            return [...prev, mapped].sort((a, b) => a.sortOrder - b.sortOrder);
+          });
+        } catch {
+          break;
+        }
+      }
+
+      if (!cancelled) {
+        setOpenEndedBgBusy(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [openEndedBackground]);
+
+  const plannedQuestionTotal = openEndedBackground?.totalQuestions ?? questions.length;
+
+  useEffect(() => {
+    const len = Math.max(questions.length, plannedQuestionTotal);
     if (len === 0) return;
     const target = (index + 1) / len;
     progressFillAnim.stopAnimation();
@@ -322,7 +390,7 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
       friction: 14,
       tension: 100,
     }).start();
-  }, [index, questions.length, progressFillAnim]);
+  }, [index, questions.length, plannedQuestionTotal, progressFillAnim]);
 
   const snapshotCurrentSession = useCallback((): QuestionSessionState => {
     return {
@@ -359,8 +427,6 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
     setSpeakingMarkingText(state.speakingMarkingText);
     setSpeakingReadyForNext(state.speakingReadyForNext);
     setOcrError(null);
-    setAiDrawerOpen(false);
-    setAiBusy(false);
     setOcrBusy(false);
   }, []);
 
@@ -453,8 +519,9 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
   const multiSelect = q && isMcq ? questionAllowsMultiSelect(q, correctIndices) : false;
   const questionForGradeStem = q ? (q.questionForGrade ?? q.questionText).trim() : "";
   const questionMarks = q ? resolveQuestionMarks(q, questionForGradeStem) : 1;
+  const showLangToggle = Boolean(q && !isSpeakingQuestion && questionHasBilingualStem(q.questionText));
   const displayQuestionText = q
-    ? formatQuestionWithMarksAtEnd(q.questionText, questionMarks)
+    ? formatQuestionStemForLangView(q.questionText, questionLangView)
     : "";
   const onToggleOption = (i: number) => {
     if (!q || !isMcq) return;
@@ -473,13 +540,11 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
   const onCheck = () => {
     if (!q) return;
     if (!isMcq) {
-      setAiBusy(false);
       setAiFeedbackText(null);
       setShowFeedback(true);
       return;
     }
     if (selected.size === 0) return;
-    setAiBusy(false);
     setAiFeedbackText(null);
     const ok = isSelectionCorrect(selected, correctIndices);
     const maxMarks = resolveQuestionMarks(q, q.questionForGrade ?? q.questionText);
@@ -559,6 +624,10 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
       };
     }
     if (index + 1 >= total) {
+      const morePlanned = index + 1 < plannedQuestionTotal;
+      if (morePlanned || openEndedBgBusy) {
+        return;
+      }
       setFinished(true);
       return;
     }
@@ -624,48 +693,6 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
     },
     [recordSpeakingResult],
   );
-
-  async function askAiForExplanation() {
-    if (!q || !isMcq) return;
-    if (selected.size === 0) return;
-
-    const selectedLetter = Array.from(selected)
-      .sort((a, b) => a - b)
-      .map((i) => String.fromCharCode(65 + i))
-      .slice(0, 1)
-      .join("");
-
-    const questionForGrade = q.questionForGrade
-      ? q.questionForGrade
-      : [
-          q.questionText.trim(),
-          ...q.options.map((opt, i) => `${String.fromCharCode(65 + i)}. ${opt}`),
-        ].join("\n");
-
-    const subject = routeSubject ?? "Biology";
-    const form = routeFormLevel ?? "Form 4";
-
-    try {
-      setAiBusy(true);
-      setAiFeedbackText(null);
-      setAiDrawerOpen(true);
-
-      const result = await ragApiPost<any>("/rag/grade", {
-        question: questionForGrade,
-        studentAnswer: selectedLetter,
-        subject,
-        form,
-        topK: 8,
-        maxScore: 1,
-      });
-
-      setAiFeedbackText(result?.feedback ?? result?.modelAnswer ?? "No feedback returned.");
-    } catch (e) {
-      setAiFeedbackText(e instanceof Error ? e.message : "Failed to get AI feedback.");
-    } finally {
-      setAiBusy(false);
-    }
-  }
 
   async function runOcrFromUri(photoUri: string) {
     try {
@@ -794,7 +821,7 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
               <Text style={styles.reviewIndex}>{i + 1}</Text>
               <View style={styles.reviewBody}>
                 <Text style={styles.reviewQuestion}>
-                  {formatQuestionWithMarksAtEnd(item.questionText, maxMarks)}
+                  {formatQuestionStemForLangView(item.questionText, questionLangView)}
                 </Text>
               </View>
               <Text
@@ -887,9 +914,41 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
             transform: [{ translateY: questionLift }],
           }}
         >
-          <Text style={styles.diffChip}>
-            {isSpeakingQuestion ? "English speaking" : q.difficulty}
-          </Text>
+          <View style={styles.questionMetaRow}>
+            <Text style={styles.diffChip}>
+              {isSpeakingQuestion ? "English speaking" : q.difficulty}
+            </Text>
+            <View style={styles.marksBadge} accessibilityLabel={`${questionMarks} marks`}>
+              <Text style={styles.marksBadgeNum}>{questionMarks}</Text>
+              <Text style={styles.marksBadgeLabel}>marks</Text>
+            </View>
+          </View>
+          {showLangToggle ? (
+            <View style={styles.langToggleRow}>
+              {(["en", "bm"] as const).map((mode) => {
+                const active = questionLangView === mode;
+                const label = mode === "en" ? "EN" : "BM";
+                return (
+                  <Pressable
+                    key={mode}
+                    style={({ pressed }) => [
+                      styles.langToggleBtn,
+                      active && styles.langToggleBtnActive,
+                      pressed && styles.langToggleBtnPressed,
+                    ]}
+                    onPress={() => setQuestionLangView(mode)}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: active }}
+                    accessibilityLabel={`Show question in ${label}`}
+                  >
+                    <Text style={[styles.langToggleText, active && styles.langToggleTextActive]}>
+                      {label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          ) : null}
           {isSpeakingQuestion && !isSpeakingPart2 ? (
             <Text style={styles.questionText}>{displayQuestionText}</Text>
           ) : !isSpeakingQuestion ? (
@@ -1107,23 +1166,16 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
             <Pressable
               style={({ pressed }) => [
                 styles.modelAnswerCard,
-                pressed && styles.askAiButtonPressed,
+                pressed && styles.modelAnswerCardPressed,
               ]}
               onPress={() => setModelAnswerExpanded((open) => !open)}
             >
-              <Text style={styles.askAiButtonText}>
+              <Text style={styles.modelAnswerToggleText}>
                 {modelAnswerExpanded ? "Model answer" : "View model answer"}
               </Text>
               {modelAnswerExpanded ? (
                 <Text style={styles.modelAnswerBody}>{gradeModelAnswer}</Text>
               ) : null}
-            </Pressable>
-          ) : !isSpeakingQuestion && isMcq ? (
-            <Pressable
-              style={({ pressed }) => [styles.askAiButton, pressed && styles.askAiButtonPressed]}
-              onPress={() => void askAiForExplanation()}
-            >
-              <Text style={styles.askAiButtonText}>Ask AI why</Text>
             </Pressable>
           ) : null}
         </Animated.View>
@@ -1171,7 +1223,7 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
                 style={styles.primaryGrad}
               >
                 <Text style={styles.primaryBtnText}>
-                  {index + 1 >= total ? "See results" : "Next question"}
+                  {index + 1 >= plannedQuestionTotal && !openEndedBgBusy ? "See results" : "Next question"}
                 </Text>
               </LinearGradient>
             </Pressable>
@@ -1185,35 +1237,13 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
               style={styles.primaryGrad}
             >
               <Text style={styles.primaryBtnText}>
-                {index + 1 >= total ? "See results" : "Next question"}
+                {index + 1 >= plannedQuestionTotal && !openEndedBgBusy ? "See results" : "Next question"}
               </Text>
             </LinearGradient>
           </Pressable>
         )
       ) : null}
     </ScrollView>
-
-    <Modal
-      transparent
-      visible={aiDrawerOpen}
-      animationType="slide"
-      onRequestClose={() => setAiDrawerOpen(false)}
-    >
-      <Pressable style={styles.aiDrawerBackdrop} onPress={() => setAiDrawerOpen(false)}>
-        <Pressable
-          style={[styles.aiDrawerSheet, { paddingBottom: insets.bottom + 20 }]}
-          onPress={(e) => e.stopPropagation()}
-        >
-          <Text style={styles.aiDrawerTitle}>AI explanation</Text>
-          <Text style={styles.aiDrawerBody}>
-            {aiBusy ? "Grading with AI..." : aiFeedbackText ?? "Press again to get AI feedback."}
-          </Text>
-          <Pressable style={styles.aiDrawerClose} onPress={() => setAiDrawerOpen(false)}>
-            <Text style={styles.aiDrawerCloseText}>Close</Text>
-          </Pressable>
-        </Pressable>
-      </Pressable>
-    </Modal>
     </>
   );
 }
@@ -1282,13 +1312,73 @@ const styles = StyleSheet.create({
     borderRadius: 3,
     backgroundColor: BRAND,
   },
+  questionMetaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    marginBottom: 10,
+  },
   diffChip: {
-    alignSelf: "flex-start",
+    flex: 1,
     fontSize: 11,
     fontFamily: fonts.bold,
     color: BRAND,
     textTransform: "capitalize",
-    marginBottom: 10,
+  },
+  marksBadge: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    gap: 4,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 999,
+    backgroundColor: theme.brandSoftSage,
+    borderWidth: 1,
+    borderColor: "rgba(152, 168, 105, 0.35)",
+  },
+  marksBadgeNum: {
+    fontSize: 16,
+    fontFamily: fonts.bold,
+    color: theme.brandDeep,
+    lineHeight: 20,
+  },
+  marksBadgeLabel: {
+    fontSize: 12,
+    fontFamily: fonts.medium,
+    color: BRAND,
+    lineHeight: 16,
+  },
+  langToggleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 12,
+  },
+  langToggleBtn: {
+    paddingVertical: 6,
+    paddingHorizontal: 14,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "rgba(15, 23, 42, 0.12)",
+    backgroundColor: "#F8FAFC",
+  },
+  langToggleBtnActive: {
+    borderColor: BRAND,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 2,
+  },
+  langToggleBtnPressed: {
+    opacity: 0.85,
+  },
+  langToggleText: {
+    fontSize: 13,
+    fontFamily: fonts.semiBold,
+    color: colors.textSecondary,
+  },
+  langToggleTextActive: {
+    color: colors.text,
+    fontFamily: fonts.bold,
   },
   questionText: {
     fontSize: 18,
@@ -1475,16 +1565,6 @@ const styles = StyleSheet.create({
     lineHeight: 21,
     marginTop: 8,
   },
-  askAiButton: {
-    alignSelf: "flex-start",
-    marginTop: 12,
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "rgba(15, 23, 42, 0.14)",
-    backgroundColor: "#FFFFFF",
-  },
   modelAnswerCard: {
     alignSelf: "stretch",
     marginTop: 12,
@@ -1495,53 +1575,18 @@ const styles = StyleSheet.create({
     borderColor: "rgba(15, 23, 42, 0.14)",
     backgroundColor: "#FFFFFF",
   },
+  modelAnswerCardPressed: { opacity: 0.85 },
+  modelAnswerToggleText: {
+    fontSize: 12,
+    fontFamily: fonts.semiBold,
+    color: BRAND,
+  },
   modelAnswerBody: {
     marginTop: 8,
     fontSize: 14,
     fontFamily: fonts.regular,
     color: colors.text,
     lineHeight: 21,
-  },
-  askAiButtonPressed: { opacity: 0.85 },
-  askAiButtonText: {
-    fontSize: 12,
-    fontFamily: fonts.semiBold,
-    color: BRAND,
-  },
-  aiDrawerBackdrop: {
-    flex: 1,
-    backgroundColor: "rgba(15, 23, 42, 0.45)",
-    justifyContent: "flex-end",
-  },
-  aiDrawerSheet: {
-    backgroundColor: "#FFFFFF",
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    paddingHorizontal: 20,
-    paddingTop: 20,
-  },
-  aiDrawerTitle: {
-    fontSize: 18,
-    fontFamily: fonts.bold,
-    color: colors.text,
-    marginBottom: 10,
-  },
-  aiDrawerBody: {
-    fontSize: 15,
-    fontFamily: fonts.regular,
-    color: colors.textSecondary,
-    lineHeight: 22,
-    height: 300,
-  },
-  aiDrawerClose: {
-    marginTop: 24,
-    alignSelf: "center",
-    paddingVertical: 12,
-  },
-  aiDrawerCloseText: {
-    fontSize: 15,
-    fontFamily: fonts.semiBold,
-    color: BRAND,
   },
   primaryBtn: { marginTop: 22, borderRadius: 16, overflow: "hidden" },
   primaryBtnOff: { opacity: 0.95 },

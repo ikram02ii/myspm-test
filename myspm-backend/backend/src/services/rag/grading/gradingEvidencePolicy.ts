@@ -13,21 +13,28 @@ import {
   ideasShareSynonymGroup,
   normalizeAnswerText,
   studentAnswerCoversIdea,
+  studentExpressesRubricMeaning,
 } from "./gradingFairness";
 import { analyzeQuestion } from "./questionAnalysisService";
+import {
+  isComparisonDifferenceQuestion,
+  studentAnswerMentionsAllComparisonSubjects,
+} from "./gradingComparisonSubjects";
+import { comparisonStructureBlocksAward } from "./gradingRowPolicy";
 
 export const CRITICAL_EVIDENCE_RULE_LINES = [
   "CRITICAL EVIDENCE RULE (highest priority for every mark):",
-  "- Only award marks for concepts explicitly present in the student's answer.",
-  "- Never infer that a student mentioned a concept if it is not written.",
-  "- Never copy concepts from the model answer, rubric, or question stem into the student's analysis.",
+  "- ONLY award marks for concepts explicitly present in the student's answer.",
+  "- NEVER award unless the student's own words support the mark point.",
+  "- NEVER infer that a student mentioned a concept if it is not written.",
+  "- NEVER copy concepts from the model answer, rubric, or question stem into the student's analysis.",
   "- The question text, textbook context, and model answer are NOT evidence of what the student wrote.",
-  "- Evidence does NOT require exact textbook/rubric wording; accept reasonable paraphrase when scientific intent is clear.",
+  "- Evidence does NOT require exact textbook/rubric wording; ONLY award when a reasonable paraphrase of the required concept is explicitly written in the student's answer.",
   "",
   "Before awarding EACH mark (mandatory):",
-  "1) Quote the student wording that supports the mark (short exact snippet is preferred).",
-  "2) Match that evidence to the rubric concept by meaning (not exact phrase overlap).",
-  "3) If the required concept is not reasonably supported by the student's wording, set awarded = false.",
+  "1) You MUST quote the student wording that supports the mark (short exact snippet is preferred).",
+  "2) You MUST match that evidence to the rubric concept by meaning (not exact phrase overlap alone).",
+  "3) If the required concept is not reasonably supported by the student's wording, you MUST set awarded = false.",
 ] as const;
 
 export const EVIDENCE_ONLY_MARKING_LINES = [
@@ -37,12 +44,12 @@ export const EVIDENCE_ONLY_MARKING_LINES = [
   "- Award marks ONLY for concepts explicitly stated or clearly conveyed in the student answer text.",
   "- Base each awarded mark on the student's response as evidence of conceptual understanding and scientific correctness.",
   "- Do NOT infer missing mechanisms, purposes, outcomes, causes, effects, or relationships.",
-  "- Do NOT assume what a vague or generic phrase 'probably meant' â€” if meaning is unclear, withhold the mark.",
+  "- Do NOT assume what a vague or generic phrase 'probably meant' — if meaning is unclear, withhold THAT mark only.",
   "- Evaluate ONLY information actually expressed; the question stem does not count as student evidence.",
   "- For Explain/Describe/Why: accept simplified, concise, paraphrased wording when the scientific concept is still correct.",
   "- Do not reject marks solely due to weak grammar, spelling, or non-textbook phrasing.",
   "- Reject marks for scientifically incorrect claims, unrelated statements, or keyword-only overlap without real conceptual support.",
-  "- When marking is uncertain, decide by whether the concept is genuinely demonstrated (not by keyword overlap alone).",
+  "- When marking is uncertain for one row, withhold THAT row — other independently demonstrated rows may still earn marks.",
   "- In markBreakdown, when awarded=true the reason MUST include a short quote from the student answer (in quotation marks).",
 ] as const;
 
@@ -51,7 +58,7 @@ export const FEEDBACK_EVIDENCE_ONLY_LINES = [
   "- Describe only what the student actually wrote. Do NOT claim they mentioned ideas that never appear in their answer.",
   "- Do NOT paraphrase missing rubric points as if the student said them.",
   "- Never attribute model-answer or rubric wording to the student unless the same idea appears in their answer text.",
-  "- If a mark point was not awarded, say it was missing or not stated clearly enough â€” do not imply they partially said it unless their exact wording supports that.",
+  "- If a mark point was not awarded, say it was missing or not stated clearly enough — do not imply they partially said it unless their exact wording supports that.",
   "- Chemical equations: if a formula, arrow, or state symbol appears in the student's answer, validate it — never tell them to include it again.",
 ] as const;
 
@@ -97,7 +104,7 @@ const STOPWORDS = new Set([
 const SCIENTIFIC_CONTENT_RE =
   /\b(atp|energy|respir|oxidat|glucose|glycolysis|enzyme|protein|synthes|transport|mitochond|mitokondria|chloroplast|kloroplas|xylem|xilem|phloem|floem|nucleus|dna|rna|osmosis|diffusion|photosynthesis|fotosintesis|transpiration|transpirasi|mitosis|meiosis|allele|gene|chromosome|kromosom|hormone|hormon|anaerobic|aerobic|anaerobik|aerobik|peptide|polypeptide|ionic|covalent|hydrogen|metallic|disulfide|ester|glycosidic|amide|nucleotide|amino\s*acid|asid\s*amino|alkane|alkene|alkyne|alcohol|carboxyl|hydrolysis|condensation|redox|electrolysis|isomer|polymer|monomer)\b/i;
 
-/** Filler words that do not make a 1â€“3 word answer a valid recall term on their own. */
+/** Filler words that do not make a 1–3 word answer a valid recall term on their own. */
 const SHORT_ANSWER_FILLER_WORDS = new Set([
   "good",
   "bad",
@@ -279,15 +286,16 @@ export function answerNamesQuestionTarget(question: string, answer: string): boo
   return false;
 }
 
-/** Rubric point uses a specific term, not only weak words like "cell" or "energy". */
-export function rubricSubstancePresentInAnswer(studentAnswer: string, rubric: RubricIdea): boolean {
-  const ans = normalizeAnswerText(studentAnswer);
+/** True when specific rubric substance appears in the given text span. */
+export function rubricSubstancePresentInText(text: string, rubric: RubricIdea): boolean {
+  const ans = normalizeAnswerText(text);
   if (!ans || isDiagramDeixisAnswer(ans)) return false;
 
   const sources = [
     rubric.idea,
     ...(rubric.keywords ?? []),
     ...(rubric.acceptedConcepts ?? []),
+    ...(rubric.acceptedSynonyms ?? []),
   ].filter(Boolean);
 
   for (const src of sources) {
@@ -304,8 +312,13 @@ export function rubricSubstancePresentInAnswer(studentAnswer: string, rubric: Ru
   return false;
 }
 
+/** Rubric point uses a specific term, not only weak words like "cell" or "energy". */
+export function rubricSubstancePresentInAnswer(studentAnswer: string, rubric: RubricIdea): boolean {
+  return rubricSubstancePresentInText(studentAnswer, rubric);
+}
+
 /**
- * Name/State-style answers: "peptide bond", "ionic bond", "mitochondria" â€” specific terms, not vague.
+ * Name/State-style answers: "peptide bond", "ionic bond", "mitochondria" — specific terms, not vague.
  */
 export function isShortSpecificRecallAnswer(text: string): boolean {
   const t = normalizeAnswerText(text);
@@ -356,7 +369,11 @@ export function isGenericVagueStatement(text: string): boolean {
 }
 
 /** Idea string must appear in the raw answer (not LLM-expanded). */
-export function ideaTextGroundedInAnswer(idea: string, studentAnswer: string): boolean {
+export function ideaTextGroundedInAnswer(
+  idea: string,
+  studentAnswer: string,
+  minTokenRatio = 0.75,
+): boolean {
   const i = normalizeAnswerText(idea);
   const a = normalizeAnswerText(studentAnswer);
   if (!i || !a) return false;
@@ -364,11 +381,12 @@ export function ideaTextGroundedInAnswer(idea: string, studentAnswer: string): b
   const tokens = i.split(/\s+/).filter((t) => t.length > 2 && !STOPWORDS.has(t));
   if (tokens.length === 0) return i.length <= 12 && a.includes(i);
   const hit = tokens.filter((t) => a.includes(t)).length;
-  return hit / tokens.length >= 0.75;
+  return hit / tokens.length >= minTokenRatio;
 }
 
 /**
  * Code-level gate after LLM verify: mark point must be grounded in answer text.
+ * Concept recognition runs first; structural checks apply per-row on the evidence clause only.
  */
 export function studentAnswerExplicitlySupportsMarkPoint(
   studentAnswer: string,
@@ -380,17 +398,31 @@ export function studentAnswerExplicitlySupportsMarkPoint(
   if (!line) return false;
 
   const q = question?.trim() ?? "";
+
+  // Comparison structure: scoped to evidence clause, not whole answer.
+  if (
+    q &&
+    isComparisonDifferenceQuestion(q) &&
+    rubric.comparisonSubjects &&
+    rubric.comparisonSubjects.length >= 2 &&
+    comparisonStructureBlocksAward(rubric, line, studentAnswer)
+  ) {
+    return false;
+  }
+
+  // Short recall answers: full answer is the evidence.
   if (q && isRecallStyleQuestion(q) && isShortSpecificRecallAnswer(studentAnswer)) {
     if (isDiagramDeixisAnswer(studentAnswer)) return false;
     if (studentAnswerCoversIdea(studentAnswer, rubric.idea)) return true;
-    for (const phrase of [...(rubric.keywords ?? []), ...(rubric.acceptedConcepts ?? [])]) {
+    for (const phrase of [...(rubric.keywords ?? []), ...(rubric.acceptedConcepts ?? []), ...(rubric.acceptedSynonyms ?? [])]) {
       if (phrase?.trim() && studentAnswerCoversIdea(studentAnswer, phrase)) return true;
     }
     if (ideasShareSynonymGroup(studentAnswer, rubric.idea)) return true;
   }
 
-  if (isGenericVagueStatement(line) || isGenericVagueStatement(studentAnswer)) return false;
-  if (!ideaTextGroundedInAnswer(line, studentAnswer)) return false;
+  if (isDiagramDeixisAnswer(line)) return false;
+  if (isGenericVagueStatement(line)) return false;
+  if (!ideaTextGroundedInAnswer(line, studentAnswer, 0.55)) return false;
 
   if (
     q &&
@@ -403,44 +435,46 @@ export function studentAnswerExplicitlySupportsMarkPoint(
   if (
     question?.trim() &&
     (questionReferencesVisual(question) || practiceQuestionIncludesDiagram(question)) &&
-    isDiagramDeixisAnswer(studentAnswer)
+    isDiagramDeixisAnswer(line)
   ) {
     return false;
   }
 
-  if (!rubricSubstancePresentInAnswer(studentAnswer, rubric)) {
-    return false;
+  // Concept-first: semantic match on evidence clause before token overlap fallbacks.
+  if (studentExpressesRubricMeaning(line, rubric, studentAnswer)) {
+    return rubricSubstancePresentInText(line, rubric) || rubricSubstancePresentInAnswer(studentAnswer, rubric);
   }
 
-  if (studentAnswerCoversIdea(studentAnswer, rubric.idea)) {
-    return rubricSubstancePresentInAnswer(studentAnswer, rubric);
+  if (ideasShareSynonymGroup(line, rubric.idea)) {
+    return rubricSubstancePresentInText(line, rubric) || rubricSubstancePresentInAnswer(studentAnswer, rubric);
   }
-  if (ideasShareSynonymGroup(line, rubric.idea) || ideasShareSynonymGroup(studentAnswer, rubric.idea)) {
-    return rubricSubstancePresentInAnswer(studentAnswer, rubric);
-  }
-  for (const phrase of [...(rubric.keywords ?? []), ...(rubric.acceptedConcepts ?? [])]) {
-    if (phrase?.trim() && studentAnswerCoversIdea(studentAnswer, phrase)) {
-      return rubricSubstancePresentInAnswer(studentAnswer, rubric);
+
+  for (const phrase of [...(rubric.keywords ?? []), ...(rubric.acceptedConcepts ?? []), ...(rubric.acceptedSynonyms ?? [])]) {
+    if (phrase?.trim() && (studentAnswerCoversIdea(line, phrase) || studentAnswerCoversIdea(studentAnswer, phrase))) {
+      return rubricSubstancePresentInText(line, rubric) || rubricSubstancePresentInAnswer(studentAnswer, rubric);
     }
   }
+
   const id = normalizeAnswerText(rubric.idea);
-  const ans = normalizeAnswerText(studentAnswer);
+  const lineNorm = normalizeAnswerText(line);
   const tokens = id.split(/\s+/).filter((t) => t.length > 4 && !STOPWORDS.has(t) && !WEAK_OVERLAP_TOKENS.has(t));
   if (tokens.length >= 1) {
-    const hit = tokens.filter((t) => ans.includes(t)).length;
-    if (hit / tokens.length >= 0.6) return rubricSubstancePresentInAnswer(studentAnswer, rubric);
+    const hit = tokens.filter((t) => lineNorm.includes(t)).length;
+    if (hit / tokens.length >= 0.55) {
+      return rubricSubstancePresentInText(line, rubric) || rubricSubstancePresentInAnswer(studentAnswer, rubric);
+    }
   }
+
   return false;
 }
 
-export function filterGroundedStudentIdeas<T extends { idea: string }>(
-  ideas: T[],
-  studentAnswer: string,
-): T[] {
-  return ideas.filter(
-    (row) =>
-      row.idea.trim() &&
-      !isDiagramDeixisAnswer(row.idea) &&
-      ideaTextGroundedInAnswer(row.idea, studentAnswer),
-  );
+export function filterGroundedStudentIdeas<
+  T extends { idea: string; anchoredText?: string },
+>(ideas: T[], studentAnswer: string): T[] {
+  return ideas.filter((row) => {
+    if (!row.idea.trim() || isDiagramDeixisAnswer(row.idea)) return false;
+    const anchor = row.anchoredText?.trim();
+    if (anchor && ideaTextGroundedInAnswer(anchor, studentAnswer, 0.55)) return true;
+    return ideaTextGroundedInAnswer(row.idea, studentAnswer, 0.6);
+  });
 }

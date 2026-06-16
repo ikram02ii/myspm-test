@@ -5,11 +5,11 @@ import { extractTextFromPdfBuffer } from "../services/rag/ingestion/pdfTextExtra
 import { gradeSubmission } from "../services/rag/grading/gradeService";
 import { buildGradingContextPayload, retrieveChunks } from "../services/rag/retrieval/retrievalService";
 import { listTextbooks, registerTextbook } from "../services/rag/ingestion/textbookService";
-import { generateWithRag } from "../services/ai gen/generateFromRag";
+import { generateOpenEndedQuestionStep, generateWithRag } from "../services/ai gen/generateFromRag";
 import { runGenerateFromUpload } from "../services/ai gen/generateFromUpload";
 import { ingestMarkSchemeImage } from "../services/ai gen/markSchemeImageIngest";
 import { listTextbookChaptersForSubjectForm } from "../services/rag/ingestion/textbookChaptersService";
-import { createRubricsFromTextbookChunks } from "../services/rag/rubric/rubricFromTextbookChunksService";
+import { createRubricsFromTextbookChunks } from "../services/rag/grading/v3/textbookChunkAssessmentService";
 import { gradeSpeakingPhase } from "../services/rag/speaking/speakingGradeService";
 import { transcribeSpeakingAudio } from "../services/rag/speaking/speakingTranscribeService";
 
@@ -201,6 +201,61 @@ router.post("/grading-context", async (req, res) => {
   }
 });
 
+router.post("/generate-open-ended-step", async (req, res) => {
+  try {
+    const query = typeof req.body?.query === "string" ? req.body.query.trim() : "";
+    if (!query) {
+      return res.status(400).json({ error: "Body must include non-empty string \"query\"" });
+    }
+
+    const subject = typeof req.body?.subject === "string" ? req.body.subject.trim() : "";
+    if (!subject) {
+      return res.status(400).json({ error: "Body must include non-empty string \"subject\"" });
+    }
+
+    const questionIndex =
+      typeof req.body?.questionIndex === "number" && Number.isFinite(req.body.questionIndex)
+        ? req.body.questionIndex
+        : 1;
+    const totalQuestions =
+      typeof req.body?.totalQuestions === "number" && Number.isFinite(req.body.totalQuestions)
+        ? req.body.totalQuestions
+        : 1;
+    const priorStems = Array.isArray(req.body?.priorStems)
+      ? req.body.priorStems.filter((s: unknown): s is string => typeof s === "string")
+      : [];
+    const generationContextId =
+      typeof req.body?.generationContextId === "string" ? req.body.generationContextId.trim() : undefined;
+
+    const topK =
+      typeof req.body?.topK === "number" && Number.isFinite(req.body.topK) ? req.body.topK : 8;
+    const chapterFilterRaw =
+      typeof req.body?.chapterFilter === "string" ? req.body.chapterFilter.trim() : "";
+    const chapterHintRaw =
+      typeof req.body?.chapterHint === "string" ? req.body.chapterHint.trim() : "";
+    const formRaw = typeof req.body?.form === "string" ? req.body.form.trim() : "";
+
+    const result = await generateOpenEndedQuestionStep({
+      query,
+      subject,
+      form: formRaw || null,
+      topK,
+      chapterFilter: chapterFilterRaw || null,
+      chapterHint: chapterHintRaw || null,
+      questionIndex,
+      totalQuestions,
+      priorStems,
+      generationContextId: generationContextId || null,
+    });
+
+    return res.json(result);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to generate question";
+    console.error("[rag] generate-open-ended-step failed", error);
+    return res.status(500).json({ error: message });
+  }
+});
+
 router.post("/generate", async (req, res) => {
   try {
     const query = typeof req.body?.query === "string" ? req.body.query.trim() : "";
@@ -227,6 +282,10 @@ router.post("/generate", async (req, res) => {
     const chapterHintRaw =
       typeof req.body?.chapterHint === "string" ? req.body.chapterHint.trim() : "";
     const formRaw = typeof req.body?.form === "string" ? req.body.form.trim() : "";
+    const questionCount =
+      typeof req.body?.questionCount === "number" && Number.isFinite(req.body.questionCount)
+        ? req.body.questionCount
+        : undefined;
 
     const result = await generateWithRag({
       query,
@@ -238,6 +297,7 @@ router.post("/generate", async (req, res) => {
       chapterFilter: chapterFilterRaw || null,
       chapterHint: chapterHintRaw || null,
       createOpenEndedRubrics: req.body?.createOpenEndedRubrics === true,
+      questionCount,
       skipRetrieval: req.body?.skipRetrieval === true,
       englishSpeaking: req.body?.englishSpeaking === true,
       englishSpeakingPdfPath:

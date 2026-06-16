@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Pipeline stages: examiner credit pass, SPM correctness validation, post-score feedback.
  */
 import type {
@@ -26,6 +26,12 @@ import {
   softenEquationFeedbackContradictions,
 } from "./gradingEquationFeedback";
 import { qwenGradingJson, resolveQwenGradingConfig } from "./qwenGradingClient";
+import {
+  formatGradingContextForPrompt,
+  type PipelineGradingContext,
+} from "./gradingContext";
+import { withMandatoryMarkingLanguage } from "./gradingMandatoryLanguage";
+import { studentAnswerMentionsAllComparisonSubjects } from "./gradingComparisonSubjects";
 
 export type ExaminerCreditPassInput = {
   question: string;
@@ -37,6 +43,7 @@ export type ExaminerCreditPassInput = {
   subject: string;
   textbookContext?: string;
   questionAnalysis?: QuestionAnalysis | null;
+  gradingContext?: PipelineGradingContext | null;
   markingPolicyOptions?: EvidenceOnlyMarkingOptions;
 };
 
@@ -65,13 +72,24 @@ function rubricRowSummary(ideas: RubricIdea[], breakdown: MarkBreakdownItem[]): 
       const row = breakdown.find((r) => r.rubricId === idea.id);
       const status = row?.awarded ? "AWARDED" : "NOT AWARDED";
       return [
-        `- id=${idea.id} marks=${idea.marks} status=${status}`,
+        `- id=${idea.id} marks=${idea.marks} kind=${idea.kind} demand=${idea.demandType ?? "n/a"} status=${status}`,
         `  idea: ${idea.idea}`,
+        idea.requiresCausalLink ? "  requires_causal_link: true" : null,
+        idea.comparisonSubjects?.length ? `  comparison_subjects: ${idea.comparisonSubjects.join(" | ")}` : null,
         row?.reason ? `  matcher reason: ${row.reason}` : null,
       ]
         .filter(Boolean)
         .join("\n");
     })
+    .join("\n");
+}
+
+function codeRevokeLog(breakdown: MarkBreakdownItem[]): string {
+  const revoked = breakdown.filter((r) => !r.awarded && /revoked/i.test(r.reason ?? ""));
+  if (revoked.length === 0) return "";
+  return revoked
+    .map((r) => `- ${r.idea}: ${r.reason}`)
+    .slice(0, 8)
     .join("\n");
 }
 
@@ -95,37 +113,40 @@ export async function applyExaminerPriorityMarking(
   const strictCtx = isStrictContextBindingQuestion(input.question);
   const contextExcerpt = (input.textbookContext ?? "").trim().slice(0, 4000);
 
-  const system = [
-    formatSpmExamStandardMarkingBlock(input.markingPolicyOptions),
-    formatSufficiencyMarkingBlock(),
-    formatSpmStudentFriendlyRulesBlock(),
-    "Return JSON only:",
-    `{`,
-    `  "rubricRowCredits": [`,
-    `    { "rubricId": string | "OUTSIDE_RUBRIC", "award": boolean, "reason": string, "awardedOutsideRubric": boolean, "outsideRubricIdea"?: string }`,
-    `  ]`,
-    `}`,
-    "Rules:",
-    "- First review existing rubric row ids listed below and award any that the first matcher missed.",
-    "- Set award true when you can quote an exact phrase from the student answer that matches the rubric row (paraphrases OK if clearly the same concept).",
-    "- Never credit model-answer or rubric wording that does not appear in the student answer.",
-    `- You may add at most ${remaining} additional mark(s) total across rubric rows AND outside-rubric credits combined.`,
-    "- Do not award equation marks unless the equation is fully correct at SPM level.",
-    "- Award only if the student answer text already contains the mark point â€” do not infer unstated science.",
-    "- Never award because a diagram/figure shows the point if the student did not write it in their answer.",
-    strictCtx
-      ? "- CONTEXT-BOUND: credit only if consistent with the named source in the question."
-      : "- Valid SPM paraphrases are allowed when the mark-point detail is clearly present.",
-    "",
-    "OUTSIDE-RUBRIC CREDIT (important):",
-    "- If the student wrote a clearly correct SPM-level answer that is NOT covered by any existing rubric row,",
-    "  you MAY award it by adding an entry with rubricId='OUTSIDE_RUBRIC', awardedOutsideRubric=true,",
-    "  and outsideRubricIdea = a short description of the valid concept the student demonstrated.",
-    "- Only use this for answers that are unambiguously correct at SPM Form 4/5 syllabus level.",
-    "- Do NOT use this for vague, generic, partial, or off-topic answers.",
-    "- Each OUTSIDE_RUBRIC entry is worth exactly 1 mark.",
-    "- Reason must quote the student's exact words.",
-  ].join("\n");
+  const system = withMandatoryMarkingLanguage(
+    [
+      formatSpmExamStandardMarkingBlock(input.markingPolicyOptions),
+      formatSufficiencyMarkingBlock(),
+      formatSpmStudentFriendlyRulesBlock(),
+      "Return JSON only:",
+      `{`,
+      `  "rubricRowCredits": [`,
+      `    { "rubricId": string, "award": boolean, "reason": string }`,
+      `  ]`,
+      `}`,
+      "Rules:",
+      "- You MUST review existing rubric row ids and ONLY set award=true when the first matcher missed valid explicit evidence.",
+      "- ONLY set award=true when you can quote an exact phrase from the student answer that matches the rubric row.",
+      "- NEVER credit model-answer or rubric wording that does not appear in the student answer.",
+      `- You MUST NOT add more than ${remaining} additional mark(s) total.`,
+      "- NEVER award equation marks unless the equation is fully correct at SPM level.",
+      "- ONLY award if the student answer text already contains the mark point — NEVER infer unstated science.",
+      "- NEVER award because a diagram/figure shows the point if the student did not write it in their answer.",
+      "- ONLY use existing rubricId values from the rubric rows list below — no outside-rubric entries.",
+      strictCtx
+        ? "- CONTEXT-BOUND: ONLY award if consistent with the named source in the question."
+        : "- Valid SPM paraphrases are allowed ONLY when the mark-point detail is clearly present in the student's words.",
+      input.gradingContext
+        ? [
+            "",
+            "QUESTION TYPE (binding):",
+            formatGradingContextForPrompt(input.gradingContext),
+            "- You MUST apply the same per-row type rules as Stage 4 (recall / comparison / causal / definition / example).",
+            "- NEVER re-award rows listed under CODE REVOKES unless the student answer now clearly satisfies that gate.",
+          ].join("\n")
+        : "",
+    ].join("\n"),
+  );
 
   const user = [
     `Subject: ${input.subject}`,
@@ -135,6 +156,10 @@ export async function applyExaminerPriorityMarking(
     `Marks already awarded: ${score}/${maxScore}. You may add at most ${remaining} more.`,
     "Rubric rows:",
     rubricRowSummary(input.rubricIdeas, breakdown),
+    (() => {
+      const log = codeRevokeLog(breakdown);
+      return log ? `CODE REVOKES (do not override without stronger student evidence):\n${log}` : null;
+    })(),
     contextExcerpt ? `Marking context (reference only):\n${contextExcerpt}` : null,
   ]
     .filter((line): line is string => Boolean(line))
@@ -143,7 +168,8 @@ export async function applyExaminerPriorityMarking(
   let rubricRowCredits: RubricRowCredit[] = [];
 
   try {
-    const parsed = await qwenGradingJson(system, user);
+    // consistency lock: Half B marking pipeline requires temperature 0 (stage 8)
+    const parsed = await qwenGradingJson(system, user, { temperature: 0 });
     rubricRowCredits = Array.isArray(parsed?.rubricRowCredits) ? parsed.rubricRowCredits : [];
   } catch {
     return buildResult(breakdown, score, 0);
@@ -159,31 +185,9 @@ export async function applyExaminerPriorityMarking(
     const rubricId = typeof credit.rubricId === "string" ? credit.rubricId.trim() : "";
     const reason = (typeof credit.reason === "string" && credit.reason.trim()) || "";
 
-    // Outside-rubric credit: student answered correctly but rubric didn't anticipate it
-    if (rubricId === "OUTSIDE_RUBRIC" && credit.awardedOutsideRubric === true) {
-      const outsideIdea =
-        typeof (credit as any).outsideRubricIdea === "string"
-          ? (credit as any).outsideRubricIdea.trim()
-          : "Valid SPM-level answer not in rubric";
-      if (!outsideIdea || !reason) continue;
-      // Guard: student must have actually written something supporting this
-      const syntheticRubric = { id: `outside-${outsideRubricCount}`, idea: outsideIdea, marks: 1, kind: "point" as const };
-      if (!studentAnswerExplicitlySupportsMarkPoint(input.studentAnswer, syntheticRubric, input.studentAnswer, input.question)) {
-        continue;
-      }
-      breakdown.push({
-        idea: outsideIdea,
-        awarded: true,
-        marks: 1,
-        reason,
-        matchMethod: "llmVerifier",
-        matchStrategy: "outsideRubricSpmCredit",
-        awardedOutsideRubric: true,
-      });
-      outsideRubricCount += 1;
-      budget -= 1;
-      continue;
-    }
+    // OUTSIDE_RUBRIC credits are disabled — Stage 8 may only re-evaluate existing rubric rows.
+    // Holistic outside-rubric awards were the primary source of grading inconsistency.
+    if (rubricId === "OUTSIDE_RUBRIC") continue;
 
     // Standard rubric-row credit
     if (!rubricId) continue;
@@ -226,8 +230,6 @@ function buildResult(
  * Lowered to 0.62 â€” the judge already has strict criteria in its prompt;
  * an additional high threshold was causing too many false rejections.
  */
-const MIN_CONFIDENCE = 0.62;
-
 export type SpmCorrectnessValidationInput = {
   question: string;
   studentAnswer: string;
@@ -238,8 +240,15 @@ export type SpmCorrectnessValidationInput = {
   missingIdeas: string[];
   markBreakdown: MarkBreakdownItem[];
   questionAnalysis?: QuestionAnalysis | null;
+  gradingContext?: PipelineGradingContext | null;
   textbookContext?: string;
 };
+
+function minCorrectnessConfidence(ctx?: PipelineGradingContext | null): number {
+  if (ctx?.isRecallQ || ctx?.isDefinitionQ) return 0.9;
+  if (ctx?.isCompareQ || ctx?.isCauseEffectQ) return 0.8;
+  return 0.62;
+}
 
 export type SpmCorrectnessValidationResult = {
   markBreakdown: MarkBreakdownItem[];
@@ -249,45 +258,57 @@ export type SpmCorrectnessValidationResult = {
 
 // â”€â”€â”€ System prompt â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-function buildSystem(subject: string, remaining: number): string {
-  return [
-    `You are an SPM examiner judge for ${subject}.`,
-    "",
-    "Your ONLY job is to answer one question:",
-    '"Does the student\'s answer contain a scientifically correct SPM-level concept that deserves credit,',
-    'even if the rubric did not explicitly include it?"',
-    "",
-    "AWARD credit when:",
-    "- The student wrote something scientifically correct at SPM Form 4/5 level.",
-    "- The answer is relevant to the question being asked.",
-    "- A fair SPM examiner would accept this answer.",
-    "- The student actually wrote this in their answer (not implied, not inferred).",
-    "",
-    "DO NOT award credit when:",
-    "- The answer is scientifically wrong or contradictory.",
-    "- The answer is vague ('it helps', 'it is important', 'because of the cell').",
-    "- The answer is off-topic or unrelated to the question.",
-    "- The student did not actually write this concept.",
-    `- Awarding would exceed the remaining ${remaining} mark(s) available.`,
-    "",
-    "SPM LEVEL RULE:",
-    "Only accept concepts taught in Malaysian SPM Form 4 or Form 5 textbooks.",
-    "Reject university-level or A-Level concepts not in the SPM syllabus.",
-    "",
-    "Return JSON only â€” exactly one of these two shapes:",
-    "",
-    "If credit IS deserved:",
-    '{ "outsideRubricCredit": true, "detectedConcept": "<short concept name>", "studentEvidence": "<short exact quote from student answer>", "scientificReasoning": "<why this is correct at SPM level>", "confidence": <0.0 to 1.0> }',
-    "",
-    "If credit is NOT deserved:",
-    '{ "outsideRubricCredit": false, "reason": "<why not>" }',
-    "",
-    "Rules for the credit object:",
-    "- detectedConcept: short label of what the student correctly demonstrated.",
-    "- studentEvidence: copy a short phrase DIRECTLY from the student answer. Must be their actual words.",
-    "- confidence: your certainty that this is genuinely correct at SPM level (0 = unsure, 1 = certain).",
-    `- Only confidence >= ${MIN_CONFIDENCE} will be applied.`,
-  ].join("\n");
+function buildSystem(subject: string, remaining: number, ctx?: PipelineGradingContext | null): string {
+  const minConf = minCorrectnessConfidence(ctx);
+  return withMandatoryMarkingLanguage(
+    [
+      `You are an SPM examiner judge for ${subject}.`,
+      "",
+      "Your ONLY job is to answer one question:",
+      '"Does the student\'s answer contain a scientifically correct SPM-level concept that deserves credit,',
+      'even if the rubric did not explicitly include it?"',
+      "",
+      "ONLY award credit when ALL of the following are true:",
+      "- The student MUST have written something scientifically correct at SPM Form 4/5 level.",
+      "- The answer MUST be relevant to the question being asked.",
+      "- A fair SPM examiner MUST accept this answer.",
+      "- The student MUST have actually written this in their answer (not implied, not inferred).",
+      "",
+      "NEVER award credit when ANY of the following apply:",
+      "- The answer is scientifically wrong or contradictory.",
+      "- The answer is vague ('it helps', 'it is important', 'because of the cell').",
+      "- The answer is off-topic or unrelated to the question.",
+      "- The student did not actually write this concept.",
+      `- Awarding would exceed the remaining ${remaining} mark(s) available.`,
+      "",
+      "SPM LEVEL RULE:",
+      "ONLY accept concepts taught in Malaysian SPM Form 4 or Form 5 textbooks.",
+      "NEVER accept university-level or A-Level concepts not in the SPM syllabus.",
+      "",
+      "Return JSON only — exactly one of these two shapes:",
+      "",
+      "If credit IS deserved:",
+      '{ "outsideRubricCredit": true, "detectedConcept": "<short concept name>", "studentEvidence": "<short exact quote from student answer>", "scientificReasoning": "<why this is correct at SPM level>", "confidence": <0.0 to 1.0> }',
+      "",
+      "If credit is NOT deserved:",
+      '{ "outsideRubricCredit": false, "reason": "<why not>" }',
+      "",
+      "Rules for the credit object:",
+      "- detectedConcept MUST be a short label of what the student correctly demonstrated.",
+      "- studentEvidence MUST be copied DIRECTLY from the student answer — NEVER paraphrase from rubric.",
+      `- ONLY apply credit when confidence >= ${minConf}.`,
+      ctx
+        ? [
+            "",
+            "QUESTION TYPE (binding):",
+            formatGradingContextForPrompt(ctx),
+            "- ONLY add credit for the TYPE of answer this question demands.",
+            "- NEVER add explanation marks on pure recall questions.",
+            "- NEVER add comparison marks unless both compared entities are explicitly named in the student answer.",
+          ].join("\n")
+        : "",
+    ].join("\n"),
+  );
 }
 
 // â”€â”€â”€ User prompt â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -360,9 +381,11 @@ export async function runSpmCorrectnessValidation(
 
   let parsed: any;
   try {
+    // consistency lock: Half B marking pipeline requires temperature 0 (stage 5)
     parsed = await qwenGradingJson(
-      buildSystem(input.subject, remaining),
+      buildSystem(input.subject, remaining, input.gradingContext),
       buildUser(input),
+      { temperature: 0 },
     );
   } catch {
     return { markBreakdown: breakdown, score: input.currentScore, creditsAdded: 0 };
@@ -379,7 +402,18 @@ export async function runSpmCorrectnessValidation(
   const scientificReasoning = typeof parsed.scientificReasoning === "string" ? parsed.scientificReasoning.trim() : "";
 
   // Reject if below confidence threshold
-  if (confidence < MIN_CONFIDENCE) {
+  if (confidence < minCorrectnessConfidence(input.gradingContext)) {
+    return { markBreakdown: breakdown, score: input.currentScore, creditsAdded: 0 };
+  }
+
+  if (
+    input.gradingContext?.isCompareQ &&
+    input.gradingContext.comparisonSubjects.length >= 2 &&
+    !studentAnswerMentionsAllComparisonSubjects(
+      input.studentAnswer,
+      input.gradingContext.comparisonSubjects,
+    )
+  ) {
     return { markBreakdown: breakdown, score: input.currentScore, creditsAdded: 0 };
   }
 
@@ -424,9 +458,12 @@ export type PostScoreFeedbackInput = {
   rubricIdeas?: string[];
   markBreakdown?: MarkBreakdownItem[];
   questionAnalysis?: QuestionAnalysis | null;
+  gradingContext?: PipelineGradingContext | null;
   subject: string;
   language: "english" | "malay" | "mixed";
   usesVisualFigure?: boolean;
+  /** Book-grounded reference answer stored at rubric creation (consistent across marks). */
+  referenceModelAnswer?: string;
 };
 
 export type PostScoreFeedbackResult = {
@@ -492,9 +529,13 @@ export async function buildPostScoreFeedback(
 
   const system = [
     "Write feedback for a Malaysian SPM student after their answer has already been marked.",
+    "MARKING FEEDBACK RULES (binding — score is already final):",
+    "- You MUST NOT change the score or imply a different mark total.",
+    "- When explaining why a mark was NOT awarded: you MUST quote ONLY from the student's answer, then explain why that wording failed.",
+    "- NEVER use rubric or model-answer text to explain a failure.",
+    "- When explaining why a mark WAS awarded: you MUST quote the student's phrase that earned it.",
     formatSpmStudentFriendlyRulesBlock(),
     formatPartialCreditBlock(),
-    formatSufficiencyMarkingBlock(),
     formatCriticalEvidenceRuleBlock(),
     formatFeedbackEvidenceOnlyBlock(),
     isEquationQuestion ? formatEquationFeedbackBlock() : null,
@@ -506,6 +547,16 @@ export async function buildPostScoreFeedback(
       "- Match the student's language style (English, Malay, or mixed).",
       "- Start with what they did well OR why marks were limited (based on the final score only).",
       "- You MUST link comments to the student's actual wording from the evidence section below.",
+      "- When explaining why a mark was NOT awarded: quote ONLY from the student's answer (short exact phrase in quotation marks), then explain why that wording did not earn the mark.",
+      "- Never use rubric text or model-answer wording to explain a failure — only the student's own words.",
+      "- When explaining why a mark WAS awarded: quote the student's phrase that earned it.",
+      "- If the student wrote nothing useful for a gap, say what concept was missing without inventing a quote.",
+      input.gradingContext?.isCompareQ && input.gradingContext.comparisonSubjects.length >= 2
+        ? `- For comparison marks missed: name which entity was not mentioned (${input.gradingContext.comparisonSubjects.join(" / ")}).`
+        : null,
+      input.gradingContext?.isSeqQ
+        ? "- For sequence marks: say whether a stage was missing or in the wrong order — do not treat them the same."
+        : null,
       "- Mention at least one correct thing the student wrote when score > 0, and at least one missing/incorrect concept when score < maxScore.",
       "- For partial marks: say which type of point was missing or unclear â€” do not list rubric jargon.",
       isEquationQuestion
@@ -524,23 +575,38 @@ export async function buildPostScoreFeedback(
       "- Do NOT include a model answer inside feedback â€” use modelAnswer field only.",
     ].join("\n"),
     notFullMark
-      ? [
-          "MODEL ANSWER (modelAnswer field â€” required because score < maxScore):",
-          "- Write a model answer at EXACTLY SPM Form 4/5 level â€” not A-Level, not university, not advanced.",
-          "- Use only vocabulary, concepts, and depth found in Malaysian SPM textbooks (Form 4/5).",
-          "- Keep it concise: match the mark allocation. 1 mark = 1 short point. 2 marks = 2 short points.",
-          "- Use simple, direct school English or Bahasa Melayu. Short sentences. No academic jargon.",
-          "- Write what a student would write in an exam â€” not a teacher's explanation or a textbook paragraph.",
-          "- Do NOT include university-level mechanisms, biochemical pathways, or advanced detail not expected at SPM.",
-          "- Do NOT pad with extra information beyond what the marks require.",
-          "- Cover only the mark points the student missed (see gaps below) â€” not a full lesson.",
-          "- Do NOT mention diagrams unless the question is about labelling; give the words an examiner expects written.",
-          usesVisual
-            ? "- This is a diagram/figure question: the model answer must NAME structures/functions/values in words â€” not 'see the diagram'."
-            : null,
-        ]
-          .filter((line): line is string => Boolean(line))
-          .join("\n")
+      ? input.referenceModelAnswer?.trim()
+        ? [
+            "MODEL ANSWER (modelAnswer field):",
+            "- A reference model answer from the textbook is provided below — use it for concepts and mark coverage only.",
+            `- Write the modelAnswer field in the student's language (${lang}). Do NOT copy Malay textbook wording if the student wrote English.`,
+            lang === "English"
+              ? "- Student language is English: modelAnswer MUST be entirely in English (same science as the reference)."
+              : lang === "Malay"
+                ? "- Student language is Malay: modelAnswer MUST be entirely in Bahasa Melayu."
+                : "- Student uses mixed language: prefer English, or EN + BM lines if the question stem is bilingual.",
+            "- You MAY shorten or rephrase; MUST keep the same scientific concepts and mark coverage.",
+            "- Do NOT contradict the reference or add advanced content beyond maxScore.",
+            `Reference model answer (concepts only — rephrase into ${lang}):\n${input.referenceModelAnswer.trim()}`,
+          ].join("\n")
+        : [
+            "MODEL ANSWER (modelAnswer field — required because score < maxScore):",
+            "- Write a model answer at EXACTLY SPM Form 4/5 level — not A-Level, not university, not advanced.",
+            "- Use only vocabulary, concepts, and depth found in Malaysian SPM textbooks (Form 4/5).",
+            "- Keep it concise: match the mark allocation. 1 mark = 1 short point. 2 marks = 2 short points.",
+            "- Use simple, direct school English or Bahasa Melayu. Short sentences. No academic jargon.",
+            "- Write what a student would write in an exam — not a teacher's explanation or a textbook paragraph.",
+            "- Do NOT copy rubric row text verbatim — rephrase in plain student language.",
+            "- Do NOT include university-level mechanisms, biochemical pathways, or advanced detail not expected at SPM.",
+            "- Do NOT pad with extra information beyond what the marks require.",
+            "- Cover only the mark points the student missed (see gaps below) — not a full lesson.",
+            "- Do NOT mention diagrams unless the question is about labelling; give the words an examiner expects written.",
+            usesVisual
+              ? "- This is a diagram/figure question: the model answer must NAME structures/functions/values in words — not 'see the diagram'."
+              : null,
+          ]
+            .filter((line): line is string => Boolean(line))
+            .join("\n")
       : "MODEL ANSWER: set modelAnswer to null (student earned full marks).",
     "The score is final â€” wording must agree with it.",
   ]
@@ -581,7 +647,8 @@ export async function buildPostScoreFeedback(
     .join("\n\n");
 
   try {
-    const parsed = await qwenGradingJson(system, user);
+    // consistency lock: Half B marking pipeline requires temperature 0 (stage 9)
+    const parsed = await qwenGradingJson(system, user, { temperature: 0 });
     const feedback = typeof parsed?.feedback === "string" ? parsed.feedback.trim() : "";
     let modelAnswer: string | undefined;
     if (notFullMark) {

@@ -1,0 +1,237 @@
+{
+  "generatedAt": "2026-06-12T04:03:10.516Z",
+  "sampleCount": 2,
+  "seed": 42,
+  "metrics": {
+    "avgRubricRowCount": 2,
+    "avgRubricRowWordCount": 8.75,
+    "pctProceduralRows": 0,
+    "pctConceptRows": 100,
+    "pctQuestionsRowsExceedMaxScore": 0,
+    "pctRubricMirrorsChunkSteps": 0,
+    "pctHighTextbookAnchoring": 0,
+    "pctRetrievedChunksProcedural": 0
+  },
+  "failureLayerIncidence": {
+    "retrieval_failure": 2,
+    "matching_failure": 1,
+    "scoring_failure": 1
+  },
+  "primaryFailureLayerDistribution": {
+    "retrieval_failure": 1,
+    "matching_failure": 1
+  },
+  "gradingProbes": {
+    "oracleRubricIdeasFailRate": 50,
+    "markSchemeAnswerFailRate": null
+  },
+  "textbookExplanationConversion": {
+    "description": "Cases where retrieved chunk is procedural AND rubric row count tracks chunk steps AND rows are textbook-anchored",
+    "count": 0,
+    "pct": 0
+  },
+  "cases": [
+    {
+      "id": "rub-rub-1779686092099-17bbb9b2",
+      "question": "Explain the functions of grana and stroma in photosynthesis. (2 marks)",
+      "maxScore": 2,
+      "form": "Form 5",
+      "source": "rag_rubric",
+      "retrieval": {
+        "chunkCount": 12,
+        "topChunkScore": 0.4,
+        "auditApprovedCount": 2,
+        "auditRelevanceScore": 0.2,
+        "isSufficientContext": false,
+        "dskpChunkCount": 4,
+        "textbookChunkCount": 8,
+        "topChunks": [
+          {
+            "chunkId": "chunk-104",
+            "score": 0.4,
+            "preview": "Specialised cells — such as epithelial cell, muscle cell, nerve cell, red blood cell, white blood cell, sperm cell, mesophyll cell, xylem vessel, sieve tube element, root hair cell, and guard cell — possess unique structures correlated with their functions in multicellular animal",
+            "chapter": "Bahagian P: embangunan Kurikulum"
+          },
+          {
+            "chunkId": "chunk-105",
+            "score": 0.4,
+            "preview": "The density of certain organelles correlates with specialised cell functions: (i) high mitochondrial density in sperm cells (motility), muscle cells (contraction), and meristematic cells (division); (ii) high chloroplast density in palisade mesophyll (primary photosynthesis) vs. ",
+            "chapter": "Bahagian P: embangunan Kurikulum"
+          },
+          {
+            "chunkId": "chunk-173",
+            "score": 0.4,
+            "preview": "The learning areas under Theme 3 are systematically ordered: 16.0 (tissue organisation & growth), 17.0 (leaf structure and its four key functions: gaseous exchange, transpiration, photosynthesis, compensation point), 18.0 (inorganic nutrients, water/mineral uptake, nutritional di",
+            "chapter": "Bahagian P: embangunan Kurikulum"
+          },
+          {
+            "chunkId": "chunk-180",
+            "score": 0.4,
+            "preview": "138 CONTENT STANDARD LEARNING STANDARD NOTES 17.3.3 Conduct experiments to study the effects of environmental factors on rate of transpiration using a potometer. Suggested activity: Design experiments to study the effects of pollution levels, leaves positions and plant locations ",
+            "chapter": "Bahagian P: embangunan Kurikulum"
+          }
+        ],
+        "chunkIsProcedural": false,
+        "questionChunkTokenOverlap": 0.5
+      },
+      "rubric": {
+        "rubricId": "rub-1779686092099-17bbb9b2",
+        "rowCount": 2,
+        "markSum": 2,
+        "contextSource": "textbook",
+        "avgIdeaWordCount": 11,
+        "maxIdeaWordCount": 12,
+        "proceduralRowPct": 0,
+        "conceptRowPct": 100,
+        "rowsExceedMaxScore": false,
+        "openPoolRowPct": 0,
+        "textbookAnchoredRowPct": 0,
+        "chunkStepCount": 0,
+        "rubricMirrorsChunkSteps": false,
+        "ideas": [
+          {
+            "id": "i1",
+            "idea": "Grana help in capturing light because they have a large surface area.",
+            "marks": 1,
+            "gradingMode": "semantic_match",
+            "wordCount": 12,
+            "rowClass": "concept"
+          },
+          {
+            "id": "i2",
+            "idea": "Stroma is where the light-independent reactions happen, like making glucose.",
+            "marks": 1,
+            "gradingMode": "semantic_match",
+            "wordCount": 10,
+            "rowClass": "concept"
+          }
+        ]
+      },
+      "grading": [
+        {
+          "label": "oracle_rubric_ideas",
+          "studentAnswer": "Grana help in capturing light because they have a large surface area.. Stroma is where the light-independent reactions happen, like making glucose.",
+          "score": 2,
+          "maxScore": 2,
+          "matchedIdeas": [
+            "Grana help in capturing light because they have a large surface area.",
+            "Stroma is where the light-independent reactions happen, like making glucose."
+          ],
+          "missingIdeas": [],
+          "awardedRowCount": 2,
+          "revokedByEvidence": 0
+        },
+        {
+          "label": "short_concept_answer",
+          "studentAnswer": "Grana help in capturing light because; protect from hazards",
+          "score": 1,
+          "maxScore": 2,
+          "matchedIdeas": [
+            "Grana help in capturing light because they have a large surface area."
+          ],
+          "missingIdeas": [
+            "Stroma is where the light-independent reactions happen, like making glucose."
+          ],
+          "awardedRowCount": 1,
+          "revokedByEvidence": 0
+        }
+      ],
+      "failureLayers": [
+        "retrieval_failure"
+      ],
+      "primaryFailureLayer": "retrieval_failure"
+    },
+    {
+      "id": "rub-rub-1780455090452-8c3f3783",
+      "question": "EN: State two functions of the Golgi apparatus.\nBM: Nyatakan dua fungsi jasad Golgi. (2 marks)",
+      "maxScore": 2,
+      "form": "Form 4",
+      "source": "rag_rubric",
+      "retrieval": {
+        "chunkCount": 1,
+        "topChunkScore": 0.4166666666666667,
+        "auditApprovedCount": 0,
+        "auditRelevanceScore": 0.2,
+        "isSufficientContext": false,
+        "dskpChunkCount": 1,
+        "textbookChunkCount": 0,
+        "topChunks": [
+          {
+            "chunkId": "chunk-102",
+            "score": 0.4166666666666667,
+            "preview": "Using micrographs (electron or high-resolution light), pupils identify and state functions of: (i) cell wall, (ii) plasma membrane, (iii) cytoplasm, (iv) nucleus & nuclear membrane, (v) mitochondrion, (vi) rough ER, (vii) smooth ER, (viii) Golgi apparatus, (ix) lysosome, (x) ribo",
+            "chapter": "Bahagian P: embangunan Kurikulum"
+          }
+        ],
+        "chunkIsProcedural": false,
+        "questionChunkTokenOverlap": 0.36363636363636365
+      },
+      "rubric": {
+        "rubricId": "rub-1780455090452-8c3f3783",
+        "rowCount": 2,
+        "markSum": 2,
+        "avgIdeaWordCount": 6.5,
+        "maxIdeaWordCount": 7,
+        "proceduralRowPct": 0,
+        "conceptRowPct": 100,
+        "rowsExceedMaxScore": false,
+        "openPoolRowPct": 100,
+        "textbookAnchoredRowPct": 0,
+        "chunkStepCount": 0,
+        "rubricMirrorsChunkSteps": false,
+        "ideas": [
+          {
+            "id": "i1",
+            "idea": "Processes and modifies proteins / chemical substances",
+            "marks": 1,
+            "gradingMode": "open_pool",
+            "wordCount": 7,
+            "rowClass": "concept"
+          },
+          {
+            "id": "i2",
+            "idea": "Packages and transports chemicals / proteins",
+            "marks": 1,
+            "gradingMode": "open_pool",
+            "wordCount": 6,
+            "rowClass": "concept"
+          }
+        ]
+      },
+      "grading": [
+        {
+          "label": "oracle_rubric_ideas",
+          "studentAnswer": "Processes and modifies proteins / chemical substances. Packages and transports chemicals / proteins",
+          "score": 0,
+          "maxScore": 2,
+          "matchedIdeas": [],
+          "missingIdeas": [
+            "Processes and modifies proteins / chemical substances",
+            "Packages and transports chemicals / proteins"
+          ],
+          "awardedRowCount": 0,
+          "revokedByEvidence": 2
+        },
+        {
+          "label": "short_concept_answer",
+          "studentAnswer": "process proteins; packages proteins",
+          "score": 2,
+          "maxScore": 2,
+          "matchedIdeas": [
+            "Processes and modifies proteins / chemical substances",
+            "Packages and transports chemicals / proteins"
+          ],
+          "missingIdeas": [],
+          "awardedRowCount": 2,
+          "revokedByEvidence": 0
+        }
+      ],
+      "failureLayers": [
+        "retrieval_failure",
+        "matching_failure",
+        "scoring_failure"
+      ],
+      "primaryFailureLayer": "matching_failure"
+    }
+  ]
+}

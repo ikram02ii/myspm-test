@@ -53,9 +53,17 @@ import {
   topicCategoriesForPart,
   type EnglishSpeakingPart,
 } from "../constants/englishSpeaking";
+import {
+  fetchOpenEndedQuestionStep,
+  mapOpenEndedStepToPracticeQuestion,
+  type OpenEndedGenerationRequest,
+} from "../services/aiOpenEndedGeneration";
 import { ragApiGet, ragApiPost } from "../services/ragApi";
 import { buildEnglishSpeakingQuery, parseEnglishSpeakingAnswer } from "../utils/englishSpeakingGenerate";
 import { parseAiGeneratedMcqAnswer, parseAiGeneratedOpenEnded } from "../utils/parseAiMcq";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+
+const PRACTICE_LAST_SUBJECT_KEY = "practice_last_subject_code";
 
 const BRAND = theme.brand;
 const BRAND_SOFT = theme.brandSoftSage;
@@ -185,6 +193,22 @@ function withMathTile(items: MobileSubjectFavourite[]): MobileSubjectFavourite[]
   });
   if (hasMath) return items;
   return [...items, { code: "math", name: "Mathematics" }];
+}
+
+function buildFavouriteTiles(favourites: MobileSubjectFavourite[]): MobileSubjectFavourite[] {
+  return withAdditionalMathTile(
+    withMathTile(withChemistryTile(withBiologyTile(withEnglishTile(stripScienceAndHistory(favourites))))),
+  );
+}
+
+function pickInitialSubjectCode(
+  tiles: MobileSubjectFavourite[],
+  preferred: string | null,
+): string | null {
+  if (tiles.length === 0) return null;
+  const keys = new Set(tiles.map((f) => favouriteKey(f)));
+  if (preferred && keys.has(preferred)) return preferred;
+  return favouriteKey(tiles[0]);
 }
 
 function withAdditionalMathTile(items: MobileSubjectFavourite[]): MobileSubjectFavourite[] {
@@ -334,19 +358,30 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
     };
   }, [borderGlow, borderPulse, borderShine]);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (opts?: { showSpinner?: boolean }) => {
     setError(null);
+    if (opts?.showSpinner !== false) {
+      setLoading(true);
+    }
     try {
-      const [profileData, list] = await Promise.all([
+      const [profileData, list, storedSubject] = await Promise.all([
         fetchMobileProfile(),
         fetchPracticeSetList(),
+        AsyncStorage.getItem(PRACTICE_LAST_SUBJECT_KEY),
       ]);
-      setFavourites(profileData.subjectFavourites);
+      const nextFavourites = profileData.subjectFavourites;
+      const tiles = buildFavouriteTiles(nextFavourites);
+      const storedCode = storedSubject?.trim().toUpperCase() || null;
+
+      setFavourites(nextFavourites);
       setSets(list);
       setMetaFormLevel(
         typeof profileData.formLevel === "number" && Number.isFinite(profileData.formLevel)
           ? `Form ${profileData.formLevel}`
           : "Form 4",
+      );
+      setActiveSubjectCode((prev) =>
+        pickInitialSubjectCode(tiles, prev ?? storedCode),
       );
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load");
@@ -359,14 +394,13 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
 
   useFocusEffect(
     useCallback(() => {
-      void load();
+      void load({ showSpinner: false });
     }, [load])
   );
 
   const onRefresh = () => {
     setRefreshing(true);
-    setLoading(true);
-    void load().finally(() => setRefreshing(false));
+    void load({ showSpinner: false }).finally(() => setRefreshing(false));
   };
 
   const openAddModal = useCallback(async () => {
@@ -397,26 +431,16 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
     );
   }, [sets, favouritesVisible]);
 
-  const favouriteTiles = useMemo(
-    () =>
-      withAdditionalMathTile(
-        withMathTile(withChemistryTile(withBiologyTile(withEnglishTile(favouritesVisible)))),
-      ),
-    [favouritesVisible],
-  );
+  const favouriteTiles = useMemo(() => buildFavouriteTiles(favourites), [favourites]);
 
-  /** Selected subject for filtering: tap a tile to show only that subject; default first favourite when any exist. */
+  /** Selected subject for filtering — only use activeSubjectCode (restored in load), never jump to tiles[0] mid-render. */
   const selectedSubjectKey = useMemo(() => {
-    if (favouriteTiles.length === 0) {
+    if (favouriteTiles.length === 0 || activeSubjectCode == null) {
       return null;
     }
-    if (
-      activeSubjectCode != null &&
-      favouriteTiles.some((f) => favouriteKey(f) === activeSubjectCode)
-    ) {
-      return activeSubjectCode;
-    }
-    return favouriteKey(favouriteTiles[0]);
+    return favouriteTiles.some((f) => favouriteKey(f) === activeSubjectCode)
+      ? activeSubjectCode
+      : null;
   }, [favouriteTiles, activeSubjectCode]);
 
   const isEnglishGenerator = useMemo(
@@ -441,7 +465,9 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
   }, [setsInFavourites, favouriteTiles, selectedSubjectKey]);
 
   const onTilePress = (f: MobileSubjectFavourite) => {
-    setActiveSubjectCode(favouriteKey(f));
+    const code = favouriteKey(f);
+    setActiveSubjectCode(code);
+    void AsyncStorage.setItem(PRACTICE_LAST_SUBJECT_KEY, code);
   };
 
   const onPickNewSubject = async (code: string) => {
@@ -558,21 +584,65 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
     setAiGenerating(true);
     try {
       const topicTrim = chapterDb;
+      const query = buildAiQuery(backendSubject, topicTrim);
+      const chapterTopic =
+        aiMode === "topic" && topicTrim.length > 0
+          ? {
+              chapterHint: topicTrim,
+              ...( /^(chapter|bab|unit)\s*\d+/i.test(topicTrim) ? { chapterFilter: topicTrim } : {} ),
+            }
+          : {};
+
+      if (aiQuestionType === "subjective") {
+        const genRequest: OpenEndedGenerationRequest = {
+          query,
+          subject: backendSubject,
+          form: metaFormLevel,
+          topK: 8,
+          ...chapterTopic,
+        };
+        const step1 = await fetchOpenEndedQuestionStep({
+          request: genRequest,
+          questionIndex: 1,
+          totalQuestions: aiQuestionCount,
+          priorStems: [],
+        });
+        if (!step1.question?.questionText?.trim()) {
+          showToast("AI did not return the first question. Try again.");
+          return;
+        }
+        const firstQuestion = mapOpenEndedStepToPracticeQuestion(step1.question, 1);
+        setAiModalOpen(false);
+        (navigation as any).navigate("PracticeSession", {
+          title: "AI Practice",
+          questions: [firstQuestion],
+          subject: backendSubject,
+          formLevel: metaFormLevel,
+          ...(aiQuestionCount > 1
+            ? {
+                openEndedBackground: {
+                  ...genRequest,
+                  generationContextId: step1.generationContextId,
+                  totalQuestions: aiQuestionCount,
+                  nextQuestionIndex: 2,
+                  priorStems: [firstQuestion.questionText],
+                },
+              }
+            : {}),
+        });
+        return;
+      }
+
       const result = await ragApiPost<RagGenerateResponse>(
         "/rag/generate",
         {
-          query: buildAiQuery(backendSubject, topicTrim),
+          query,
           subject: backendSubject,
           form: metaFormLevel,
           topK: 8,
           generateImage: aiQuestionType === "mcq" && isScienceDiagramSubject(backendSubject),
-          createOpenEndedRubrics: aiQuestionType === "subjective",
-          ...(aiMode === "topic" && topicTrim.length > 0
-            ? {
-                chapterHint: topicTrim,
-                ...( /^(chapter|bab|unit)\s*\d+/i.test(topicTrim) ? { chapterFilter: topicTrim } : {} ),
-              }
-            : {}),
+          createOpenEndedRubrics: false,
+          ...chapterTopic,
         },
       );
 
@@ -600,47 +670,6 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
         });
         return;
       }
-
-      const structuredOpen: PracticeSetQuestion[] = Array.isArray(result.openEndedQuestions)
-        ? result.openEndedQuestions.map((item, idx) => ({
-            id: typeof item?.id === "number" ? item.id : idx + 1,
-            sortOrder: typeof item?.sortOrder === "number" ? item.sortOrder : idx + 1,
-            questionText: typeof item?.questionText === "string" ? item.questionText : "",
-            questionType: typeof item?.questionType === "string" ? item.questionType : "short_answer",
-            difficulty: typeof item?.difficulty === "string" ? item.difficulty : "mixed",
-            options: [],
-            correctAnswer: "",
-            explanation: typeof item?.explanation === "string" ? item.explanation : null,
-            maxMarks: typeof item?.maxMarks === "number" ? item.maxMarks : undefined,
-            questionForGrade: typeof item?.questionForGrade === "string" ? item.questionForGrade : undefined,
-            rubricId: typeof item?.rubricId === "string" ? item.rubricId : undefined,
-            modelAnswer: typeof item?.modelAnswer === "string" ? item.modelAnswer : undefined,
-            rubricIdeas: Array.isArray(item?.rubricIdeas) ? item.rubricIdeas : undefined,
-          })).filter((item) => item.questionText.trim().length > 0)
-        : [];
-      const parsedOpenRaw =
-        structuredOpen.length > 0
-          ? structuredOpen
-          : parseAiGeneratedOpenEnded(result.answer, "short");
-      const parsedOpen = attachStructuredDiagramsToQuestions(
-        attachDiagramsToQuestions(
-          parsedOpenRaw,
-          result.diagrams ?? (result.diagram ? [result.diagram] : []),
-        ),
-        result.structuredDiagrams,
-      );
-      if (parsedOpen.length === 0) {
-        showToast("AI did not return parseable questions. Try again.");
-        return;
-      }
-
-      setAiModalOpen(false);
-      (navigation as any).navigate("PracticeSession", {
-        title: "AI Practice",
-        questions: parsedOpen,
-        subject: backendSubject,
-        formLevel: metaFormLevel,
-      });
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Failed to generate questions.");
     } finally {
@@ -729,7 +758,7 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
           </Text>
         </View>
 
-        {!loading || favouriteTiles.length > 0 ? (
+        {!loading && favouriteTiles.length > 0 ? (
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}

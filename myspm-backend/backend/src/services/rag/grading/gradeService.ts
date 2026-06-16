@@ -1,4 +1,4 @@
-﻿import { randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { ragDb, ragGradingResultsTable } from "../../../lib/ragDb";
 import { auditRetrievedContext } from "../retrieval/contextAuditService";
 import { buildGradingContextFromChunks, retrieveChunks } from "../retrieval/retrievalService";
@@ -57,7 +57,7 @@ const INTERNAL_LABEL_PATTERNS: RegExp[] = [
 ];
 
 const CAUSAL_LINK_PATTERN =
-  /\b(because|so that|in order to|to (?:reduce|increase|maintain|allow|provide|prevent|speed|slow|enable|cause|ensure|maximi[sz]e|minimi[sz]e)|thus|therefore|as a result|hence|leads to|results in|enables|allows|provides|maintains|reduces|increases)\b/i;
+  /\b(because|so(?:\s+that)?|in order to|to (?:reduce|increase|maintain|allow|provide|prevent|speed|slow|enable|cause|ensure|maximi[sz]e|minimi[sz]e)|thus|therefore|as a result|hence|leads to|results in|enables|allows|provides|maintains|reduces|increases|depends on|is determined by|relies on|is based on|determines)\b/i;
 const CAUSAL_LINK_PATTERN_BM =
   /\b(kerana|sebab|supaya|untuk\s+(?:mengurangkan|menambah|mengekalkan|membenarkan|membantu|menghalang|mempercepat|menjamin|memastikan)|menyebabkan|maka|justeru|seterusnya|menghasilkan)\b/i;
 
@@ -1520,9 +1520,9 @@ export async function gradeSubmission(input: GradeSubmissionInput): Promise<Grad
     maxScoreAdjustedReason: scoreAdjustment.maxScoreAdjustedReason,
   });
 
-  const pipelineEnv = (process.env["RAG_GRADE_PIPELINE"] || "v2").trim().toLowerCase();
-  const usePipelineV2 = !["v1", "legacy", "off", "false", "0"].includes(pipelineEnv);
-  if (usePipelineV2) {
+  const pipelineEnv = (process.env["RAG_GRADE_PIPELINE"] || "v3").trim().toLowerCase();
+  const useEvidencePipeline = !["v1", "legacy", "off", "false", "0"].includes(pipelineEnv);
+  if (useEvidencePipeline) {
     const gradedV2 = await gradeWithPipelineV2({
       ...input,
       question,

@@ -193,7 +193,7 @@ const DEMAND_DETECTORS: { type: DemandType; re: RegExp }[] = [
   },
   {
     type: "comparison",
-    re: /\b(compare|difference\s+between|similarities|bandingkan|perbezaan|persamaan|differentiate|distinguish|bezakan)\b/i,
+    re: /\b(compare|differences?\s+between|similarities?\s+between|similarities?\s+and\s+differences?|differences?\s+and\s+similarities?|bandingkan|perbezaan\s+antara|persamaan\s+antara|persamaan\s+dan\s+perbezaan|perbezaan|persamaan|differentiate|distinguish|bezakan)\b/i,
   },
   {
     type: "calculation",
@@ -243,7 +243,18 @@ function detectEquationMeta(q: string, demandType: DemandType): { isEquationQues
 function classifyQuestionType(q: string, commandWord: CommandWord): QuestionAnalysis["questionType"] {
   const s = norm(q);
   if (detectMcqLike(q)) return "mcq";
-  if (/\bcompare\b|\bbandingkan\b|\bdifferentiate\b|\bbezakan\b/i.test(s)) return "compare_contrast";
+  // Body-level comparison override: check the full sentence, not just the leading verb.
+  // Catches "State TWO differences between...", "List the similarities...", etc.
+  if (
+    /\bcompare\b|\bbandingkan\b|\bdifferentiate\b|\bbezakan\b/i.test(s) ||
+    /\bdifferences?\s+between\b/i.test(s) ||
+    /\bsimilarities?\s+between\b/i.test(s) ||
+    /\bsimilarities?\s+and\s+differences?\b/i.test(s) ||
+    /\bperbezaan\s+antara\b/i.test(s) ||
+    /\bpersamaan\s+antara\b/i.test(s) ||
+    /\bpersamaan\s+dan\s+perbezaan\b/i.test(s) ||
+    /\bdifferences?\s+and\s+similarities?\b/i.test(s)
+  ) return "compare_contrast";
   if (/\b(calculate|hitung|kira|find\s+the\s+value|hitungkan)\b/i.test(s)) return "calculation";
   const asksForExample =
     /\b(give\s+(an?\s+)?example|name\s+an?\s+example|state\s+an?\s+example|berikan\s+contoh|beri\s+contoh)\b/i.test(s) ||

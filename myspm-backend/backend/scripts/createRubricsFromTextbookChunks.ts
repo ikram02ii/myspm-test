@@ -30,18 +30,9 @@ function flag(name: string): boolean {
   return process.argv.includes(`--${name}`);
 }
 
-function assertRagDbEnv(): void {
-  if (process.env["RAG_DATABASE_URL"]?.trim()) return;
-  const missing = ["RAG_DB_USER", "RAG_DB_PASSWORD"].filter((k) => !process.env[k]?.trim());
-  if (missing.length > 0) {
-    throw new Error(
-      `RAG database not configured. Set RAG_DATABASE_URL or ${missing.join(" and ")} in backend/.env`,
-    );
-  }
-}
-
 async function main(): Promise<void> {
-  assertRagDbEnv();
+  const { assertRagDatabaseEnv } = await import("../src/lib/ragDb.js");
+  assertRagDatabaseEnv();
 
   const textbookId = arg("textbookId");
   const subject = arg("subject");
@@ -52,7 +43,7 @@ async function main(): Promise<void> {
   }
 
   const { createRubricsFromTextbookChunks } = await import(
-    "../src/services/rag/rubric/rubricFromTextbookChunksService.js"
+    "../src/services/rag/grading/v3/textbookChunkAssessmentService.js"
   );
 
   const result = await createRubricsFromTextbookChunks({

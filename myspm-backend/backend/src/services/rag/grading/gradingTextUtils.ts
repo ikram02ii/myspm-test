@@ -64,6 +64,30 @@ export function detectAnswerLanguage(text: string): AnswerLanguage {
   return "mixed";
 }
 
+/** True when the text contains clear Bahasa Melayu prose (not just mixed science terms). */
+export function textContainsMalayProse(text: string): boolean {
+  const trimmed = (text || "").trim();
+  if (!trimmed) return false;
+  const lang = detectAnswerLanguage(trimmed);
+  if (lang === "malay") return true;
+  const malayWordHits = trimmed.match(
+    /\b(?:yang|dalam|adalah|dengan|untuk|kerana|sebab|lebih|cepat|makanan|memasak|tekanan|berbanding|periuk|terangkan|nyatakan|jelaskan|maka|pada|daripada|ialah|akan|boleh|tidak|dan|atau|suhu|udara|meningkat|melebihi|darjah|celcius|tindak|balas|asid|getah|garam|air|membentuk|antara|mengapa|berlaku|normal|biasa)\b/gi,
+  );
+  return (malayWordHits?.length ?? 0) >= 2 || lang === "mixed";
+}
+
+/** Pick EN or BM stem from bilingual practice questions (EN: / BM: lines). */
+export function extractQuestionStemForLanguage(
+  question: string,
+  language: AnswerLanguage,
+): string {
+  const enMatch = question.match(/(?:^|\n)\s*EN:\s*([^\n]+)/i);
+  const bmMatch = question.match(/(?:^|\n)\s*BM:\s*([^\n]+)/i);
+  if (language === "english" && enMatch?.[1]) return enMatch[1].trim();
+  if (language === "malay" && bmMatch?.[1]) return bmMatch[1].trim();
+  return question.trim();
+}
+
 export function buildLanguageDirective(language: AnswerLanguage): string {
   const level =
     "Use simple, student-friendly wording for SPM Form 4/5: short sentences, common school words, no advanced jargon.";

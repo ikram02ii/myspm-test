@@ -1,4 +1,4 @@
-import { and, desc, eq, ilike, or } from "drizzle-orm";
+import { and, asc, desc, eq, gte, ilike, lte, or } from "drizzle-orm";
 import {
   ragDb,
   ragPastPaperChunksTable,
@@ -6,7 +6,7 @@ import {
   ragTextbookChunksTable,
   ragTextbooksTable,
 } from "../../../lib/ragDb";
-import { pastPaperFormWhereClause } from "./pastPaperFormFilter";
+import { pastPaperFormWhereClause, textbookFormWhereClause } from "./pastPaperFormFilter";
 import type {
   GradingContextPayload,
   RetrieveChunksInput,
@@ -276,9 +276,10 @@ export async function retrieveChunks(input: RetrieveChunksInput): Promise<Retrie
     return { query, count: 0, chunks: [] };
   }
 
+  const textbookFormClause = textbookFormWhereClause(form);
   const filters = [
     subject ? eq(ragTextbooksTable.subject, subject) : undefined,
-    form ? eq(ragTextbooksTable.form, form) : undefined,
+    textbookFormClause,
     chapterFilterClause,
   ].filter((v): v is NonNullable<typeof v> => v != null);
   const whereClause = filters.length > 0 ? and(...filters, tokenClause) : tokenClause;
@@ -454,6 +455,70 @@ export async function retrieveChunks(input: RetrieveChunksInput): Promise<Retrie
     count: scored.length,
     chunks: scored,
   };
+}
+
+/**
+ * Load physically adjacent textbook chunks (by chunk_index) for rubric/question grounding.
+ * Ingest order is sequential — related content usually spans consecutive indices.
+ */
+export async function fetchConsecutiveTextbookChunks(
+  primary: RetrievedChunk,
+  radius = 2,
+): Promise<RetrievedChunk[]> {
+  if (!ragDb || primary.sourceType !== "textbook") return [primary];
+
+  const lo = Math.max(0, primary.chunkIndex - radius);
+  const hi = primary.chunkIndex + radius;
+
+  const rows = await ragDb
+    .select({
+      textbookId: ragTextbooksTable.textbookId,
+      subject: ragTextbooksTable.subject,
+      form: ragTextbooksTable.form,
+      title: ragTextbooksTable.title,
+      chunkId: ragTextbookChunksTable.chunkId,
+      chunkIndex: ragTextbookChunksTable.chunkIndex,
+      conceptTitle: ragTextbookChunksTable.conceptTitle,
+      conceptSummary: ragTextbookChunksTable.conceptSummary,
+      keywords: ragTextbookChunksTable.keywords,
+      chapter: ragTextbookChunksTable.chapter,
+      pageStart: ragTextbookChunksTable.pageStart,
+      pageEnd: ragTextbookChunksTable.pageEnd,
+      content: ragTextbookChunksTable.content,
+    })
+    .from(ragTextbookChunksTable)
+    .innerJoin(ragTextbooksTable, eq(ragTextbookChunksTable.textbookDbId, ragTextbooksTable.id))
+    .where(
+      and(
+        eq(ragTextbooksTable.textbookId, primary.textbookId),
+        gte(ragTextbookChunksTable.chunkIndex, lo),
+        lte(ragTextbookChunksTable.chunkIndex, hi),
+      ),
+    )
+    .orderBy(asc(ragTextbookChunksTable.chunkIndex));
+
+  const quality = rows.filter((row) => !isLowQualityChunk(row.content));
+  if (quality.length === 0) return [primary];
+
+  return quality.map((row) => ({
+    score: primary.score - Math.abs(row.chunkIndex - primary.chunkIndex) * 0.05,
+    sourceType: "textbook" as const,
+    textbookId: row.textbookId,
+    subject: row.subject,
+    form: row.form,
+    title: row.title,
+    chunkId: row.chunkId,
+    chunkIndex: row.chunkIndex,
+    conceptTitle: row.conceptTitle ?? undefined,
+    conceptSummary: row.conceptSummary ?? undefined,
+    keywords: row.keywords
+      ? row.keywords.split(",").map((k) => k.trim()).filter(Boolean)
+      : undefined,
+    chapter: row.chapter ?? undefined,
+    pageStart: row.pageStart ?? undefined,
+    pageEnd: row.pageEnd ?? undefined,
+    content: row.content,
+  }));
 }
 
 function tagForSource(sourceType: RetrievedChunkSource): string {

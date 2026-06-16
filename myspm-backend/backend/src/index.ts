@@ -12,7 +12,10 @@ if (dotenvResult.error) {
 
 const { default: app } = await import("./app");
 const { pool } = await import("@workspace/db");
-const { ragPool, isRagDatabaseConfigured } = await import("./lib/ragDb");
+const { ragPool, isRagDatabaseConfigured, ragDatabaseSourceLabel, ragDatabaseTarget } = await import(
+  "./lib/ragDb"
+);
+const { getRagPgSchemaName } = await import("./lib/ragSchema");
 const { ensureRagSchema } = await import("./database/initRagDatabase");
 
 const rawPort = process.env["PORT"];
@@ -42,12 +45,18 @@ if (isRagDatabaseConfigured() && ragPool) {
   try {
     await ragPool.query("SELECT 1");
     await ensureRagSchema();
-    console.info("RAG database connected");
+    const ragTarget = ragDatabaseTarget();
+    const ragTargetLabel = ragTarget
+      ? `${ragTarget.host}:${ragTarget.port}/${ragTarget.database}`
+      : "unknown";
+    console.info(
+      `RAG database connected (via ${ragDatabaseSourceLabel()}) → ${ragTargetLabel} schema=${getRagPgSchemaName()}`,
+    );
   } catch (error) {
     if (ragDbOptional) {
       console.warn(
         "RAG database unavailable — continuing without it. " +
-          "Textbook/RAG generate needs a working RAG_DATABASE_URL or local Postgres on port 5432.",
+          "Textbook/RAG generate needs DATABASE_URL or RAG_DATABASE_URL with rag_* tables present.",
       );
     } else {
       console.error("RAG database connection failed:", error);
@@ -56,11 +65,11 @@ if (isRagDatabaseConfigured() && ragPool) {
   }
 } else if (ragDbOptional) {
   console.info(
-    "RAG database not configured — skipping. Set RAG_DATABASE_URL in .env to enable textbook/RAG features.",
+    "RAG database not configured — skipping. Set DATABASE_URL or RAG_DATABASE_URL in .env to enable textbook/RAG features.",
   );
 } else {
   throw new Error(
-    "RAG database is required. Set RAG_DATABASE_URL or RAG_DB_USER/RAG_DB_PASSWORD in .env, or set RAG_DB_OPTIONAL=true for dev.",
+    "RAG database is required. Set DATABASE_URL or RAG_DATABASE_URL in .env, or set RAG_DB_OPTIONAL=true for dev.",
   );
 }
 

@@ -7,6 +7,7 @@ import PracticeSetsLibraryScreen from "../screens/PracticeSetsLibraryScreen";
 import PracticeSetDetailScreen from "../screens/PracticeSetDetailScreen";
 import PracticeSessionScreen from "../screens/PracticeSessionScreen";
 import type { PracticeSetQuestion } from "../services/mobilePracticeSets";
+import type { OpenEndedBackgroundJob } from "../services/aiOpenEndedGeneration";
 
 export type PracticeStackParamList = {
   PracticeLibrary: undefined;
@@ -25,6 +26,7 @@ export type PracticeStackParamList = {
         subject?: string;
         formLevel?: string;
         practiceMode?: "speaking";
+        openEndedBackground?: OpenEndedBackgroundJob;
       };
 };
 

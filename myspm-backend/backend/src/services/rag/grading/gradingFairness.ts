@@ -3,6 +3,9 @@
  */
 
 import type { MarkBreakdownItem, QuestionAnalysis, RubricIdea } from "../types";
+import type { PipelineGradingContext } from "./gradingContext";
+import { studentAnswerMentionsAllComparisonSubjects } from "./gradingComparisonSubjects";
+import { isDiagramDeixisAnswer } from "./gradingEvidencePolicy";
 import { studentAnswerExplicitlySupportsMarkPoint } from "./gradingEvidencePolicy";
 import { verifyBorderlineMeaningMatch } from "./qwenGradingClient";
 import {
@@ -36,7 +39,7 @@ const UMBRELLA_LEXEMES = new Set([
 ]);
 
 const SUFF_CAUSAL_EN =
-  /\b(because|so that|so\s+it|in order to|therefore|thus|hence|as a result|leads to|results in|can get|could get|will get|may get)\b/i;
+  /\b(because|so(?:\s+(?:that|it|they|the\s+\w+))?|in order to|therefore|thus|hence|as a result|leads to|results in|can get|could get|will get|may get)\b/i;
 const SUFF_CAUSAL_BM =
   /\b(kerana|sebab|supaya|maka|justeru|menyebabkan|oleh sebab|akibat)\b/i;
 const MECHANISM_DETAIL =
@@ -376,8 +379,20 @@ export async function fixMissingIdeasAgainstStudentAnswer(params: {
   score: number;
   maxScore: number;
   questionAnalysis?: QuestionAnalysis | null;
+  gradingContext?: PipelineGradingContext | null;
 }): Promise<ContradictionFixResult> {
   const { studentAnswer, maxScore, question } = params;
+  if (params.score >= params.maxScore) {
+    return {
+      missingIdeas: params.missingIdeas,
+      matchedIdeas: params.matchedIdeas,
+      markBreakdown: params.markBreakdown,
+      score: params.score,
+      contradictionCheckPassed: true,
+    };
+  }
+  const ansWords = studentAnswer.trim().split(/\s+/).filter(Boolean).length;
+  const substantiveAnswer = ansWords >= 3 && !isDiagramDeixisAnswer(studentAnswer);
   let missing = [...params.missingIdeas];
   let matched = [...params.matchedIdeas];
   const breakdown = params.markBreakdown?.map((r) => ({ ...r }));
@@ -387,9 +402,20 @@ export async function fixMissingIdeasAgainstStudentAnswer(params: {
   for (const idea of params.missingIdeas) {
     const rubricRow = params.rubricIdeas?.find((r) => r.idea === idea);
 
-    // Gate 1: the student answer must contain at least one distinctive concept
-    // token from this rubric idea.  Shared generic vocabulary does not qualify.
-    if (!studentAnswerContainsDistinctiveRubricToken(studentAnswer, idea, rubricRow?.acceptedConcepts)) {
+    // Gate 1: distinctive token (skip when answer is substantive — LLM verifier decides).
+    if (
+      !substantiveAnswer &&
+      !studentAnswerContainsDistinctiveRubricToken(studentAnswer, idea, rubricRow?.acceptedConcepts)
+    ) {
+      continue;
+    }
+
+    if (
+      params.gradingContext?.isCompareQ &&
+      rubricRow?.comparisonSubjects &&
+      rubricRow.comparisonSubjects.length >= 2 &&
+      !studentAnswerMentionsAllComparisonSubjects(studentAnswer, rubricRow.comparisonSubjects)
+    ) {
       continue;
     }
 

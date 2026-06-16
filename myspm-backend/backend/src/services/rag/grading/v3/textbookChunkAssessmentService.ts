@@ -1,15 +1,19 @@
-﻿/**
+/**
  * Generate SPM practice questions + saved rubrics grounded in individual textbook chunks.
  */
 
 import { and, asc, eq, ilike, inArray } from "drizzle-orm";
-import { chatCompletion } from "../../ai gen/llmProvider";
-import { ragDb, ragRubricsTable, ragTextbookChunksTable, ragTextbooksTable } from "../../../lib/ragDb";
-import { analyzeQuestion, mapAnalysisToRubricQuestionType } from "../grading/questionAnalysisService";
-import { isLowQualityChunk } from "../retrieval/retrievalService";
-import { buildRubricIdeasForQuestion, saveGeneratedRubric, type QuestionType } from "./rubricService";
-import { formatSpmStudentFriendlyRulesBlock } from "../grading/gradingPolicy";
-import type { Rubric, RubricIdea } from "../types";
+import { chatCompletion } from "../../../ai gen/llmProvider";
+import { ragDb, ragRubricsTable, ragTextbookChunksTable, ragTextbooksTable } from "../../../../lib/ragDb";
+import { analyzeQuestion } from "../questionAnalysisService";
+import { isLowQualityChunk } from "../../retrieval/retrievalService";
+import {
+  buildAssessmentCasePackage,
+  evidenceUnitsToRubricIdeas,
+  saveGeneratedAssessmentCase,
+} from "./assessmentCaseService";
+import { formatSpmStudentFriendlyRulesBlock } from "../gradingPolicy";
+import type { RubricIdea } from "../../types";
 
 export type TextbookChunkRow = {
   textbookId: string;
@@ -92,6 +96,7 @@ function clampMaxMarks(n: number | undefined): number {
 export async function listTextbookChunksForRubricGeneration(
   input: Pick<CreateRubricsFromTextbookChunksInput, "textbookId" | "subject" | "form" | "chapterFilter" | "maxChunks" | "offset">,
 ): Promise<{ textbook: { textbookId: string; subject: string; form: string; title: string }; chunks: TextbookChunkRow[] }> {
+  if (!ragDb) throw new Error("RAG database not configured");
   const textbookId = input.textbookId?.trim();
   const subject = input.subject?.trim();
   const form = input.form?.trim();
@@ -179,6 +184,7 @@ export async function listTextbookChunksForRubricGeneration(
 
 async function existingSourceRefs(textbookId: string, chunkIds: string[]): Promise<Set<string>> {
   if (chunkIds.length === 0) return new Set();
+  if (!ragDb) return new Set();
   const refs = chunkIds.map((id) => chunkSourceRef(textbookId, id));
   const rows = await ragDb
     .select({ sourceRef: ragRubricsTable.sourceRef })
@@ -252,26 +258,28 @@ async function createRubricForChunk(params: {
 }): Promise<ChunkRubricResult> {
   const { questionText, modelAnswer } = await generateQuestionFromChunk(params);
   const analysis = analyzeQuestion(questionText, params.chunk.subject);
-  const questionType = mapAnalysisToRubricQuestionType(analysis) as QuestionType;
-  const ideas = await buildRubricIdeasForQuestion({
+  const { acf, sourceRef } = await buildAssessmentCasePackage({
     question: questionText,
     subject: params.chunk.subject,
     form: params.chunk.form,
     maxScore: params.maxMarks,
-    questionType,
-    textbookContextExcerpt: params.chunk.content,
     questionAnalysis: analysis,
+    seedChunkContent: params.chunk.content,
+    seedChunkRefs: [chunkSourceRef(params.chunk.textbookId, params.chunk.chunkId)],
+    skipRetrieval: true,
   });
 
-  const rubric = await saveGeneratedRubric({
+  if (acf.referenceModelAnswer == null && modelAnswer) {
+    acf.referenceModelAnswer = modelAnswer;
+  }
+
+  const stored = await saveGeneratedAssessmentCase({
     question: questionText,
     subject: params.chunk.subject,
     form: params.chunk.form,
     maxScore: params.maxMarks,
-    questionType,
-    ideas,
-    source: "llm_generated",
-    sourceRef: chunkSourceRef(params.chunk.textbookId, params.chunk.chunkId),
+    acf,
+    sourceRef,
   });
 
   return {
@@ -280,8 +288,8 @@ async function createRubricForChunk(params: {
     chapter: params.chunk.chapter,
     questionText,
     maxMarks: params.maxMarks,
-    rubricId: rubric.rubricId,
-    rubricIdeas: rubric.ideas,
+    rubricId: stored.caseId,
+    rubricIdeas: evidenceUnitsToRubricIdeas(acf),
   };
 }
 

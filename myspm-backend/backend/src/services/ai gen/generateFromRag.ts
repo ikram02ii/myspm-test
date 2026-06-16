@@ -6,13 +6,24 @@ import {
   type GenerateRagDiagram,
   type StructuredQuestionDiagram,
 } from "./generateFromRagEnhancements";
-import { retrieveChunks } from "../rag/retrieval/retrievalService";
+import { fetchConsecutiveTextbookChunks, retrieveChunks } from "../rag/retrieval/retrievalService";
 import { enrichMathAnswerWithSvg } from "./mathSvg";
 import { analyzeQuestion } from "../rag/grading/questionAnalysisService";
 import { buildEnglishSpeakingPdfContext } from "../rag/speaking/englishSpeakingPdfService";
 import { englishSpeakingPartFromQuery } from "../rag/speaking/englishSpeakingTypes";
-import { finalizeRubricIdeas, saveGeneratedRubric } from "../rag/rubric/rubricService";
+import {
+  buildAssessmentCasePackage,
+  evidenceUnitsToRubricIdeas,
+  saveGeneratedAssessmentCase,
+} from "../rag/grading/v3/assessmentCaseService";
+import {
+  buildCandidateChunkPool,
+  mergeChunksExcerpt,
+  questionDraftContextChunks,
+  resolveGroundingChunksForQuestion,
+} from "../rag/grading/v3/groundingChunks";
 import type { RetrievedChunk, RubricIdea, RubricIdeaKind } from "../rag/types";
+import { getRetrievalContext, storeRetrievalContext } from "./openEndedGenerationContext";
 
 export type GenerateRagInput = {
   /** Natural language: topic + what to generate. Output is bilingual EN+BM for stems, options, and Penjelasan unless subject is in RAG_FORCE_BM_SUBJECTS (default: Sejarah). */
@@ -29,6 +40,8 @@ export type GenerateRagInput = {
   chapterHint?: string | null;
   /** For AI Practice subjective mode: create saved rubrics and return structured question objects. */
   createOpenEndedRubrics?: boolean;
+  /** How many subjective questions to generate sequentially (1–12). Parsed from query if omitted. */
+  questionCount?: number;
   /** Skip Postgres/RAG retrieval — LLM only (English speaking practice). */
   skipRetrieval?: boolean;
   /** Use English oral-exam prompt instead of textbook MCQ template. */
@@ -225,7 +238,11 @@ async function generateWithoutRetrieval(input: GenerateRagInput): Promise<Genera
       { role: "system", content: system },
       { role: "user", content: userContent },
     ],
-    { subject: input.subject, query: input.query },
+    {
+      subject: input.subject,
+      query: input.query,
+      preferGradingModel: useEnglishSpeakingPrompt,
+    },
   );
 
   return packageGeneratedAnswer(input, answerRaw, {
@@ -343,6 +360,22 @@ function normalizeGeneratedRubricIdeas(raw: unknown, maxMarks: number): RubricId
     : [{ id: "i1", idea: "Gives a correct SPM-level answer to the question", marks: maxMarks, kind: "point" }];
 }
 
+function textbookHits(hits: RetrievedChunk[]): RetrievedChunk[] {
+  return hits.filter((h) => h.sourceType === "textbook");
+}
+
+function textbookChunkRef(chunk: RetrievedChunk): string {
+  return `textbook:${chunk.textbookId}:chunk:${chunk.chunkId}`;
+}
+
+/** Primary textbook chunk for this step — rubric may expand to neighbors after the question is drafted. */
+function pickPrimaryTextbookChunk(hits: RetrievedChunk[], questionIndex: number): RetrievedChunk | null {
+  const textbooks = textbookHits(hits);
+  if (textbooks.length === 0) return null;
+  const idx = (Math.max(1, questionIndex) - 1) % textbooks.length;
+  return textbooks[idx] ?? null;
+}
+
 function sourcesFromHits(hits: RetrievedChunk[]): GenerateRagResult["sources"] {
   return hits.map((h) => ({
     documentId: Number(h.textbookId) || 0,
@@ -370,98 +403,332 @@ function formatOpenEndedAnswer(questions: GeneratedOpenEndedQuestion[]): string 
     .join("\n\n");
 }
 
+const OPEN_ENDED_QUESTION_COUNT_MAX = 12;
+
+function parseOpenEndedQuestionCount(query: string, explicit?: number): number {
+  if (typeof explicit === "number" && Number.isFinite(explicit)) {
+    return Math.max(1, Math.min(OPEN_ENDED_QUESTION_COUNT_MAX, Math.floor(explicit)));
+  }
+  const m = query.match(/\bgenerate\s+(\d+)\b/i);
+  if (m?.[1]) {
+    const n = Number(m[1]);
+    if (Number.isFinite(n)) {
+      return Math.max(1, Math.min(OPEN_ENDED_QUESTION_COUNT_MAX, Math.floor(n)));
+    }
+  }
+  return 1;
+}
+
+function normalizeOpenEndedQuestionText(questionTextRaw: string, maxMarks: number): string | null {
+  const trimmed = questionTextRaw.trim();
+  if (!trimmed) return null;
+  return /\bmarks?\)|\bmarkah\)/i.test(trimmed) ? trimmed : `${trimmed} (${maxMarks} marks)`;
+}
+
+async function generateOneOpenEndedQuestionDraft(params: {
+  input: GenerateRagInput;
+  form?: string;
+  contextBlocks: string[];
+  questionIndex: number;
+  totalQuestions: number;
+  priorStems: string[];
+  chunkGroundingMode?: "none" | "single" | "multi";
+}): Promise<{ questionText: string; maxMarks: number } | null> {
+  const hasContext = params.contextBlocks.length > 0;
+  const system = [
+    "You generate ONE short Malaysian SPM subjective practice question.",
+    "Return JSON only, no prose, no code fences.",
+    'Schema: { "questionText": string, "maxMarks": number }',
+    "Generate exactly one question per response.",
+    "questionText must include mark allocation at the end, e.g. '(2 marks)'.",
+    "maxMarks must be an integer from 1 to 3 only.",
+    "The question must be short and answerable in a few sentences.",
+    "Use SPM Form 4/5 depth only.",
+    "Do not repeat or closely paraphrase any prior question stem listed in the user message.",
+    params.chunkGroundingMode === "single"
+      ? "Ground the question ONLY in the single textbook excerpt provided — the model answer must be findable in that same excerpt."
+      : params.chunkGroundingMode === "multi"
+        ? "Ground the question in the consecutive textbook excerpts provided (they are adjacent sections from the book). You may combine facts across them. Do not require knowledge outside these excerpts."
+        : null,
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  const priorBlock =
+    params.priorStems.length > 0
+      ? `Already generated (do not repeat):\n${params.priorStems.map((s, i) => `${i + 1}. ${s}`).join("\n")}\n\n`
+      : "";
+
+  const user = [
+    hasContext
+      ? `Use these syllabus/material excerpts as factual grounding:\n\n${params.contextBlocks.join("\n\n---\n\n")}`
+      : "No knowledge-base excerpts were retrieved; use only safe general SPM-level knowledge.",
+    priorBlock,
+    `User request:\n${params.input.query}`,
+    `Subject: ${params.input.subject ?? "General"}`,
+    `Form: ${params.form ?? "General"}`,
+    `Generate question ${params.questionIndex} of ${params.totalQuestions} only.`,
+  ].join("\n\n");
+
+  const raw = await chatCompletion(
+    [
+      { role: "system", content: system },
+      { role: "user", content: user },
+    ],
+    {
+      subject: params.input.subject,
+      query: `${params.input.query} [open-ended ${params.questionIndex}/${params.totalQuestions}]`,
+    },
+  );
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(extractJsonObject(raw));
+  } catch {
+    console.warn("[rag] open-ended question JSON parse failed", {
+      index: params.questionIndex,
+      preview: raw.slice(0, 300),
+    });
+    return null;
+  }
+
+  const row =
+    parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null;
+  const questionTextRaw = typeof row?.["questionText"] === "string" ? row["questionText"].trim() : "";
+  if (!questionTextRaw) return null;
+  const marksRaw = typeof row?.["maxMarks"] === "number" ? row["maxMarks"] : Number(row?.["maxMarks"]);
+  const maxMarks = Number.isFinite(marksRaw) ? Math.max(1, Math.min(3, Math.floor(marksRaw))) : 2;
+  const questionText = normalizeOpenEndedQuestionText(questionTextRaw, maxMarks);
+  if (!questionText) return null;
+  return { questionText, maxMarks };
+}
+
+async function finalizeOpenEndedQuestion(params: {
+  input: GenerateRagInput;
+  form?: string;
+  questionText: string;
+  maxMarks: number;
+  sortOrder: number;
+  groundingChunks: RetrievedChunk[];
+}): Promise<GeneratedOpenEndedQuestion> {
+  const questionAnalysis = analyzeQuestion(params.questionText, params.input.subject);
+  const seedContent = mergeChunksExcerpt(params.groundingChunks);
+  const { acf, sourceRef } = await buildAssessmentCasePackage({
+    question: params.questionText,
+    subject: params.input.subject ?? "General",
+    form: params.form ?? "General",
+    maxScore: params.maxMarks,
+    questionAnalysis,
+    seedChunkContent: seedContent || undefined,
+    seedChunkRefs: params.groundingChunks.map(textbookChunkRef),
+    skipRetrieval: params.groundingChunks.length > 0 && seedContent.length > 0,
+  });
+  const modelAnswer = acf.referenceModelAnswer || "A concise correct answer based on the expected understanding.";
+  const stored = await saveGeneratedAssessmentCase({
+    question: params.questionText,
+    subject: params.input.subject,
+    form: params.form,
+    maxScore: params.maxMarks,
+    acf,
+    sourceRef,
+  });
+  const displayIdeas = evidenceUnitsToRubricIdeas(acf);
+  return {
+    id: params.sortOrder,
+    sortOrder: params.sortOrder,
+    questionText: params.questionText,
+    questionType: "short_answer",
+    difficulty: "mixed",
+    options: [],
+    correctAnswer: "",
+    explanation: `Model answer: ${modelAnswer}\n\nMarking points:\n${displayIdeas.map((idea) => `- (${idea.marks}m) ${idea.idea}`).join("\n")}`,
+    maxMarks: params.maxMarks,
+    questionForGrade: params.questionText,
+    modelAnswer,
+    rubricId: stored.caseId,
+    rubricIdeas: displayIdeas,
+  };
+}
+
+export type GenerateOpenEndedStepInput = GenerateRagInput & {
+  questionIndex: number;
+  totalQuestions: number;
+  priorStems?: string[];
+  generationContextId?: string | null;
+};
+
+export type GenerateOpenEndedStepResult = {
+  question: GeneratedOpenEndedQuestion | null;
+  generationContextId: string;
+  questionIndex: number;
+  totalQuestions: number;
+  sources: GenerateRagResult["sources"];
+};
+
+async function retrieveHitsForOpenEnded(input: GenerateRagInput): Promise<RetrievedChunk[]> {
+  const topK = input.topK ?? 8;
+  const chapterFilter = input.chapterFilter?.trim() || undefined;
+  const chapterHint = input.chapterHint?.trim() || undefined;
+  const form = input.form?.trim() || undefined;
+
+  let retrieval = await retrieveChunks({
+    query: input.query,
+    subject: input.subject ?? undefined,
+    form,
+    topK,
+    chapterFilter,
+    chapterHint,
+  });
+
+  if (chapterFilter && retrieval.chunks.length === 0) {
+    retrieval = await retrieveChunks({
+      query: input.query,
+      subject: input.subject ?? undefined,
+      form,
+      topK,
+      chapterHint,
+    });
+  }
+
+  return retrieval.chunks;
+}
+
+async function resolveOpenEndedRetrievalContext(
+  input: GenerateRagInput,
+  generationContextId?: string | null,
+): Promise<{ hits: RetrievedChunk[]; generationContextId: string }> {
+  const cached = getRetrievalContext(generationContextId);
+  if (cached) {
+    return { hits: cached, generationContextId: generationContextId!.trim() };
+  }
+  const hits = await retrieveHitsForOpenEnded(input);
+  return { hits, generationContextId: storeRetrievalContext(hits) };
+}
+
+/** Generate one subjective question + saved rubric (for progressive client loading). */
+export async function generateOpenEndedQuestionStep(
+  input: GenerateOpenEndedStepInput,
+): Promise<GenerateOpenEndedStepResult> {
+  const form = input.form?.trim() || undefined;
+  const totalQuestions = Math.max(
+    1,
+    Math.min(OPEN_ENDED_QUESTION_COUNT_MAX, Math.floor(input.totalQuestions)),
+  );
+  const questionIndex = Math.max(1, Math.min(totalQuestions, Math.floor(input.questionIndex)));
+  const priorStems = Array.isArray(input.priorStems)
+    ? input.priorStems.filter((s): s is string => typeof s === "string" && s.trim().length > 0)
+    : [];
+
+  const { hits, generationContextId } = await resolveOpenEndedRetrievalContext(
+    input,
+    input.generationContextId,
+  );
+  const primaryChunk = pickPrimaryTextbookChunk(hits, questionIndex);
+  const consecutiveChunks = primaryChunk
+    ? await fetchConsecutiveTextbookChunks(primaryChunk, 2)
+    : [];
+  const candidatePool = buildCandidateChunkPool(hits, primaryChunk, 8, consecutiveChunks);
+  const draftContextChunks = questionDraftContextChunks(candidatePool, primaryChunk);
+  const contextBlocks = draftContextChunks.map((h, i) => formatGeneratorContextBlock(h, i + 1));
+  const chunkGroundingMode: "none" | "single" | "multi" =
+    draftContextChunks.length === 0
+      ? "none"
+      : draftContextChunks.length === 1
+        ? "single"
+        : "multi";
+
+  console.info("[rag] open-ended step", {
+    questionIndex,
+    totalQuestions,
+    primaryChunkId: primaryChunk?.chunkId ?? null,
+    primaryChunkIndex: primaryChunk?.chunkIndex ?? null,
+    consecutiveChunkIndices: consecutiveChunks.map((c) => c.chunkIndex),
+    draftChunkCount: draftContextChunks.length,
+  });
+
+  const draft = await generateOneOpenEndedQuestionDraft({
+    input,
+    form,
+    contextBlocks,
+    questionIndex,
+    totalQuestions,
+    priorStems,
+    chunkGroundingMode,
+  });
+
+  if (!draft) {
+    return {
+      question: null,
+      generationContextId,
+      questionIndex,
+      totalQuestions,
+      sources: sourcesFromHits(hits),
+    };
+  }
+
+  const groundingChunks = await resolveGroundingChunksForQuestion({
+    question: draft.questionText,
+    subject: input.subject ?? "General",
+    maxScore: draft.maxMarks,
+    hits,
+    primaryChunk,
+    candidatePool,
+  });
+
+  console.info("[rag] open-ended grounding", {
+    questionIndex,
+    rubricChunkCount: groundingChunks.length,
+    rubricChunkIds: groundingChunks.map((c) => c.chunkId),
+  });
+
+  const question = await finalizeOpenEndedQuestion({
+    input,
+    form,
+    questionText: draft.questionText,
+    maxMarks: draft.maxMarks,
+    sortOrder: questionIndex,
+    groundingChunks,
+  });
+
+  return {
+    question,
+    generationContextId,
+    questionIndex,
+    totalQuestions,
+    sources: sourcesFromHits(hits),
+  };
+}
+
 async function generateOpenEndedWithSavedRubrics(params: {
   input: GenerateRagInput;
   hits: RetrievedChunk[];
   form?: string;
 }): Promise<GenerateRagResult> {
-  const contextBlocks = params.hits.map((h, i) => formatGeneratorContextBlock(h, i + 1));
-  const hasContext = contextBlocks.length > 0;
-  const system = [
-    "You generate short Malaysian SPM subjective practice questions and strict marking rubrics.",
-    "Return JSON only, no prose, no code fences.",
-    "Schema: { \"questions\": [{ \"questionText\": string, \"maxMarks\": number, \"modelAnswer\": string, \"rubricIdeas\": [{ \"id\": string, \"idea\": string, \"marks\": number, \"kind\": \"feature|function|point|step|comparison|knowledge|explanation|example|use|calculation|definition\", \"keywords\"?: string[], \"acceptedConcepts\"?: string[], \"openEnded\"?: boolean }] }] }.",
-    "For EVERY rubric idea: set acceptedConcepts to a broad list of ALL valid SPM-level phrasings a Form 4/5 student might write — including simplified, informal, BM, mixed-language, concise, and paraphrased forms. Cover the FULL valid answer space so correct student answers are never rejected due to unexpected phrasing.",
-    "Set openEnded=true for any mark point where multiple valid SPM-level answers exist at the same correctness level.",
-    "Each rubric idea must be one atomic separately markable point — no vague summary rows that repeat several atomic points.",
-    "Do not set requiresCausalLink. Use atomic mark points matched to the question shape (mechanism steps, function + route, example + use, etc.) — never one summary row that bundles multiple independent marks.",
-    "Every questionText must include the mark allocation at the end, e.g. '(2 marks)'.",
-    "maxMarks must be an integer from 1 to 3 only.",
-    "Each question must be short and answerable in a few sentences.",
-    "ANSWER POOL RULE: If the question uses 'state N', 'list N', 'give N', 'mention N', or any 'pick N from many' phrasing, the rubricIdeas MUST contain ALL valid SPM-level answers as separate 1-mark rows — not just N rows. The pool total may exceed maxMarks. The marking engine will award any correct answers up to the maxMarks cap. Do NOT limit the pool to exactly N rows.",
-    "For mechanism/explain/describe questions with a fixed answer chain: rubricIdeas marks must sum exactly to maxMarks.",
-    "Each rubric idea must be one examinable SPM mark point, not a model paragraph.",
-    "Use SPM Form 4/5 depth only.",
-  ].join("\n");
-  const user = [
-    hasContext
-      ? `Use these syllabus/material excerpts as factual grounding:\n\n${contextBlocks.join("\n\n---\n\n")}`
-      : "No knowledge-base excerpts were retrieved; use only safe general SPM-level knowledge.",
-    `User request:\n${params.input.query}`,
-    `Subject: ${params.input.subject ?? "General"}`,
-    `Form: ${params.form ?? "General"}`,
-  ].join("\n\n");
-  const raw = await chatCompletion([
-    { role: "system", content: system },
-    { role: "user", content: user },
-  ], { subject: params.input.subject, query: params.input.query });
-
-  let parsed: any;
-  try {
-    parsed = JSON.parse(extractJsonObject(raw));
-  } catch {
-    throw new Error(`Structured subjective generation JSON parse failed: ${raw.slice(0, 500)}`);
-  }
-
-  const rawQuestions = Array.isArray(parsed?.questions) ? parsed.questions : [];
+  const totalQuestions = parseOpenEndedQuestionCount(params.input.query, params.input.questionCount);
+  const contextId = storeRetrievalContext(params.hits);
   const openEndedQuestions: GeneratedOpenEndedQuestion[] = [];
-  for (const rawQuestion of rawQuestions) {
-    if (!rawQuestion || typeof rawQuestion !== "object") continue;
-    const row = rawQuestion as Record<string, unknown>;
-    const questionTextRaw = typeof row["questionText"] === "string" ? row["questionText"].trim() : "";
-    if (!questionTextRaw) continue;
-    const marksRaw = typeof row["maxMarks"] === "number" ? row["maxMarks"] : Number(row["maxMarks"]);
-    const maxMarks = Number.isFinite(marksRaw) ? Math.max(1, Math.min(3, Math.floor(marksRaw))) : 2;
-    const questionText = /\bmarks?\)|\bmarkah\)/i.test(questionTextRaw)
-      ? questionTextRaw
-      : `${questionTextRaw} (${maxMarks} marks)`;
-    const modelAnswer =
-      typeof row["modelAnswer"] === "string" && row["modelAnswer"].trim()
-        ? row["modelAnswer"].trim()
-        : "A concise correct answer based on the rubric points.";
-    const questionAnalysis = analyzeQuestion(questionText, params.input.subject);
-    const rubricIdeas = finalizeRubricIdeas(
-      normalizeGeneratedRubricIdeas(row["rubricIdeas"], maxMarks),
-      questionText,
-      maxMarks,
-      questionAnalysis,
-      params.input.subject,
-    );
-    const rubric = await saveGeneratedRubric({
-      question: questionText,
-      subject: params.input.subject,
-      form: params.form,
-      maxScore: maxMarks,
-      questionType: "general",
-      ideas: rubricIdeas,
-      source: "llm_generated",
-      sourceRef: "ai-practice-generation",
+  const priorStems: string[] = [];
+
+  console.info("[rag] open-ended generation: sequential mode", { totalQuestions });
+
+  for (let i = 0; i < totalQuestions; i += 1) {
+    const questionIndex = i + 1;
+    const step = await generateOpenEndedQuestionStep({
+      ...params.input,
+      form: params.form ?? params.input.form,
+      questionIndex,
+      totalQuestions,
+      priorStems,
+      generationContextId: contextId,
     });
-    openEndedQuestions.push({
-      id: openEndedQuestions.length + 1,
-      sortOrder: openEndedQuestions.length + 1,
-      questionText,
-      questionType: "short_answer",
-      difficulty: "mixed",
-      options: [],
-      correctAnswer: "",
-      explanation: `Model answer: ${modelAnswer}\n\nMarking points:\n${rubric.ideas.map((idea) => `- (${idea.marks}m) ${idea.idea}`).join("\n")}`,
-      maxMarks,
-      questionForGrade: questionText,
-      modelAnswer,
-      rubricId: rubric.rubricId,
-      rubricIdeas: rubric.ideas,
-    });
+    if (!step.question) {
+      console.warn("[rag] open-ended generation: skipped empty step", { questionIndex });
+      continue;
+    }
+    priorStems.push(step.question.questionText);
+    openEndedQuestions.push(step.question);
   }
 
   if (openEndedQuestions.length === 0) {

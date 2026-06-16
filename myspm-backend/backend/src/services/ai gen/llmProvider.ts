@@ -8,7 +8,15 @@ type ChatMessage = {
 type ChatOpts = {
   subject?: string | null;
   query?: string;
+  /** Use the same model as grading (QWEN_GRADING_MODEL) — avoids RAG_MODEL_* the key may not access. */
+  preferGradingModel?: boolean;
 };
+
+function isAccessDeniedError(message: string): boolean {
+  return /access\s*denied|accessdenied|permission|forbidden|not\s+authorized|invalidapikey/i.test(
+    message,
+  );
+}
 
 export type LlmProvider = "auto" | "dashscope" | "gemini";
 
@@ -51,12 +59,40 @@ export async function chatCompletion(
     process.env["ALIBABA_LLM_API_BASE_URL"]?.trim() ||
     ""
   ).replace(/\/+$/, "");
-  const model = resolveChatModel(opts);
 
   if (!baseUrl) {
     throw new Error("Set ALIBABA_LLM_API_BASE_URL, QWEN_GRADING_BASE_URL, or QWEN_OCR_BASE_URL in backend/.env");
   }
 
+  const candidates = resolveChatModelCandidates(opts);
+  let lastError = "Qwen chat failed";
+
+  for (const model of candidates) {
+    try {
+      return await chatCompletionWithModel(baseUrl, apiKey, model, messages);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      lastError = message;
+      if (!isAccessDeniedError(message)) {
+        throw err;
+      }
+      console.warn(`[llm] model "${model}" access denied — trying fallback`);
+    }
+  }
+
+  throw new Error(
+    `${lastError} (tried: ${candidates.join(", ")}). ` +
+      "Use a model your DashScope key can access (e.g. qwen-plus or qwen-max on the intl compatible-mode URL), " +
+      "or set RAG_MODEL_LANGUAGE_KBAT to match QWEN_GRADING_MODEL.",
+  );
+}
+
+async function chatCompletionWithModel(
+  baseUrl: string,
+  apiKey: string,
+  model: string,
+  messages: ChatMessage[],
+): Promise<string> {
   const response = await fetch(`${baseUrl}/chat/completions`, {
     method: "POST",
     headers: {
@@ -92,10 +128,19 @@ export async function chatCompletion(
 }
 
 function resolveChatModel(opts?: ChatOpts): string {
-  const explicitModel =
+  return resolveChatModelCandidates(opts)[0] ?? "qwen-plus";
+}
+
+/** Ordered list: primary first, then fallbacks when DashScope returns Access denied. */
+function resolveChatModelCandidates(opts?: ChatOpts): string[] {
+  const gradingModel =
     process.env["QWEN_GRADING_MODEL"]?.trim() ||
     process.env["QWEN_MODEL"]?.trim() ||
     process.env["ALIBABA_LLM_API_MODEL"]?.trim();
+
+  if (opts?.preferGradingModel && gradingModel) {
+    return uniqueModels([gradingModel, "qwen-plus", "qwen-turbo"]);
+  }
 
   const subject = opts?.subject?.trim().toLowerCase() ?? "";
   const query = opts?.query?.trim().toLowerCase() ?? "";
@@ -113,14 +158,40 @@ function resolveChatModel(opts?: ChatOpts): string {
   const wantsKbat = /\bkbat\b|essay|karangan|subjective|open[- ]ended/.test(query);
 
   if (mathScienceSubjects.has(subject)) {
-    return process.env["RAG_MODEL_MATH_SCIENCE"]?.trim() || explicitModel || "qwen-plus";
+    return uniqueModels([
+      process.env["RAG_MODEL_MATH_SCIENCE"]?.trim(),
+      gradingModel,
+      "qwen-plus",
+    ]);
   }
 
   if (languageSubjects.has(subject) || wantsKbat) {
-    return process.env["RAG_MODEL_LANGUAGE_KBAT"]?.trim() || explicitModel || "qwen-plus";
+    // Prefer QWEN_GRADING_MODEL (same as marking agent); RAG_MODEL_LANGUAGE_KBAT often lacks API access.
+    return uniqueModels([
+      gradingModel,
+      process.env["RAG_MODEL_LANGUAGE_KBAT"]?.trim(),
+      "qwen-plus",
+      "qwen-turbo",
+    ]);
   }
 
-  return process.env["RAG_MODEL_GENERAL"]?.trim() || explicitModel || "qwen-plus";
+  return uniqueModels([
+    process.env["RAG_MODEL_GENERAL"]?.trim(),
+    gradingModel,
+    "qwen-plus",
+  ]);
+}
+
+function uniqueModels(models: Array<string | undefined>): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const m of models) {
+    const t = m?.trim();
+    if (!t || seen.has(t)) continue;
+    seen.add(t);
+    out.push(t);
+  }
+  return out;
 }
 
 export type GenerateImageOptions = {

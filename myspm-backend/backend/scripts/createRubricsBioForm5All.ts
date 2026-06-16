@@ -33,15 +33,11 @@ function flag(name: string): boolean {
 const BATCH_CAP = 200;
 
 async function main(): Promise<void> {
-  if (!process.env["RAG_DATABASE_URL"]?.trim()) {
-    const missing = ["RAG_DB_USER", "RAG_DB_PASSWORD"].filter((k) => !process.env[k]?.trim());
-    if (missing.length > 0) {
-      throw new Error(`Set RAG_DATABASE_URL or ${missing.join(" and ")} in backend/.env`);
-    }
-  }
+  const { assertRagDatabaseEnv } = await import("../src/lib/ragDb.js");
+  assertRagDatabaseEnv();
 
   const { createRubricsFromTextbookChunks } = await import(
-    "../src/services/rag/rubric/rubricFromTextbookChunksService.js"
+    "../src/services/rag/grading/v3/textbookChunkAssessmentService.js"
   );
 
   const batchSize = Math.max(1, Math.min(BATCH_CAP, argNum("maxChunks", BATCH_CAP)));
@@ -63,7 +59,7 @@ async function main(): Promise<void> {
 
   if (dryRun) {
     const { listTextbookChunksForRubricGeneration } = await import(
-      "../src/services/rag/rubric/rubricFromTextbookChunksService.js"
+      "../src/services/rag/grading/v3/textbookChunkAssessmentService.js"
     );
     const { textbook, chunks } = await listTextbookChunksForRubricGeneration({
       subject: "Biology",
