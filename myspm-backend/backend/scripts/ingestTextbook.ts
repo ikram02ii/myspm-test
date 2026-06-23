@@ -87,10 +87,11 @@ async function run(): Promise<void> {
     throw new Error("Missing required arguments: --pdfPath, --subject, --form, --title");
   }
 
-  const { ensureRagSchema } = await import("../src/database/initRagDatabase");
+  const { ensureRagSchema, syncRagSerialSequences } = await import("../src/database/initRagDatabase");
   const { ingestPdfToRagDb } = await import("../src/services/rag/ingestionService");
 
   await ensureRagSchema();
+  await syncRagSerialSequences();
 
   const result = await ingestPdfToRagDb({
     pdfPath: args.pdfPath,

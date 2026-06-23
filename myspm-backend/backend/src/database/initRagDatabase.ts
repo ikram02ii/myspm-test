@@ -161,4 +161,26 @@ export async function ensureRagSchema(): Promise<void> {
     CREATE INDEX IF NOT EXISTS idx_rag_rubrics_question_hash
       ON ${s}.rag_rubrics (question_hash);
   `);
+
+  await syncRagSerialSequences(s);
+}
+
+/** After pg_dump/COPY imports, serial sequences can lag behind MAX(id) and break INSERT. */
+export async function syncRagSerialSequences(schema = RAG_DB_SCHEMA_NAME): Promise<void> {
+  const tables = [
+    "rag_textbooks",
+    "rag_textbook_chunks",
+    "rag_past_papers",
+    "rag_past_paper_chunks",
+    "rag_rubrics",
+  ] as const;
+
+  for (const table of tables) {
+    await ragPool.query(`
+      SELECT setval(
+        pg_get_serial_sequence('${schema}.${table}', 'id'),
+        COALESCE((SELECT MAX(id) FROM ${schema}.${table}), 1)
+      )
+    `);
+  }
 }
