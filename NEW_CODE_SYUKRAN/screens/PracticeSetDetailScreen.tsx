@@ -18,6 +18,8 @@ import { theme } from "../constants/palette";
 import type { PracticeStackParamList } from "../navigation/PracticeStack";
 import {
   fetchPracticeSetDetail,
+  formatQuestionWithMarksAtEnd,
+  resolveQuestionMarks,
   type PracticeSetQuestion,
 } from "../services/mobilePracticeSets";
 
@@ -102,15 +104,21 @@ export default function PracticeSetDetailScreen({ navigation, route }: Props) {
             {questions.length === 0 ? (
               <Text style={styles.emptyQs}>No questions linked to this set.</Text>
             ) : (
-              questions.map((q, i) => (
-                <View key={q.id} style={styles.qRow}>
-                  <Text style={styles.qIndex}>{i + 1}</Text>
-                  <View style={styles.qBody}>
-                    <Text style={styles.qTopic}>{q.difficulty} · {q.questionType.replace(/_/g, " ")}</Text>
-                    <Text style={styles.qText}>{previewLine(q.questionText)}</Text>
+              questions.map((q, i) => {
+                const marks = resolveQuestionMarks(q, q.questionForGrade ?? q.questionText);
+                const line = formatQuestionWithMarksAtEnd(q.questionText, marks);
+                return (
+                  <View key={q.id} style={styles.qRow}>
+                    <Text style={styles.qIndex}>{i + 1}</Text>
+                    <View style={styles.qBody}>
+                      <Text style={styles.qTopic}>
+                        {q.difficulty} · {q.questionType.replace(/_/g, " ")} · {marks} mark{marks === 1 ? "" : "s"}
+                      </Text>
+                      <Text style={styles.qText}>{previewLine(line, 96)}</Text>
+                    </View>
                   </View>
-                </View>
-              ))
+                );
+              })
             )}
           </>
         ) : null}
@@ -124,6 +132,14 @@ export default function PracticeSetDetailScreen({ navigation, route }: Props) {
             navigation.navigate("PracticeSession", {
               setId,
               title: title || "Practice",
+              subject: metaSubject,
+              formLevel: metaForm,
+              practiceMode: questions.some((item) => {
+                const t = (item.questionType ?? "").toLowerCase();
+                return t === "speaking_part1" || t === "speaking_part2" || t === "speaking_part3";
+              })
+                ? "speaking"
+                : undefined,
             })
           }
         >

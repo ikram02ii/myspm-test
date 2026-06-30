@@ -1,0 +1,11 @@
+[
+  { "chapter": "Chapter 1 – Introduction to Chemistry", "pageStart": 2, "pageEnd": 21 },
+  { "chapter": "Chapter 2 – Matter and the Atomic Structure", "pageStart": 22, "pageEnd": 41 },
+  { "chapter": "Chapter 3 – The Mole Concept, Chemical Formula and Equation", "pageStart": 42, "pageEnd": 77 },
+  { "chapter": "Chapter 4 – The Periodic Table of Elements", "pageStart": 78, "pageEnd": 107 },
+  { "chapter": "Chapter 5 – Chemical Bond", "pageStart": 108, "pageEnd": 133 },
+  { "chapter": "Chapter 6 – Acid, Base and Salt", "pageStart": 134, "pageEnd": 217 },
+  { "chapter": "Chapter 7 – Rate of Reaction", "pageStart": 218, "pageEnd": 251 },
+  { "chapter": "Chapter 8 – Manufactured Substances in Industry", "pageStart": 252, "pageEnd": 274 },
+  { "chapter": "Chapter 8 – Manufactured Substances in Industry (end matter)", "pageStart": 275, "pageEnd": 292 }
+]

@@ -1,0 +1,15 @@
+[
+  { "chapter": "Chapter 1 – Organisation of Plant Tissues and Growth", "pageStart": 12, "pageEnd": 35 },
+  { "chapter": "Chapter 2 – Leaf Structure and Function", "pageStart": 36, "pageEnd": 67 },
+  { "chapter": "Chapter 3 – Nutrition in Plants", "pageStart": 68, "pageEnd": 83 },
+  { "chapter": "Chapter 4 – Transport in Plants", "pageStart": 84, "pageEnd": 105 },
+  { "chapter": "Chapter 5 – Response in Plants", "pageStart": 106, "pageEnd": 121 },
+  { "chapter": "Chapter 6 – Sexual Reproduction in Flowering Plants", "pageStart": 122, "pageEnd": 141 },
+  { "chapter": "Chapter 7 – Adaptations of Plants in Different Habitats", "pageStart": 142, "pageEnd": 150 },
+  { "chapter": "Chapter 8 – Biodiversity", "pageStart": 152, "pageEnd": 177 },
+  { "chapter": "Chapter 9 – Ecosystem", "pageStart": 178, "pageEnd": 209 },
+  { "chapter": "Chapter 10 – Environmental Sustainability", "pageStart": 210, "pageEnd": 236 },
+  { "chapter": "Chapter 11 – Inheritance", "pageStart": 238, "pageEnd": 263 },
+  { "chapter": "Chapter 12 – Variation", "pageStart": 264, "pageEnd": 287 },
+  { "chapter": "Chapter 13 – Genetic Technology", "pageStart": 288, "pageEnd": 302 }
+]

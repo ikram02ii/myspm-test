@@ -9,6 +9,7 @@ import PracticeSessionScreen from "../screens/PracticeSessionScreen";
 import OralPracticeScreen from "../screens/OralPracticeScreen";
 import OralReviewScreen from "../screens/OralReviewScreen";
 import type { PracticeSetQuestion } from "../services/mobilePracticeSets";
+import type { OpenEndedBackgroundJob } from "../services/aiOpenEndedGeneration";
 import type { SttLanguage } from "../services/oralApi";
 
 export type PracticeStackParamList = {
@@ -21,8 +22,15 @@ export type PracticeStackParamList = {
     questionCount: number;
   };
   PracticeSession:
-    | { setId: number; title: string; subject?: string; formLevel?: string }
-    | { title: string; questions: PracticeSetQuestion[]; subject?: string; formLevel?: string };
+    | { setId: number; title: string; subject?: string; formLevel?: string; practiceMode?: "speaking" }
+    | {
+        title: string;
+        questions: PracticeSetQuestion[];
+        subject?: string;
+        formLevel?: string;
+        practiceMode?: "speaking";
+        openEndedBackground?: OpenEndedBackgroundJob;
+      };
   OralPractice: {
     prompt: string;
     subject: string;

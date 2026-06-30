@@ -1,0 +1,231 @@
+{
+  "tests": [
+    {
+      "id": "chem-group-period-full",
+      "label": "Chem 041",
+      "subject": "Chemistry",
+      "form": "4",
+      "question": "Define the terms group and period in the Periodic Table.",
+      "studentAnswer": "A group is a vertical column in the Periodic Table while a period is a horizontal row.",
+      "maxScore": 2,
+      "expectedMinScore": 2,
+      "expectedMaxScore": 2
+    },
+    {
+      "id": "chem-group-period-partial",
+      "label": "Chem 042",
+      "subject": "Chemistry",
+      "form": "4",
+      "question": "Define the terms group and period in the Periodic Table.",
+      "studentAnswer": "A group is a vertical column.",
+      "maxScore": 2,
+      "expectedMinScore": 1,
+      "expectedMaxScore": 1
+    },
+    {
+      "id": "chem-group-period-wrong",
+      "label": "Chem 043",
+      "subject": "Chemistry",
+      "form": "4",
+      "question": "Define the terms group and period in the Periodic Table.",
+      "studentAnswer": "A group is a horizontal row and a period is a vertical column.",
+      "maxScore": 2,
+      "expectedMinScore": 0,
+      "expectedMaxScore": 0
+    },
+
+    {
+      "id": "chem-group1-properties-full",
+      "label": "Chem 044",
+      "subject": "Chemistry",
+      "form": "4",
+      "question": "State two physical properties of Group 1 elements.",
+      "studentAnswer": "They are soft metals and have low densities.",
+      "maxScore": 2,
+      "expectedMinScore": 2,
+      "expectedMaxScore": 2
+    },
+    {
+      "id": "chem-group1-properties-partial",
+      "label": "Chem 045",
+      "subject": "Chemistry",
+      "form": "4",
+      "question": "State two physical properties of Group 1 elements.",
+      "studentAnswer": "They are soft metals.",
+      "maxScore": 2,
+      "expectedMinScore": 1,
+      "expectedMaxScore": 1
+    },
+    {
+      "id": "chem-group1-properties-wrong",
+      "label": "Chem 046",
+      "subject": "Chemistry",
+      "form": "4",
+      "question": "State two physical properties of Group 1 elements.",
+      "studentAnswer": "They are hard and brittle.",
+      "maxScore": 2,
+      "expectedMinScore": 0,
+      "expectedMaxScore": 0
+    },
+
+    {
+      "id": "chem-group1-reactivity-full",
+      "label": "Chem 047",
+      "subject": "Chemistry",
+      "form": "4",
+      "question": "Describe the trend in reactivity of Group 1 elements down the group.",
+      "studentAnswer": "The reactivity increases down Group 1.",
+      "maxScore": 2,
+      "expectedMinScore": 2,
+      "expectedMaxScore": 2
+    },
+    {
+      "id": "chem-group1-reactivity-explain-full",
+      "label": "Chem 048",
+      "subject": "Chemistry",
+      "form": "4",
+      "question": "Explain why the reactivity of Group 1 elements increases down the group.",
+      "studentAnswer": "The atomic size increases down the group. The outermost electron is further from the nucleus and is more easily lost.",
+      "maxScore": 3,
+      "expectedMinScore": 3,
+      "expectedMaxScore": 3
+    },
+    {
+      "id": "chem-group1-reactivity-partial",
+      "label": "Chem 049",
+      "subject": "Chemistry",
+      "form": "4",
+      "question": "Explain why the reactivity of Group 1 elements increases down the group.",
+      "studentAnswer": "The outermost electron is more easily lost.",
+      "maxScore": 3,
+      "expectedMinScore": 1,
+      "expectedMaxScore": 2
+    },
+
+    {
+      "id": "chem-halogen-trend-full",
+      "label": "Chem 050",
+      "subject": "Chemistry",
+      "form": "4",
+      "question": "State the trend in reactivity of halogens down Group 17.",
+      "studentAnswer": "The reactivity decreases down Group 17.",
+      "maxScore": 2,
+      "expectedMinScore": 2,
+      "expectedMaxScore": 2
+    },
+    {
+      "id": "chem-halogen-trend-wrong",
+      "label": "Chem 051",
+      "subject": "Chemistry",
+      "form": "4",
+      "question": "State the trend in reactivity of halogens down Group 17.",
+      "studentAnswer": "The reactivity increases down Group 17.",
+      "maxScore": 2,
+      "expectedMinScore": 0,
+      "expectedMaxScore": 0
+    },
+
+    {
+      "id": "chem-halogen-explain-full",
+      "label": "Chem 052",
+      "subject": "Chemistry",
+      "form": "4",
+      "question": "Explain why the reactivity of halogens decreases down Group 17.",
+      "studentAnswer": "Atomic size increases down the group. The attraction between the nucleus and incoming electron becomes weaker, making it harder to gain an electron.",
+      "maxScore": 3,
+      "expectedMinScore": 3,
+      "expectedMaxScore": 3
+    },
+    {
+      "id": "chem-halogen-explain-partial",
+      "label": "Chem 053",
+      "subject": "Chemistry",
+      "form": "4",
+      "question": "Explain why the reactivity of halogens decreases down Group 17.",
+      "studentAnswer": "It becomes harder to gain an electron.",
+      "maxScore": 3,
+      "expectedMinScore": 1,
+      "expectedMaxScore": 2
+    },
+
+    {
+      "id": "chem-noble-gas-full",
+      "label": "Chem 054",
+      "subject": "Chemistry",
+      "form": "4",
+      "question": "Explain why noble gases are chemically unreactive.",
+      "studentAnswer": "Noble gases have a stable electron arrangement with a complete outermost shell.",
+      "maxScore": 2,
+      "expectedMinScore": 2,
+      "expectedMaxScore": 2
+    },
+    {
+      "id": "chem-noble-gas-partial",
+      "label": "Chem 055",
+      "subject": "Chemistry",
+      "form": "4",
+      "question": "Explain why noble gases are chemically unreactive.",
+      "studentAnswer": "They have a stable electron arrangement.",
+      "maxScore": 2,
+      "expectedMinScore": 1,
+      "expectedMaxScore": 2
+    },
+    {
+      "id": "chem-noble-gas-wrong",
+      "label": "Chem 056",
+      "subject": "Chemistry",
+      "form": "4",
+      "question": "Explain why noble gases are chemically unreactive.",
+      "studentAnswer": "They easily lose electrons.",
+      "maxScore": 2,
+      "expectedMinScore": 0,
+      "expectedMaxScore": 0
+    },
+
+    {
+      "id": "chem-group1-vs-group17-full",
+      "label": "Chem 057",
+      "subject": "Chemistry",
+      "form": "4",
+      "question": "Compare the electron arrangement of Group 1 elements and Group 17 elements.",
+      "studentAnswer": "Group 1 elements have one electron in the outermost shell while Group 17 elements have seven electrons in the outermost shell.",
+      "maxScore": 2,
+      "expectedMinScore": 2,
+      "expectedMaxScore": 2
+    },
+    {
+      "id": "chem-group1-vs-group17-partial",
+      "label": "Chem 058",
+      "subject": "Chemistry",
+      "form": "4",
+      "question": "Compare the electron arrangement of Group 1 elements and Group 17 elements.",
+      "studentAnswer": "Group 1 elements have one electron in the outermost shell.",
+      "maxScore": 2,
+      "expectedMinScore": 1,
+      "expectedMaxScore": 1
+    },
+
+    {
+      "id": "chem-chlorine-displacement-full",
+      "label": "Chem 059",
+      "subject": "Chemistry",
+      "form": "4",
+      "question": "Explain why chlorine can displace bromine from a bromide solution.",
+      "studentAnswer": "Chlorine is more reactive than bromine, so it displaces bromine from its compound.",
+      "maxScore": 2,
+      "expectedMinScore": 2,
+      "expectedMaxScore": 2
+    },
+    {
+      "id": "chem-chlorine-displacement-partial",
+      "label": "Chem 060",
+      "subject": "Chemistry",
+      "form": "4",
+      "question": "Explain why chlorine can displace bromine from a bromide solution.",
+      "studentAnswer": "Chlorine is more reactive.",
+      "maxScore": 2,
+      "expectedMinScore": 1,
+      "expectedMaxScore": 1
+    }
+  ]
+}

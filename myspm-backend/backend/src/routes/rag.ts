@@ -1,15 +1,17 @@
 import { Router, type IRouter, type Request, type RequestHandler, type Response } from "express";
 import multer from "multer";
-import OSS from "ali-oss";
-import { randomUUID } from "node:crypto";
 import { authMiddleware, type AuthRequest } from "../middlewares/auth";
-import { ragDb, ragPastPaperChunksTable, ragPastPapersTable } from "../lib/ragDb";
-import { extractTextFromPdfBuffer } from "../services/rag/pdfService";
-import { gradeSubmission } from "../services/rag/gradeService";
-import { buildGradingContextPayload, retrieveChunks } from "../services/rag/retrievalService";
-import { listTextbooks, registerTextbook } from "../services/rag/textbookService";
-import { generateWithRag } from "../services/ai gen/generateFromRag";
+import { extractTextFromPdfBuffer } from "../services/rag/ingestion/pdfTextExtract";
+import { gradeSubmission } from "../services/rag/grading/gradeService";
+import { buildGradingContextPayload, retrieveChunks } from "../services/rag/retrieval/retrievalService";
+import { listTextbooks, registerTextbook } from "../services/rag/ingestion/textbookService";
+import { generateOpenEndedQuestionStep, generateWithRag } from "../services/ai gen/generateFromRag";
 import { runGenerateFromUpload } from "../services/ai gen/generateFromUpload";
+import { ingestMarkSchemeImage } from "../services/ai gen/markSchemeImageIngest";
+import { listTextbookChaptersForSubjectForm } from "../services/rag/ingestion/textbookChaptersService";
+import { createRubricsFromTextbookChunks } from "../services/rag/grading/v3/textbookChunkAssessmentService";
+import { gradeSpeakingPhase } from "../services/rag/speaking/speakingGradeService";
+import { transcribeSpeakingAudio } from "../services/rag/speaking/speakingTranscribeService";
 
 const router: IRouter = Router();
 const disableRagAuth = process.env["DISABLE_RAG_AUTH"] === "true";
@@ -24,261 +26,15 @@ const gradeUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 20 * 1024 * 1024 },
 });
-
-function requiredEnv(name: string): string {
-  const value = process.env[name]?.trim();
-  if (!value) throw new Error(`${name} is not set`);
-  return value;
-}
+const speakingUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 25 * 1024 * 1024 },
+});
 
 function imageBufferToDataUrl(buffer: Buffer, mime: string | undefined): string {
   const rawMime = (mime || "").toLowerCase();
   const safeMime = rawMime.startsWith("image/") ? rawMime : "image/jpeg";
   return `data:${safeMime};base64,${buffer.toString("base64")}`;
-}
-
-function makeOssClient() {
-  return new OSS({
-    accessKeyId: requiredEnv("OSS_ACCESS_KEY_ID"),
-    accessKeySecret: requiredEnv("OSS_ACCESS_KEY_SECRET"),
-    endpoint: requiredEnv("OSS_ENDPOINT"),
-    bucket: requiredEnv("OSS_BUCKET"),
-    secure: true,
-  });
-}
-
-function publicUrlForOssKey(key: string): string {
-  const domain = requiredEnv("OSS_BUCKET_DOMAIN").replace(/^https?:\/\//, "").replace(/\/+$/, "");
-  return `https://${domain}/${key}`;
-}
-
-function imageExtFromMime(mime: string | undefined): string {
-  const normalized = (mime || "").toLowerCase();
-  if (normalized === "image/png") return "png";
-  if (normalized === "image/webp") return "webp";
-  if (normalized === "image/gif") return "gif";
-  if (normalized === "image/bmp") return "bmp";
-  if (normalized === "image/tiff") return "tiff";
-  return "jpg";
-}
-
-async function uploadKnowledgeImageToOss(file: Express.Multer.File): Promise<{ key: string; url: string }> {
-  const ext = imageExtFromMime(file.mimetype);
-  const key = `myspm/rag/mark-schemes/${Date.now()}-${randomUUID()}.${ext}`;
-  const client = makeOssClient();
-
-  await client.put(key, file.buffer, {
-    headers: {
-      "Content-Type": file.mimetype || "image/jpeg",
-      "Cache-Control": "public, max-age=31536000, immutable",
-    },
-  });
-
-  return { key, url: publicUrlForOssKey(key) };
-}
-
-function messageContentToString(content: unknown): string {
-  if (typeof content === "string") return content;
-  if (!Array.isArray(content)) return "";
-
-  const parts: string[] = [];
-  for (const item of content) {
-    if (item && typeof item === "object" && "text" in item && typeof (item as any).text === "string") {
-      parts.push((item as any).text);
-    }
-  }
-  return parts.join("\n");
-}
-
-function resolveQwenOcrConfig(): { apiKey: string; baseUrl: string; model: string } {
-  const model = process.env["QWEN_OCR_MODEL"]?.trim() || process.env["DASHSCOPE_OCR_MODEL"]?.trim() || "qwen-vl-ocr";
-  const candidates = [
-    {
-      apiKey: process.env["QWEN_OCR_API_KEY"]?.trim(),
-      baseUrl: process.env["QWEN_OCR_BASE_URL"]?.trim().replace(/\/+$/, ""),
-    },
-    {
-      apiKey: process.env["QWEN_GRADING_API_KEY"]?.trim(),
-      baseUrl: process.env["QWEN_GRADING_BASE_URL"]?.trim().replace(/\/+$/, ""),
-    },
-    {
-      apiKey: process.env["ALIBABA_LLM_API_KEY"]?.trim(),
-      baseUrl: process.env["ALIBABA_LLM_API_BASE_URL"]?.trim().replace(/\/+$/, ""),
-    },
-  ];
-
-  const configured = candidates.find((candidate) => candidate.apiKey && candidate.baseUrl);
-
-  if (!configured?.apiKey || !configured.baseUrl) {
-    throw new Error("Qwen OCR is not configured (set QWEN_OCR_API_KEY and QWEN_OCR_BASE_URL).");
-  }
-
-  return { apiKey: configured.apiKey, baseUrl: configured.baseUrl, model };
-}
-
-function resolveQwenTextConfig(): { apiKey: string; baseUrl: string; model: string } {
-  const model = process.env["QWEN_GRADING_MODEL"]?.trim() || process.env["QWEN_MODEL"]?.trim() || "qwen-plus";
-  const candidates = [
-    {
-      apiKey: process.env["QWEN_GRADING_API_KEY"]?.trim(),
-      baseUrl: process.env["QWEN_GRADING_BASE_URL"]?.trim().replace(/\/+$/, ""),
-    },
-    {
-      apiKey: process.env["QWEN_OCR_API_KEY"]?.trim(),
-      baseUrl: process.env["QWEN_OCR_BASE_URL"]?.trim().replace(/\/+$/, ""),
-    },
-    {
-      apiKey: process.env["ALIBABA_LLM_API_KEY"]?.trim(),
-      baseUrl: process.env["ALIBABA_LLM_API_BASE_URL"]?.trim().replace(/\/+$/, ""),
-    },
-  ];
-
-  const configured = candidates.find((candidate) => candidate.apiKey && candidate.baseUrl);
-
-  if (!configured?.apiKey || !configured.baseUrl) {
-    throw new Error("Qwen text cleanup is not configured (set QWEN_GRADING_API_KEY and QWEN_GRADING_BASE_URL).");
-  }
-
-  return { apiKey: configured.apiKey, baseUrl: configured.baseUrl, model };
-}
-
-async function qwenChat(config: { apiKey: string; baseUrl: string; model: string }, messages: unknown[]): Promise<string> {
-  const response = await fetch(`${config.baseUrl}/chat/completions`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${config.apiKey}`,
-    },
-    body: JSON.stringify({ model: config.model, messages }),
-  });
-
-  const rawText = await response.text();
-  let parsed: any;
-  try {
-    parsed = JSON.parse(rawText);
-  } catch {
-    throw new Error(rawText.slice(0, 400) || `Qwen HTTP ${response.status}`);
-  }
-
-  if (!response.ok) {
-    throw new Error(parsed?.error?.message || parsed?.message || rawText.slice(0, 400) || `Qwen HTTP ${response.status}`);
-  }
-
-  const text = messageContentToString(parsed?.choices?.[0]?.message?.content).trim();
-  if (!text) throw new Error("Qwen returned empty content");
-  return text;
-}
-
-async function qwenOcrImage(file: Express.Multer.File): Promise<string> {
-  const config = resolveQwenOcrConfig();
-  return qwenChat(config, [
-    {
-      role: "user",
-      content: [
-        { type: "image_url", image_url: { url: imageBufferToDataUrl(file.buffer, file.mimetype) } },
-        {
-          type: "text",
-          text:
-            "Extract all visible text from this SPM marking scheme image. Return plain text only. Preserve table rows, content point labels such as C1/C2, bullet points, marks, headings, and line breaks. Do not add commentary.",
-        },
-      ],
-    },
-  ]);
-}
-
-function parseJsonObjectFromModel(text: string): unknown {
-  const trimmed = text.trim();
-  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  const candidate = fenced?.[1]?.trim() || trimmed;
-  try {
-    return JSON.parse(candidate);
-  } catch {
-    const start = candidate.indexOf("{");
-    const end = candidate.lastIndexOf("}");
-    if (start >= 0 && end > start) {
-      return JSON.parse(candidate.slice(start, end + 1));
-    }
-    throw new Error("Structured mark scheme response was not valid JSON");
-  }
-}
-
-async function structureMarkSchemeFromOcr(params: {
-  ocrText: string;
-  subject: string;
-  form: string;
-  title: string;
-}): Promise<unknown> {
-  const config = resolveQwenTextConfig();
-  const text = await qwenChat(config, [
-    {
-      role: "system",
-      content:
-        "You convert OCR text from SPM marking schemes into strict JSON for a RAG knowledge base. Return JSON only, no markdown.",
-    },
-    {
-      role: "user",
-      content: [
-        `Subject: ${params.subject}`,
-        `Form: ${params.form}`,
-        `Source title: ${params.title}`,
-        "",
-        "Convert the OCR below into this exact JSON shape:",
-        "{",
-        '  "questionNumber": number | null,',
-        '  "questionType": string | null,',
-        '  "title": string,',
-        '  "markingScheme": [',
-        "    {",
-        '      "contentPoint": string | null,',
-        '      "requirement": string,',
-        '      "suggestedAnswers": string[],',
-        '      "notes": string[]',
-        "    }",
-        "  ],",
-        '  "keywords": string[],',
-        '  "rawOcrCorrections": string[]',
-        "}",
-        "",
-        "Rules:",
-        "- Preserve C1/C2/C3 labels when present.",
-        "- Keep ACCEPT ANY SUITABLE ANSWER as a note or suggested answer.",
-        "- Do not invent content not present in the OCR.",
-        "- If a field is unknown, use null or an empty array.",
-        "",
-        "OCR TEXT:",
-        params.ocrText,
-      ].join("\n"),
-    },
-  ]);
-
-  return parseJsonObjectFromModel(text);
-}
-
-function buildRagContent(params: {
-  subject: string;
-  form: string;
-  title: string;
-  sourceName: string | null;
-  sourceImageUrl: string | null;
-  rawOcrText: string;
-  structured: unknown;
-}): string {
-  return [
-    "[PAST PAPER MARK SCHEME]",
-    `Subject: ${params.subject}`,
-    `Form: ${params.form}`,
-    `Title: ${params.title}`,
-    params.sourceName ? `Source: ${params.sourceName}` : null,
-    params.sourceImageUrl ? `Source image: ${params.sourceImageUrl}` : null,
-    "",
-    "Structured mark scheme JSON:",
-    JSON.stringify(params.structured, null, 2),
-    "",
-    "Raw OCR text:",
-    params.rawOcrText,
-  ]
-    .filter((line): line is string => line !== null)
-    .join("\n");
 }
 
 async function handleRegisterTextbook(req: Request, res: Response) {
@@ -315,6 +71,12 @@ async function handleRegisterTextbook(req: Request, res: Response) {
     console.error("[rag] create textbook failed", error);
     return res.status(statusCode).json({ error: message });
   }
+}
+
+function queryParamString(value: unknown): string {
+  if (typeof value === "string") return value.trim();
+  if (Array.isArray(value) && typeof value[0] === "string") return value[0].trim();
+  return "";
 }
 
 router.post("/textbooks", handleRegisterTextbook);
@@ -387,6 +149,22 @@ router.get("/textbooks", async (_req, res) => {
   }
 });
 
+/** Distinct chunk `chapter` strings for a subject+form (matches DB ingest labels). */
+router.get("/textbook-chapters", async (req, res) => {
+  try {
+    const subject = queryParamString(req.query.subject);
+    const form = queryParamString(req.query.form);
+    if (!subject || !form) {
+      return res.status(400).json({ error: "Query parameters \"subject\" and \"form\" are required." });
+    }
+    const chapters = await listTextbookChaptersForSubjectForm(subject, form);
+    return res.json({ chapters });
+  } catch (error) {
+    console.error("[rag] textbook chapters list failed", error);
+    return res.status(500).json({ error: "Failed to list textbook chapters" });
+  }
+});
+
 router.post("/retrieve", async (req, res) => {
   try {
     const result = await retrieveChunks({
@@ -423,6 +201,61 @@ router.post("/grading-context", async (req, res) => {
   }
 });
 
+router.post("/generate-open-ended-step", async (req, res) => {
+  try {
+    const query = typeof req.body?.query === "string" ? req.body.query.trim() : "";
+    if (!query) {
+      return res.status(400).json({ error: "Body must include non-empty string \"query\"" });
+    }
+
+    const subject = typeof req.body?.subject === "string" ? req.body.subject.trim() : "";
+    if (!subject) {
+      return res.status(400).json({ error: "Body must include non-empty string \"subject\"" });
+    }
+
+    const questionIndex =
+      typeof req.body?.questionIndex === "number" && Number.isFinite(req.body.questionIndex)
+        ? req.body.questionIndex
+        : 1;
+    const totalQuestions =
+      typeof req.body?.totalQuestions === "number" && Number.isFinite(req.body.totalQuestions)
+        ? req.body.totalQuestions
+        : 1;
+    const priorStems = Array.isArray(req.body?.priorStems)
+      ? req.body.priorStems.filter((s: unknown): s is string => typeof s === "string")
+      : [];
+    const generationContextId =
+      typeof req.body?.generationContextId === "string" ? req.body.generationContextId.trim() : undefined;
+
+    const topK =
+      typeof req.body?.topK === "number" && Number.isFinite(req.body.topK) ? req.body.topK : 8;
+    const chapterFilterRaw =
+      typeof req.body?.chapterFilter === "string" ? req.body.chapterFilter.trim() : "";
+    const chapterHintRaw =
+      typeof req.body?.chapterHint === "string" ? req.body.chapterHint.trim() : "";
+    const formRaw = typeof req.body?.form === "string" ? req.body.form.trim() : "";
+
+    const result = await generateOpenEndedQuestionStep({
+      query,
+      subject,
+      form: formRaw || null,
+      topK,
+      chapterFilter: chapterFilterRaw || null,
+      chapterHint: chapterHintRaw || null,
+      questionIndex,
+      totalQuestions,
+      priorStems,
+      generationContextId: generationContextId || null,
+    });
+
+    return res.json(result);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to generate question";
+    console.error("[rag] generate-open-ended-step failed", error);
+    return res.status(500).json({ error: message });
+  }
+});
+
 router.post("/generate", async (req, res) => {
   try {
     const query = typeof req.body?.query === "string" ? req.body.query.trim() : "";
@@ -444,12 +277,33 @@ router.post("/generate", async (req, res) => {
     const imagePrompt =
       typeof req.body?.imagePrompt === "string" ? req.body.imagePrompt : null;
 
+    const chapterFilterRaw =
+      typeof req.body?.chapterFilter === "string" ? req.body.chapterFilter.trim() : "";
+    const chapterHintRaw =
+      typeof req.body?.chapterHint === "string" ? req.body.chapterHint.trim() : "";
+    const formRaw = typeof req.body?.form === "string" ? req.body.form.trim() : "";
+    const questionCount =
+      typeof req.body?.questionCount === "number" && Number.isFinite(req.body.questionCount)
+        ? req.body.questionCount
+        : undefined;
+
     const result = await generateWithRag({
       query,
       subject,
+      form: formRaw || null,
       topK,
       generateImage,
       imagePrompt,
+      chapterFilter: chapterFilterRaw || null,
+      chapterHint: chapterHintRaw || null,
+      createOpenEndedRubrics: req.body?.createOpenEndedRubrics === true,
+      questionCount,
+      skipRetrieval: req.body?.skipRetrieval === true,
+      englishSpeaking: req.body?.englishSpeaking === true,
+      englishSpeakingPdfPath:
+        typeof req.body?.englishSpeakingPdfPath === "string"
+          ? req.body.englishSpeakingPdfPath.trim()
+          : undefined,
     });
 
     return res.json(result);
@@ -559,86 +413,20 @@ router.post("/past-paper/mark-scheme-image", upload.single("image"), async (req,
     const paperId =
       typeof req.body?.paperId === "string" && req.body.paperId.trim()
         ? req.body.paperId.trim()
-        : `pp-ms-${Date.now()}-${randomUUID().slice(0, 8)}`;
+        : undefined;
 
-    const uploadedImage = await uploadKnowledgeImageToOss(file);
-    const rawOcrText = await qwenOcrImage(file);
-    const structured = await structureMarkSchemeFromOcr({
-      ocrText: rawOcrText,
-      subject,
-      form,
-      title,
-    });
-
-    const structuredRecord = structured && typeof structured === "object" ? (structured as Record<string, any>) : {};
-    const questionNumber = structuredRecord.questionNumber;
-    const questionType = typeof structuredRecord.questionType === "string" ? structuredRecord.questionType : null;
-    const keywords = Array.isArray(structuredRecord.keywords)
-      ? structuredRecord.keywords.map((keyword) => String(keyword).trim()).filter(Boolean)
-      : [];
-    const questionRef =
-      Number.isFinite(Number(questionNumber))
-        ? `Q${Math.trunc(Number(questionNumber))}${questionType ? ` ${questionType}` : ""}`
-        : questionType || null;
-
-    const content = buildRagContent({
+    const result = await ingestMarkSchemeImage({
+      file,
       subject,
       form,
       title,
       sourceName,
-      sourceImageUrl: uploadedImage.url,
-      rawOcrText,
-      structured,
-    });
-
-    const insertedPaper = await ragDb
-      .insert(ragPastPapersTable)
-      .values({
-        paperId,
-        subject,
-        form,
-        year,
-        paperLabel,
-        title,
-        sourceName,
-      })
-      .returning({ id: ragPastPapersTable.id });
-
-    const pastPaperDbId = insertedPaper[0]?.id;
-    if (!pastPaperDbId) throw new Error("Failed to create past paper record");
-
-    const insertedChunk = await ragDb
-      .insert(ragPastPaperChunksTable)
-      .values({
-        pastPaperDbId,
-        chunkId: `chunk-${Date.now()}-${randomUUID().slice(0, 8)}`,
-        chunkIndex: 0,
-        questionRef,
-        conceptTitle: questionRef ? `${title} ${questionRef}` : title,
-        conceptSummary: `Structured SPM marking scheme extracted from image OCR for ${subject}.`,
-        keywords: keywords.join(", "),
-        maxMarks: null,
-        pageStart: null,
-        pageEnd: null,
-        sourceImageUrl: uploadedImage.url,
-        embedding: null,
-        chunkKind: "mark_scheme_image",
-        content,
-      })
-      .returning({
-        id: ragPastPaperChunksTable.id,
-        chunkId: ragPastPaperChunksTable.chunkId,
-      });
-
-    return res.status(201).json({
+      year,
+      paperLabel,
       paperId,
-      pastPaperDbId,
-      chunkId: insertedChunk[0]?.chunkId,
-      chunkDbId: insertedChunk[0]?.id,
-      sourceImageUrl: uploadedImage.url,
-      rawOcrText,
-      structured,
     });
+
+    return res.status(201).json(result);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to ingest mark scheme image";
     const statusCode =
@@ -649,6 +437,56 @@ router.post("/past-paper/mark-scheme-image", upload.single("image"), async (req,
         : 500;
 
     console.error("[rag] mark scheme image ingest failed", error);
+    return res.status(statusCode).json({ error: message });
+  }
+});
+
+router.post("/rubrics/from-textbook-chunks", async (req, res) => {
+  try {
+    const textbookId = typeof req.body?.textbookId === "string" ? req.body.textbookId.trim() : "";
+    const subject = typeof req.body?.subject === "string" ? req.body.subject.trim() : "";
+    const form = typeof req.body?.form === "string" ? req.body.form.trim() : "";
+    if (!textbookId && (!subject || !form)) {
+      return res.status(400).json({
+        error: 'Provide "textbookId" or both "subject" and "form".',
+      });
+    }
+
+    const maxChunks =
+      typeof req.body?.maxChunks === "number" && Number.isFinite(req.body.maxChunks)
+        ? req.body.maxChunks
+        : undefined;
+    const offset =
+      typeof req.body?.offset === "number" && Number.isFinite(req.body.offset) ? req.body.offset : undefined;
+    const maxMarks =
+      typeof req.body?.maxMarks === "number" && Number.isFinite(req.body.maxMarks)
+        ? req.body.maxMarks
+        : undefined;
+    const concurrency =
+      typeof req.body?.concurrency === "number" && Number.isFinite(req.body.concurrency)
+        ? req.body.concurrency
+        : undefined;
+    const chapterFilter =
+      typeof req.body?.chapterFilter === "string" ? req.body.chapterFilter.trim() : undefined;
+
+    const result = await createRubricsFromTextbookChunks({
+      textbookId: textbookId || undefined,
+      subject: subject || undefined,
+      form: form || undefined,
+      chapterFilter: chapterFilter || undefined,
+      maxChunks,
+      offset,
+      maxMarks,
+      concurrency,
+      skipExisting: req.body?.skipExisting !== false,
+    });
+
+    return res.status(201).json(result);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to create rubrics from textbook chunks";
+    const statusCode =
+      message.includes("not found") || message.includes("Provide textbookId") ? 400 : 500;
+    console.error("[rag] rubrics from textbook chunks failed", error);
     return res.status(statusCode).json({ error: message });
   }
 });
@@ -669,12 +507,15 @@ router.post("/grade", gradeUpload.single("diagramImage"), async (req, res) => {
       form: typeof req.body?.form === "string" ? req.body.form : undefined,
       topK: Number(req.body?.topK),
       maxScore: Number(req.body?.maxScore),
+      rubricId: typeof req.body?.rubricId === "string" ? req.body.rubricId : undefined,
       rubricVersion: typeof req.body?.rubricVersion === "string" ? req.body.rubricVersion : undefined,
       diagramImageUrl: typeof req.body?.diagramImageUrl === "string" ? req.body.diagramImageUrl : undefined,
       diagramImageBase64: diagramImageBase64FromFile
         || (typeof req.body?.diagramImageBase64 === "string" ? req.body.diagramImageBase64 : undefined),
       submissionId: typeof req.body?.submissionId === "string" ? req.body.submissionId : undefined,
       userId: Number.isFinite(userId) ? userId : null,
+      chapterFilter: typeof req.body?.chapterFilter === "string" ? req.body.chapterFilter : undefined,
+      chapterHint: typeof req.body?.chapterHint === "string" ? req.body.chapterHint : undefined,
     });
 
     return res.json(result);
@@ -687,6 +528,49 @@ router.post("/grade", gradeUpload.single("diagramImage"), async (req, res) => {
 
     console.error("[rag] grade failed", error);
     return res.status(statusCode).json({ error: message });
+  }
+});
+
+router.post("/speaking/transcribe", speakingUpload.single("audio"), async (req, res) => {
+  try {
+    const file = req.file;
+    if (!file?.buffer?.length) {
+      return res.status(400).json({ error: "audio file is required" });
+    }
+    const result = await transcribeSpeakingAudio({
+      buffer: file.buffer,
+      mimeType: file.mimetype,
+      originalName: file.originalname,
+    });
+    return res.json(result);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to transcribe audio";
+    console.error("[rag] speaking transcribe failed", error);
+    return res.status(500).json({ error: message });
+  }
+});
+
+router.post("/speaking/grade", async (req, res) => {
+  try {
+    const phase = req.body?.phase === "speak" ? "speak" : "prepare";
+    const cueCard = typeof req.body?.cueCard === "string" ? req.body.cueCard : "";
+    const transcript = typeof req.body?.transcript === "string" ? req.body.transcript : "";
+    if (!cueCard.trim()) {
+      return res.status(400).json({ error: "cueCard is required" });
+    }
+    const result = await gradeSpeakingPhase({
+      phase,
+      cueCard,
+      transcript,
+      subject: typeof req.body?.subject === "string" ? req.body.subject : undefined,
+      form: typeof req.body?.form === "string" ? req.body.form : undefined,
+      durationSeconds: Number(req.body?.durationSeconds),
+    });
+    return res.json(result);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to grade speaking";
+    console.error("[rag] speaking grade failed", error);
+    return res.status(500).json({ error: message });
   }
 });
 

@@ -2,6 +2,9 @@ import { Router, type IRouter } from "express";
 import multer from "multer";
 import OSS from "ali-oss";
 import { randomUUID } from "node:crypto";
+import { removeQuestionStemFromOcrText } from "../services/rag/ocr/ocrAnswerFilter";
+import { normalizeOcrExtractedText, OCR_EXTRACTION_PROMPT } from "../services/rag/ocr/ocrTextNormalize";
+import { runOcrPostProcessPipeline } from "../services/rag/ocr/ocrPipelineService";
 
 const router: IRouter = Router();
 
@@ -182,25 +185,20 @@ async function qwenOcrFromImageBuffer(buffer: Buffer, mime: string): Promise<str
     throw err;
   }
 
-  const model =
-    process.env.QWEN_OCR_MODEL?.trim() ||
-    process.env.DASHSCOPE_OCR_MODEL?.trim() ||
-    "qwen-vl-ocr";
+  const ocrModels = [
+    process.env.QWEN_OCR_MODEL?.trim(),
+    process.env.DASHSCOPE_OCR_MODEL?.trim(),
+    process.env.QWEN_VISION_MODEL?.trim(),
+    process.env.QWEN_VISION_FALLBACK_MODEL?.trim(),
+    "qwen-vl-ocr",
+    "qwen-vl-plus",
+  ].filter((m, i, arr): m is string => Boolean(m) && arr.indexOf(m) === i);
 
-  const payload = {
-    model,
-    messages: [
-      {
-        role: "user",
-        content: [
-          { type: "image_url", image_url: { url: dataUrlForBuffer(buffer, mime) } },
-          {
-            type: "text",
-            text:
-              "Extract all visible text from this image. Return plain text only. Preserve line breaks where they reflect the layout. Do not add commentary.",
-          },
-        ],
-      },
+  const messageBody = {
+    role: "user" as const,
+    content: [
+      { type: "image_url", image_url: { url: dataUrlForBuffer(buffer, mime) } },
+      { type: "text", text: OCR_EXTRACTION_PROMPT },
     ],
   };
 
@@ -216,60 +214,111 @@ async function qwenOcrFromImageBuffer(buffer: Buffer, mime: string): Promise<str
 
   for (const attempt of attempts) {
     const url = `${attempt.baseUrl}/chat/completions`;
-    console.log("[scan] qwen-ocr request", { url, model, attempt: attempt.label });
 
-    const response = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${attempt.apiKey}`,
-      },
-      body: JSON.stringify(payload),
-    });
+    for (const model of ocrModels) {
+      console.log("[scan] qwen-ocr request", { url, model, attempt: attempt.label });
 
-    const rawText = await response.text();
-    let parsed: any;
-    try {
-      parsed = JSON.parse(rawText);
-    } catch {
-      const err = new Error(rawText.slice(0, 400) || `OCR HTTP ${response.status}`);
-      (err as any).status = 502;
-      lastError = err;
-      continue;
+      const response = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${attempt.apiKey}`,
+        },
+        body: JSON.stringify({ model, messages: [messageBody] }),
+      });
+
+      const rawText = await response.text();
+      let parsed: any;
+      try {
+        parsed = JSON.parse(rawText);
+      } catch {
+        const err = new Error(rawText.slice(0, 400) || `OCR HTTP ${response.status}`);
+        (err as any).status = 502;
+        lastError = err;
+        continue;
+      }
+
+      if (!response.ok) {
+        const msg =
+          parsed?.error?.message ||
+          parsed?.message ||
+          (typeof parsed?.error === "string" ? parsed.error : null) ||
+          rawText.slice(0, 400) ||
+          `OCR failed (${response.status})`;
+        const err = new Error(msg);
+        (err as any).status = response.status >= 400 && response.status < 600 ? response.status : 502;
+        lastError = err;
+        continue;
+      }
+
+      const content = parsed?.choices?.[0]?.message?.content;
+      const text = messageContentToString(content).trim();
+      if (!text) {
+        const err = new Error("OCR returned empty text");
+        (err as any).status = 502;
+        lastError = err;
+        continue;
+      }
+      return text;
     }
-
-    if (!response.ok) {
-      const msg =
-        parsed?.error?.message ||
-        parsed?.message ||
-        (typeof parsed?.error === "string" ? parsed.error : null) ||
-        rawText.slice(0, 400) ||
-        `OCR failed (${response.status})`;
-      const err = new Error(msg);
-      (err as any).status = response.status >= 400 && response.status < 600 ? response.status : 502;
-      lastError = err;
-      continue;
-    }
-
-    const content = parsed?.choices?.[0]?.message?.content;
-    const text = messageContentToString(content).trim();
-    if (!text) {
-      const err = new Error("OCR returned empty text");
-      (err as any).status = 502;
-      lastError = err;
-      continue;
-    }
-    return text;
   }
 
   throw lastError ?? new Error("OCR failed");
 }
 
-async function runScanPipeline(buffer: Buffer, mime: string, email: string): Promise<{ text: string }> {
+function ocrPostProcessEnabled(): boolean {
+  const v = (process.env["OCR_POST_PROCESS"] ?? "true").trim().toLowerCase();
+  return v !== "0" && v !== "false" && v !== "no" && v !== "off";
+}
+
+async function runExtractOnlyScan(
+  buffer: Buffer,
+  mime: string,
+  email: string,
+  context?: { question?: string },
+): Promise<{ text: string; format: "plain"; validationWarning?: string }> {
   const oss = makeOssClient();
   await uploadScanImageToOss(oss, buffer, mime, email);
-  const text = await qwenOcrFromImageBuffer(buffer, mime);
-  return { text };
+  const rawOcr = await qwenOcrFromImageBuffer(buffer, mime);
+  let text = normalizeOcrExtractedText(rawOcr).trim();
+  const question = context?.question?.trim();
+  if (question) {
+    const filtered = removeQuestionStemFromOcrText(text, question);
+    text = filtered.text;
+    if (filtered.lookedLikeQuestionOnly) {
+      return {
+        text: "",
+        format: "plain",
+        validationWarning:
+          "The scan looks like the question text (e.g. BM/EN stem), not your answer. Photo only your written answer.",
+      };
+    }
+  }
+  return { text, format: "plain" };
+}
+
+async function runScanPipeline(
+  buffer: Buffer,
+  mime: string,
+  email: string,
+  context?: { question?: string; subject?: string },
+): Promise<{ text: string; format: "plain"; validationWarning?: string }> {
+  const oss = makeOssClient();
+  await uploadScanImageToOss(oss, buffer, mime, email);
+  const rawOcr = await qwenOcrFromImageBuffer(buffer, mime);
+  if (!ocrPostProcessEnabled()) {
+    return { text: rawOcr.trim(), format: "plain" };
+  }
+  const processed = await runOcrPostProcessPipeline({
+    rawOcrText: rawOcr,
+    question: context?.question,
+    subject: context?.subject,
+  });
+  return {
+    text: processed.text,
+    format: processed.format,
+    validationWarning: processed.validationWarning,
+  };
 }
 
 router.post("/scan", upload.any(), async (req, res) => {
@@ -311,9 +360,27 @@ router.post("/scan", upload.any(), async (req, res) => {
     const email = bodyEmail || filesEmail || "unknown@local";
     const emailForStorage = email.includes("@") ? email : "unknown@local";
 
-    const { text } = await runScanPipeline(imageFile.buffer, mime, emailForStorage);
+    const modeRaw = typeof (req.body as any)?.mode === "string" ? (req.body as any).mode.trim().toLowerCase() : "";
+    const extractOnly = modeRaw === "extract";
+    const question =
+      typeof (req.body as any)?.question === "string" ? (req.body as any).question.trim() : "";
+    const subject =
+      typeof (req.body as any)?.subject === "string" ? (req.body as any).subject.trim() : "";
+
+    const { text, format, validationWarning } = extractOnly
+      ? await runExtractOnlyScan(imageFile.buffer, mime, emailForStorage, {
+          question: question || undefined,
+        })
+      : await runScanPipeline(imageFile.buffer, mime, emailForStorage, {
+          question: question || undefined,
+          subject: subject || undefined,
+        });
     console.log("[scan] ocr text", { length: text?.length ?? 0, preview: (text ?? "").slice(0, 200) });
-    return res.json({ text });
+    return res.json({
+      text,
+      format,
+      ...(validationWarning ? { validationWarning } : {}),
+    });
   } catch (e) {
     const err = e as any;
     const status = typeof err?.status === "number" && err.status >= 400 && err.status < 600 ? err.status : 502;

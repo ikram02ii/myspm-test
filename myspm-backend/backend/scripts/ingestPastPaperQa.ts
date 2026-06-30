@@ -2,8 +2,8 @@ import * as dotenv from "dotenv";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 import { randomUUID } from "node:crypto";
-import { extractPdfText } from "../src/services/rag/pdfTextExtract";
-import { cleanText } from "../src/services/rag/pdfTextExtract";
+import { extractPdfText } from "../src/services/rag/ingestion/pdfTextExtract";
+import { cleanText } from "../src/services/rag/ingestion/pdfTextExtract";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: join(__dirname, "../.env") });
@@ -295,7 +295,7 @@ async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
   if (!args.qPdfPath || !args.aPdfPath || !args.subject || !args.form || !args.title) {
     console.error(
-      "Usage: npm run ingest:past-paper-qa -- --qPdfPath <Q.pdf> --aPdfPath <A.pdf> --subject \"Biology\" --form \"Form 4\" --title \"...\" [--year 2025 --paperLabel \"Paper 2\" --paperId id]",
+      "Usage: npm run ingest:past-paper-qa -- --qPdfPath <Q.pdf> --aPdfPath <A.pdf> --subject \"Biology\" --form \"Form 4\" --title \"...\" [--year 2025 --paperLabel \"Paper 2\" --paperId id]. For one SPM paper covering F4+F5 (e.g. KMJ), use --form \"Form 4 & 5\" or --form \"SPM\".",
     );
     process.exit(1);
   }

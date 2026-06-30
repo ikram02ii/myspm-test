@@ -137,7 +137,6 @@ export function parseAiGeneratedMcqAnswer(answer: string): PracticeSetQuestion[]
       questionForGrade: gradeQuestion,
     });
 
-    // If correctIndex is null it won't be used by UI, but parser already guarded correctLetter.
     void correctIndex;
   }
 
@@ -199,12 +198,14 @@ export function parseAiGeneratedOpenEnded(
             : 1;
     const explanationLines = lines.slice(explanationStart);
     const maxMarks = parseMarkahFromBlock(lines);
-    const questionText = formatBilingualQuestionStem(questionLines.join("\n"));
+    const rawStem = questionLines.join("\n");
+    const questionText = formatBilingualQuestionStem(stripDiagramFlagFromStem(rawStem));
     const explanation = explanationLines.join("\n").trim() || null;
     if (!questionText) continue;
 
     const markLine = maxMarks != null ? `Markah: ${maxMarks}\n` : "";
-    const questionForGrade = `${questionText}\n${markLine}`.trim();
+    // Keep diagram flag in grade payload so backend applies figure-only marking rules.
+    const questionForGrade = `${rawStem}\n${markLine}`.trim();
 
     out.push({
       id: out.length + 1,
@@ -222,4 +223,3 @@ export function parseAiGeneratedOpenEnded(
 
   return out;
 }
-

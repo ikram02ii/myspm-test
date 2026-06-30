@@ -72,10 +72,14 @@ npm run ingest:textbook -- \
   --subject "Mathematics" \
   --form "Form 4" \
   --title "Mathematics Form 4" \
-  --chapter "Chapter 1" \
+  --chapter "optional hint before first BAB/Chapter in PDF" \
   --sourceName "math_form4.pdf" \
   --chunkSize 1200 \
   --overlap 200
+
+Notes:
+  --chapter is optional. Chunks get Bab 1 / Bab 2 / Chapter 3 / … from headings in the PDF text.
+  Use --chapter only for pages before the first detected heading (e.g. preface), or omit it.
 `);
 }
 
@@ -87,11 +91,10 @@ async function run(): Promise<void> {
     throw new Error("Missing required arguments: --pdfPath, --subject, --form, --title");
   }
 
-  const { ensureRagSchema, syncRagSerialSequences } = await import("../src/database/initRagDatabase");
-  const { ingestPdfToRagDb } = await import("../src/services/rag/ingestionService");
+  const { ensureRagSchema } = await import("../src/database/initRagDatabase");
+  const { ingestPdfToRagDb } = await import("../src/services/rag/ingestion/ingestionService");
 
   await ensureRagSchema();
-  await syncRagSerialSequences();
 
   const result = await ingestPdfToRagDb({
     pdfPath: args.pdfPath,

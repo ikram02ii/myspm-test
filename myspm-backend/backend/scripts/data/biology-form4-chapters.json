@@ -1,0 +1,17 @@
+[
+  { "chapter": "Chapter 1 – Introduction to Biology and Laboratory Rules", "pageStart": 8, "pageEnd": 25 },
+  { "chapter": "Chapter 2 – Cell Biology and Organisation", "pageStart": 26, "pageEnd": 43 },
+  { "chapter": "Chapter 3 – Movement of Substances across a Plasma Membrane", "pageStart": 50, "pageEnd": 75 },
+  { "chapter": "Chapter 4 – Chemical Compositions in a Cell", "pageStart": 76, "pageEnd": 89 },
+  { "chapter": "Chapter 5 – Metabolism and Enzymes", "pageStart": 90, "pageEnd": 103 },
+  { "chapter": "Chapter 6 – Cell Division", "pageStart": 104, "pageEnd": 117 },
+  { "chapter": "Chapter 7 – Cellular Respiration", "pageStart": 118, "pageEnd": 130 },
+  { "chapter": "Chapter 8 – Respiratory Systems in Humans and Animals", "pageStart": 132, "pageEnd": 147 },
+  { "chapter": "Chapter 9 – Nutrition and the Human Digestive System", "pageStart": 148, "pageEnd": 171 },
+  { "chapter": "Chapter 10 – Transport in Humans and Animals", "pageStart": 172, "pageEnd": 203 },
+  { "chapter": "Chapter 11 – Immunity in Humans", "pageStart": 204, "pageEnd": 219 },
+  { "chapter": "Chapter 12 – Coordination and Response in Humans", "pageStart": 220, "pageEnd": 249 },
+  { "chapter": "Chapter 13 – Homeostasis and the Human Urinary System", "pageStart": 250, "pageEnd": 269 },
+  { "chapter": "Chapter 14 – Support and Movement in Humans and Animals", "pageStart": 270, "pageEnd": 289 },
+  { "chapter": "Chapter 15 – Sexual Reproduction, Development and Growth in Humans and Animals", "pageStart": 290, "pageEnd": 316 }
+]

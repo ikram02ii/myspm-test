@@ -8,19 +8,16 @@ import {
   varchar,
 } from "drizzle-orm/pg-core";
 
-const SCHEMA_NAME_PATTERN = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
-
-function resolveRagDbSchemaName(): string {
-  const raw = process.env["RAG_DB_SCHEMA"]?.trim() || "rag";
-  if (!SCHEMA_NAME_PATTERN.test(raw)) {
-    throw new Error(`Invalid RAG_DB_SCHEMA "${raw}". Use letters, numbers, underscore only.`);
+/** Postgres schema for RAG tables (default: `rag`). Override with RAG_PG_SCHEMA in .env. */
+export function getRagPgSchemaName(): string {
+  const name = process.env["RAG_PG_SCHEMA"]?.trim() || "rag";
+  if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name)) {
+    throw new Error(`Invalid RAG_PG_SCHEMA: ${name}`);
   }
-  return raw;
+  return name;
 }
 
-/** Postgres schema for all RAG tables (default: `rag`, not `public`). */
-export const RAG_DB_SCHEMA_NAME = resolveRagDbSchemaName();
-export const ragPgSchema = pgSchema(RAG_DB_SCHEMA_NAME);
+export const ragPgSchema = pgSchema(getRagPgSchemaName());
 
 export const ragTextbooksTable = ragPgSchema.table("rag_textbooks", {
   id: serial("id").primaryKey(),
@@ -45,7 +42,8 @@ export const ragTextbookChunksTable = ragPgSchema.table("rag_textbook_chunks", {
   conceptTitle: varchar("concept_title", { length: 255 }),
   conceptSummary: text("concept_summary"),
   keywords: text("keywords"),
-  chapter: varchar("chapter", { length: 120 }),
+  /** e.g. "Chapter 1: Introduction to Biology" or "Bab 2: Sel" — set per chunk at ingest */
+  chapter: varchar("chapter", { length: 512 }),
   sourceName: varchar("source_name", { length: 255 }),
   pageStart: integer("page_start"),
   pageEnd: integer("page_end"),
@@ -53,18 +51,25 @@ export const ragTextbookChunksTable = ragPgSchema.table("rag_textbook_chunks", {
   content: text("content").notNull(),
 });
 
+/** One row per official past paper (or trial paper) you ingest, grouped like rag_textbooks. */
 export const ragPastPapersTable = ragPgSchema.table("rag_past_papers", {
   id: serial("id").primaryKey(),
   paperId: varchar("paper_id", { length: 96 }).notNull().unique(),
   subject: varchar("subject", { length: 120 }).notNull(),
   form: varchar("form", { length: 50 }).notNull(),
+  /** Calendar year of the exam, e.g. 2022 */
   year: integer("year"),
+  /** e.g. Paper 1, Paper 2, Paper 3 / Objective / Structured */
   paperLabel: varchar("paper_label", { length: 80 }),
   title: varchar("title", { length: 255 }).notNull(),
   sourceName: varchar("source_name", { length: 255 }),
   uploadedAt: timestamp("uploaded_at").notNull().defaultNow(),
 });
 
+/**
+ * One chunk = usually one question part (or one structured section) with stem + mark scheme + notes.
+ * Same retrieval fields as textbook chunks so lexical search behaves consistently.
+ */
 export const ragPastPaperChunksTable = ragPgSchema.table("rag_past_paper_chunks", {
   id: serial("id").primaryKey(),
   pastPaperDbId: integer("past_paper_db_id")
@@ -72,19 +77,21 @@ export const ragPastPaperChunksTable = ragPgSchema.table("rag_past_paper_chunks"
     .references(() => ragPastPapersTable.id, { onDelete: "cascade" }),
   chunkId: varchar("chunk_id", { length: 64 }).notNull(),
   chunkIndex: integer("chunk_index").notNull(),
+  /** e.g. Q7(a), Section B */
   questionRef: varchar("question_ref", { length: 80 }),
   conceptTitle: varchar("concept_title", { length: 255 }),
   conceptSummary: text("concept_summary"),
   keywords: text("keywords"),
   maxMarks: integer("max_marks"),
-  pageStart: integer("page_start"),
-  pageEnd: integer("page_end"),
-  sourceImageUrl: text("source_image_url"),
-  embedding: text("embedding"),
-  chunkKind: varchar("chunk_kind", { length: 32 }),
   content: text("content").notNull(),
 });
 
+/**
+ * Cached rubrics for grading. One row per (subject, form, question hash, maxScore).
+ * `ideas` is a JSON array of structured mark points. `embedding` is the question's
+ * embedding vector serialized as JSON (number[]) for portable nearest-neighbor lookup
+ * without requiring pgvector.
+ */
 export const ragRubricsTable = ragPgSchema.table("rag_rubrics", {
   id: serial("id").primaryKey(),
   rubricId: varchar("rubric_id", { length: 96 }).notNull().unique(),
@@ -94,9 +101,13 @@ export const ragRubricsTable = ragPgSchema.table("rag_rubrics", {
   questionText: text("question_text").notNull(),
   questionType: varchar("question_type", { length: 32 }).notNull(),
   maxScore: integer("max_score").notNull(),
+  /** JSON array: [{ id, idea, marks, kind, linkedToId? }] */
   ideas: text("ideas").notNull(),
+  /** JSON array of numbers, length = embedding dimension */
   embedding: text("embedding"),
+  /** "past_paper" | "llm_generated" | "manual" */
   source: varchar("source", { length: 32 }).notNull(),
+  /** Free-form back-reference for traceability */
   sourceRef: text("source_ref"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
