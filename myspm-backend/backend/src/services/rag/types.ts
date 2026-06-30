@@ -208,6 +208,10 @@ export type GradeSubmissionInput = {
   gradingContextWarning?: string | null;
   /** Pre-computed analysis from gradeService (optional). */
   questionAnalysis?: QuestionAnalysis;
+  /** Known chapter of the question — scopes rubric textbook grounding to that chapter. */
+  chapterFilter?: string;
+  /** Soft ranking boost toward a chapter heading when no strict filter is set. */
+  chapterHint?: string;
 };
 
 export type MatchMethod =

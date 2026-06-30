@@ -413,13 +413,17 @@ export function inferAdjustedMaxScore(
     return out;
   }
 
-  let adjustedMaxScore = clampMarks(suggested);
-  if (dualAndFloor) adjustedMaxScore = clampMarks(Math.max(adjustedMaxScore, 2));
+  // Never reduce below the client-supplied maxScore — callers (practice sets, tests)
+  // own mark allocation; stem heuristics may only suggest caps for logging.
+  const adjustedMaxScore = clampMarks(dualAndFloor ? Math.max(originalMaxScore, 2) : originalMaxScore);
 
   const out = {
     originalMaxScore,
     adjustedMaxScore,
-    maxScoreAdjustedReason: `${reason}${dualAndFloor ? " At least 2 marks: two demands joined by 'and'/'dan'." : ""} Client sent maxScore=${originalMaxScore}; adjusted for fairer marking.`,
+    maxScoreAdjustedReason:
+      suggested < originalMaxScore
+        ? `Stem heuristic suggested ${suggested} mark(s) but client maxScore=${originalMaxScore} is respected.`
+        : `${reason}${dualAndFloor ? " At least 2 marks: two demands joined by 'and'/'dan'." : ""}`,
   };
   if (process.env.NODE_ENV === "development") {
     console.info("[rag][maxScoreInference]", out);

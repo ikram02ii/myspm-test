@@ -5,6 +5,20 @@ import {
   defaultMarkRuleKind,
   intentGuidanceForLlm,
 } from "./classifyIntent";
+import {
+  finalizeCalculationAssessmentCase,
+  validateAcfTopology,
+} from "./calculationAcfPolicy";
+import { finalizeAssessmentCase } from "./acfFinalizePolicy";
+import {
+  applyVerificationToAcf,
+  computeEmpiricalFormulaFromComposition,
+  parseEmpiricalCompositionQuestion,
+  solveCalculationQuestion,
+  verifyCalculationReferenceAnswer,
+} from "./calculationAnswerVerification";
+import { isChemistryCalculationSubject } from "./calculationSubjectPolicy";
+import { buildCalculationWorkedModelAnswer } from "./calculationModelAnswer";
 import { retrieveEvidenceContext, type RetrievedEvidenceContext } from "./groundingChunks";
 import type {
   AssessmentCaseFile,
@@ -12,6 +26,7 @@ import type {
   EvidenceRelation,
   EvidenceUnit,
   MarkRule,
+  VerifiedCalculationAnswer,
 } from "./types";
 import type { QuestionAnalysis } from "../../types";
 
@@ -129,17 +144,36 @@ export async function extractEvidenceForAssessment(params: {
   maxScore: number;
   intent: AssessmentIntent;
   evidenceContext: RetrievedEvidenceContext;
-}): Promise<Pick<AssessmentCaseFile, "assessedUnderstanding" | "units" | "relations" | "markRule" | "referenceModelAnswer">> {
+  verifiedCalculationAnswer?: VerifiedCalculationAnswer;
+}): Promise<
+  Pick<
+    AssessmentCaseFile,
+    | "assessedUnderstanding"
+    | "units"
+    | "relations"
+    | "markRule"
+    | "referenceModelAnswer"
+    | "verifiedAt"
+    | "verificationMethod"
+    | "verificationNote"
+  >
+> {
   const openPool =
-    questionInvitesOpenTopicRecall(params.question) || params.intent.family === "recall";
+    params.intent.family !== "calculation" &&
+    (questionInvitesOpenTopicRecall(params.question) || params.intent.family === "recall");
   const defaultKind = defaultMarkRuleKind(params.intent.family, openPool);
-  const guidance = intentGuidanceForLlm(params.intent, params.maxScore);
+  const guidance = intentGuidanceForLlm(params.intent, params.maxScore, params.question, params.subject);
 
   const system = [
     "You extract syllabus-grounded evidence for SPM assessment — NOT a rubric row list.",
     "Build evidence units and relationships that represent what an examiner would credit.",
-    "Do NOT split one explanation chain into mandatory separate credit units.",
-    "Supporting facts: creditWeight=0, supports=[parent unit id].",
+    params.intent.family === "calculation"
+      ? "CALCULATION questions: follow calculation guidance exactly. Never use coverage_chain."
+      : null,
+    params.intent.family === "calculation"
+      ? "Relation convention: relation.from = prerequisite, relation.to = dependent; dependent.supports lists prerequisite unit ids."
+      : null,
+    "Supporting facts: creditWeight=0, required=false — never load-bearing in requiredForMarks relations.",
     "",
     'Return JSON: {',
     '  "assessedUnderstanding": string,',
@@ -147,7 +181,9 @@ export async function extractEvidenceForAssessment(params: {
     '  "units": [{ "id", "type", "content", "aliases", "creditWeight", "required", "supports" }],',
     '  "relations": [{ "id", "type", "from", "to", "requiredForMarks" }]',
     "}",
-  ].join("\n");
+  ]
+    .filter((line): line is string => Boolean(line))
+    .join("\n");
 
   const user = [
     `Subject: ${params.subject}`,
@@ -194,22 +230,133 @@ export async function extractEvidenceForAssessment(params: {
     : defaultKind;
 
   const markRule: MarkRule = {
-    kind,
+    kind: params.intent.family === "calculation" && kind === "coverage_chain" ? defaultKind : kind,
     maxMarks: params.maxScore,
-    openPool: ruleRaw["openPool"] === true || openPool,
+    openPool: params.intent.family === "calculation" ? false : ruleRaw["openPool"] === true || openPool,
   };
 
-  const referenceModelAnswer = await buildReferenceModelAnswer({
-    question: params.question,
-    subject: params.subject,
-    form: params.form,
-    maxScore: params.maxScore,
-    excerpt: params.evidenceContext.mergedExcerpt,
-    assessedUnderstanding,
-    units,
-  });
+  let acfSlice = { assessedUnderstanding, units, relations, markRule, referenceModelAnswer: "" as string };
 
-  return { assessedUnderstanding, units, relations, markRule, referenceModelAnswer };
+  if (params.intent.family === "calculation") {
+    const finalized = finalizeCalculationAssessmentCase({
+      v: 3,
+      question: params.question,
+      subject: params.subject,
+      form: params.form,
+      maxScore: params.maxScore,
+      intent: params.intent,
+      assessedUnderstanding,
+      units,
+      relations,
+      markRule,
+      chunkRefs: [],
+      contextSource: params.evidenceContext.contextSource,
+    });
+    acfSlice = {
+      assessedUnderstanding: finalized.assessedUnderstanding,
+      units: finalized.units,
+      relations: finalized.relations,
+      markRule: finalized.markRule,
+      referenceModelAnswer: "",
+    };
+    const topologyIssues = validateAcfTopology({
+      v: 3,
+      question: params.question,
+      subject: params.subject,
+      form: params.form,
+      maxScore: params.maxScore,
+      intent: params.intent,
+      assessedUnderstanding: acfSlice.assessedUnderstanding,
+      units: acfSlice.units,
+      relations: acfSlice.relations,
+      markRule: acfSlice.markRule,
+      chunkRefs: [],
+      contextSource: params.evidenceContext.contextSource,
+    });
+    if (topologyIssues.length > 0 && process.env.NODE_ENV === "development") {
+      console.warn("[acf:calculation] topology notes after normalization", topologyIssues);
+    }
+  }
+
+  const isChemCalc =
+    params.intent.family === "calculation" && isChemistryCalculationSubject(params.subject);
+
+  const referenceModelAnswer =
+    params.intent.family === "calculation" && isChemCalc
+      ? ""
+      : await buildReferenceModelAnswer({
+          question: params.question,
+          subject: params.subject,
+          form: params.form,
+          maxScore: params.maxScore,
+          excerpt: params.evidenceContext.mergedExcerpt,
+          assessedUnderstanding: acfSlice.assessedUnderstanding,
+          units: acfSlice.units,
+        });
+
+  let resultAcf = {
+    assessedUnderstanding: acfSlice.assessedUnderstanding,
+    units: acfSlice.units,
+    relations: acfSlice.relations,
+    markRule: acfSlice.markRule,
+    referenceModelAnswer:
+      params.verifiedCalculationAnswer?.referenceModelAnswer || referenceModelAnswer || undefined,
+    verifiedAt: params.verifiedCalculationAnswer?.verifiedAt,
+    verificationMethod: params.verifiedCalculationAnswer?.verificationMethod,
+  };
+
+  if (isChemCalc && params.verifiedCalculationAnswer) {
+    return resultAcf;
+  }
+
+  if (isChemCalc) {
+    const compositionQ = parseEmpiricalCompositionQuestion(params.question);
+    const deterministicExpected = compositionQ
+      ? computeEmpiricalFormulaFromComposition(compositionQ)
+      : null;
+
+    let finalCandidate =
+      deterministicExpected ??
+      (await solveCalculationQuestion({
+        question: params.question,
+        subject: params.subject,
+        form: params.form,
+        textbookExcerpt:
+          params.evidenceContext.textbookExcerpt ?? params.evidenceContext.mergedExcerpt,
+      }));
+
+    const verification = await verifyCalculationReferenceAnswer({
+      question: params.question,
+      subject: params.subject,
+      form: params.form,
+      candidateAnswer: finalCandidate,
+      textbookExcerpt: params.evidenceContext.textbookExcerpt ?? params.evidenceContext.mergedExcerpt,
+    });
+
+    let workedModelAnswer: string | undefined;
+    if (verification.status === "verified" && verification.answer) {
+      workedModelAnswer = await buildCalculationWorkedModelAnswer({
+        question: params.question,
+        subject: params.subject,
+        form: params.form,
+        maxScore: params.maxScore,
+        verifiedFinalAnswer: verification.answer,
+        excerpt: params.evidenceContext.mergedExcerpt,
+        units: acfSlice.units,
+      });
+    }
+
+    resultAcf = applyVerificationToAcf(resultAcf, verification, workedModelAnswer);
+
+    if (verification.status === "pending_review" && process.env.NODE_ENV === "development") {
+      console.warn("[acf:calculation] reference answer not cached — pending human review", {
+        question: params.question.slice(0, 120),
+        note: verification.verificationNote,
+      });
+    }
+  }
+
+  return resultAcf;
 }
 
 export async function buildAssessmentCaseFile(params: {
@@ -222,6 +369,9 @@ export async function buildAssessmentCaseFile(params: {
   seedChunkRefs?: string[];
   skipRetrieval?: boolean;
   evidenceContext?: RetrievedEvidenceContext;
+  verifiedCalculationAnswer?: VerifiedCalculationAnswer;
+  chapterFilter?: string;
+  chapterHint?: string;
 }): Promise<AssessmentCaseFile> {
   const question = params.question.trim();
   const maxScore = Math.max(1, Math.floor(params.maxScore));
@@ -245,6 +395,8 @@ export async function buildAssessmentCaseFile(params: {
       seedChunkContent: params.seedChunkContent,
       seedChunkRefs: params.seedChunkRefs,
       skipRetrieval: params.skipRetrieval,
+      chapterFilter: params.chapterFilter,
+      chapterHint: params.chapterHint,
     }));
 
   const extracted = await extractEvidenceForAssessment({
@@ -254,9 +406,10 @@ export async function buildAssessmentCaseFile(params: {
     maxScore,
     intent,
     evidenceContext,
+    verifiedCalculationAnswer: params.verifiedCalculationAnswer,
   });
 
-  return {
+  const draft: AssessmentCaseFile = {
     v: 3,
     question,
     subject,
@@ -270,5 +423,12 @@ export async function buildAssessmentCaseFile(params: {
     referenceModelAnswer: extracted.referenceModelAnswer,
     chunkRefs: evidenceContext.chunkRefs,
     contextSource: evidenceContext.contextSource,
+    verifiedAt: extracted.verifiedAt,
+    verificationMethod: extracted.verificationMethod,
+    verificationNote: extracted.verificationNote,
   };
+
+  return intent.family === "calculation"
+    ? draft
+    : finalizeAssessmentCase(draft);
 }

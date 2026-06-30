@@ -524,6 +524,8 @@ async function finalizeOpenEndedQuestion(params: {
     seedChunkContent: seedContent || undefined,
     seedChunkRefs: params.groundingChunks.map(textbookChunkRef),
     skipRetrieval: params.groundingChunks.length > 0 && seedContent.length > 0,
+    chapterFilter: params.input.chapterFilter?.trim() || undefined,
+    chapterHint: params.input.chapterHint?.trim() || undefined,
   });
   const modelAnswer = acf.referenceModelAnswer || "A concise correct answer based on the expected understanding.";
   const stored = await saveGeneratedAssessmentCase({

@@ -1,5 +1,6 @@
 import type { GradeSubmissionInput, MarkBreakdownItem } from "../../types";
 import { analyzeQuestion } from "../questionAnalysisService";
+import { resolveFeedbackLanguage } from "../gradingTextUtils";
 import { detectAnswerLanguage } from "../gradingTextUtils";
 import { applyLlmQuestionTypeToAnalysis } from "../questionTypeLlmClassifier";
 import {
@@ -57,6 +58,8 @@ export async function gradeOpenEndedV3(input: GradeSubmissionInput): Promise<Pip
         skipNearestCached: true,
         auditedContextExcerpt: auditedExcerpt || null,
         seedChunkContent: input.mergedGradingContextText ?? undefined,
+        chapterFilter: input.chapterFilter?.trim() || undefined,
+        chapterHint: input.chapterHint?.trim() || undefined,
       });
 
   if (!stored) {
@@ -87,9 +90,7 @@ export async function gradeOpenEndedV3(input: GradeSubmissionInput): Promise<Pip
 
   const { score, markBreakdown, matchedLabels, missingLabels, chainWalk } = scoreFromDemonstration(acf, udm);
 
-  const lang = detectAnswerLanguage(studentAnswer);
-  const feedbackLanguage: "en" | "bm" | "mixed" | undefined =
-    lang === "malay" ? "bm" : lang === "english" ? "en" : "mixed";
+  const feedbackLanguage = resolveFeedbackLanguage(studentAnswer, question);
 
   const { feedback, strengths, improvements } = await generateGapFeedback({
     question,

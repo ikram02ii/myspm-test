@@ -15,6 +15,8 @@ const CODE_TO_PRACTICE_SUBJECT: Record<string, string> = {
   BIO: "Biology",
   BIOLOGY: "Biology",
   biology: "Biology",
+  PHY: "Physics",
+  PHYS: "Physics",
   PHYSICS: "Physics",
   physics: "Physics",
   CHEMISTRY: "Chemistry",
@@ -36,6 +38,9 @@ export function backendSubjectFromPracticeCode(code: string | null | undefined):
 export function subjectTileShortLabel(code: string): string {
   const t = code.trim().toUpperCase();
   if (t === "ADDMATH" || t === "ADDMATHS") return "+MATH";
+  if (t === "PHYSICS" || t === "PHY" || t === "PHYS") return "PHYS";
+  if (t === "CHEMISTRY") return "CHEM";
+  if (t === "BIOLOGY") return "BIO";
   return t.length <= 4 ? t : t.slice(0, 4);
 }
 

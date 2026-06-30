@@ -4,20 +4,13 @@ import {
   buildLanguageDirective,
   detectAnswerLanguage,
   extractQuestionStemForLanguage,
+  resolveFeedbackLanguage,
   textContainsMalayProse,
   type AnswerLanguage,
 } from "../gradingTextUtils";
 
 function resolveStudentFacingLanguage(studentAnswer: string, question: string): AnswerLanguage {
-  const hasWords = /[a-zA-Z]{3,}/.test(studentAnswer);
-  if (!hasWords) {
-    const fromEnStem = extractQuestionStemForLanguage(question, "english");
-    if (fromEnStem !== question.trim()) return "english";
-    const fromBmStem = extractQuestionStemForLanguage(question, "malay");
-    if (fromBmStem !== question.trim()) return "malay";
-    return detectAnswerLanguage(question);
-  }
-  return detectAnswerLanguage(studentAnswer);
+  return resolveFeedbackLanguage(studentAnswer, question);
 }
 
 function needsLocalization(reference: string, target: AnswerLanguage): boolean {
@@ -63,6 +56,7 @@ async function rewriteModelAnswer(params: {
       : "CRITICAL: modelAnswer MUST be written entirely in Bahasa Melayu.",
     "Use the reference for scientific concepts and mark coverage only.",
     "Keep chemical equations, symbols, and formulas exactly as in the reference.",
+    "For calculations, preserve the worked structure: formula/equation, substitution/working steps, then final answer with unit.",
     "Write concise exam-style wording at SPM Form 4/5 level.",
   ].join("\n");
 

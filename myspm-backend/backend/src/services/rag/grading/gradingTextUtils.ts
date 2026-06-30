@@ -100,6 +100,32 @@ export function buildLanguageDirective(language: AnswerLanguage): string {
   return `OUTPUT LANGUAGE = ENGLISH. ${level} Write feedback, strengths, improvements ENTIRELY in English. Do NOT use full Bahasa Melayu sentences.`;
 }
 
+/**
+ * Language for student-facing feedback and model answers.
+ * Default English unless the student clearly wrote Bahasa Melayu or the stem is BM-only.
+ */
+export function resolveFeedbackLanguage(
+  studentAnswer: string,
+  question?: string,
+): AnswerLanguage {
+  const answer = (studentAnswer || "").trim();
+  if (answer && textContainsMalayProse(answer)) return "malay";
+
+  const q = (question || "").trim();
+  if (q) {
+    const hasEn = /(?:^|\n)\s*EN:\s*/i.test(q);
+    const hasBm = /(?:^|\n)\s*BM:\s*/i.test(q);
+    if (hasBm && !hasEn) return "malay";
+    if (hasEn) return "english";
+  }
+
+  if (answer && detectAnswerLanguage(answer) === "malay" && textContainsMalayProse(answer)) {
+    return "malay";
+  }
+
+  return "english";
+}
+
 // ---------------------------------------------------------------------------
 // Question-type detection helpers
 // ---------------------------------------------------------------------------

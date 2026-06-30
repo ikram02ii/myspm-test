@@ -3,11 +3,13 @@ import { and, desc, eq } from "drizzle-orm";
 import { ragDb, ragRubricsTable } from "../../../../lib/ragDb";
 import { embedText } from "../../retrieval/embeddingsService";
 import { buildAssessmentCaseFile } from "./buildAssessmentCase";
+import { isStoredAcfUsable } from "./acfFinalizePolicy";
 import type {
   AssessmentCaseDbPayload,
   AssessmentCaseFile,
   AssessmentCaseSourceMeta,
   StoredAssessmentCase,
+  VerifiedCalculationAnswer,
 } from "./types";
 import type { QuestionAnalysis } from "../../types";
 
@@ -56,6 +58,13 @@ export function parseAssessmentSourceRef(ref?: string | null): AssessmentCaseSou
         typeof parsed.referenceModelAnswer === "string" ? parsed.referenceModelAnswer.trim() : undefined,
       intentFamily: parsed.intentFamily,
       intentCategory: parsed.intentCategory,
+      verifiedAt: typeof parsed.verifiedAt === "string" ? parsed.verifiedAt : undefined,
+      verificationMethod:
+        parsed.verificationMethod === "reverse_check" ||
+        parsed.verificationMethod === "dual_computation" ||
+        parsed.verificationMethod === "pending_review"
+          ? parsed.verificationMethod
+          : undefined,
     };
   } catch {
     return null;
@@ -144,6 +153,8 @@ async function saveAssessmentCase(params: {
     referenceModelAnswer: params.acf.referenceModelAnswer,
     intentFamily: params.acf.intent.family,
     intentCategory: params.acf.intent.category,
+    verifiedAt: params.acf.verifiedAt,
+    verificationMethod: params.acf.verificationMethod,
   });
 
   await ragDb.insert(ragRubricsTable).values({
@@ -181,6 +192,9 @@ export async function buildAssessmentCasePackage(params: {
   seedChunkContent?: string;
   seedChunkRefs?: string[];
   skipRetrieval?: boolean;
+  verifiedCalculationAnswer?: VerifiedCalculationAnswer;
+  chapterFilter?: string;
+  chapterHint?: string;
 }): Promise<{ acf: AssessmentCaseFile; caseId?: string; sourceRef: string }> {
   const acf = await buildAssessmentCaseFile({
     question: params.question,
@@ -191,6 +205,9 @@ export async function buildAssessmentCasePackage(params: {
     seedChunkContent: params.seedChunkContent,
     seedChunkRefs: params.seedChunkRefs,
     skipRetrieval: params.skipRetrieval,
+    verifiedCalculationAnswer: params.verifiedCalculationAnswer,
+    chapterFilter: params.chapterFilter,
+    chapterHint: params.chapterHint,
   });
 
   const sourceRef = encodeAssessmentSourceRef({
@@ -201,6 +218,8 @@ export async function buildAssessmentCasePackage(params: {
     referenceModelAnswer: acf.referenceModelAnswer,
     intentFamily: acf.intent.family,
     intentCategory: acf.intent.category,
+    verifiedAt: acf.verifiedAt,
+    verificationMethod: acf.verificationMethod,
   });
 
   return { acf, sourceRef };
@@ -236,6 +255,8 @@ export async function getOrCreateAssessmentCase(params: {
   auditedContextExcerpt?: string | null;
   seedChunkContent?: string;
   seedChunkRefs?: string[];
+  chapterFilter?: string;
+  chapterHint?: string;
 }): Promise<StoredAssessmentCase> {
   if (!ragDb) throw new Error("RAG database not configured");
   const subject = params.subject?.trim() || "General";
@@ -257,11 +278,19 @@ export async function getOrCreateAssessmentCase(params: {
     })
     .from(ragRubricsTable)
     .where(eq(ragRubricsTable.questionHash, qHash))
-    .limit(1);
+    .orderBy(desc(ragRubricsTable.updatedAt));
+
+  for (const row of exact) {
+    const stored = parseAssessmentCaseFromDbRow(row);
+    if (stored && isStoredAcfUsable(stored.acf)) return stored;
+  }
+
+  if (exact.length > 0 && process.env.NODE_ENV === "development") {
+    console.warn("[acf] replacing invalid cached case(s)", { questionHash: qHash, count: exact.length });
+  }
 
   if (exact.length > 0) {
-    const stored = parseAssessmentCaseFromDbRow(exact[0]);
-    if (stored) return stored;
+    await ragDb.delete(ragRubricsTable).where(eq(ragRubricsTable.questionHash, qHash));
   }
 
   const seed =
@@ -278,6 +307,8 @@ export async function getOrCreateAssessmentCase(params: {
     seedChunkContent: seed || undefined,
     seedChunkRefs: params.seedChunkRefs,
     skipRetrieval: seed.length >= 80,
+    chapterFilter: params.chapterFilter,
+    chapterHint: params.chapterHint,
   });
 
   return saveAssessmentCase({

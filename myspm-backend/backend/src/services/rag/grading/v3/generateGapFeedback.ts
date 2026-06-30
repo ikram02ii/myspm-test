@@ -1,5 +1,6 @@
 import { qwenGradingJson } from "../qwenGradingClient";
 import { formatSpmStudentFriendlyRulesBlock } from "../gradingPolicy";
+import { buildLanguageDirective, resolveFeedbackLanguage, type AnswerLanguage } from "../gradingTextUtils";
 import { chainWalkToFeedbackGaps } from "./coverageChainScorer";
 import type { AssessmentCaseFile, GradingContext, UnderstandingDemonstration } from "./types";
 
@@ -10,7 +11,7 @@ export async function generateGapFeedback(params: {
   udm: UnderstandingDemonstration;
   score: number;
   maxScore: number;
-  language?: "en" | "bm" | "mixed";
+  language?: AnswerLanguage;
   gradingContext?: GradingContext;
 }): Promise<{ feedback: string; strengths: string[]; improvements: string[] }> {
   const chainWalk = params.gradingContext?.chainWalk;
@@ -45,9 +46,13 @@ export async function generateGapFeedback(params: {
       ]
     : [...params.udm.unitsMissing, ...params.udm.relationsMissing];
 
+  const feedbackLang =
+    params.language ?? resolveFeedbackLanguage(params.studentAnswer, params.question);
+
   const system = [
     "Write SPM marking feedback for a student based on demonstrated understanding gaps.",
     formatSpmStudentFriendlyRulesBlock(),
+    buildLanguageDirective(feedbackLang),
     'Return JSON: { "feedback": string, "strengths": string[], "improvements": string[] }',
     "Feedback must reference gaps (missing evidence, missing links, missing stages) — NOT failed rubric rows.",
     "Quote the student's words when praising or correcting.",

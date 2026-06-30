@@ -20,6 +20,8 @@
     "test:grading-regression": "cross-env NODE_ENV=development tsx ./scripts/runGradingRegression.ts",
     "test:ama-marking": "cross-env NODE_ENV=development tsx ./scripts/runAmaMarkingTests.ts",
     "test:coverage-chain": "tsx ./scripts/runCoverageChainTests.ts",
+    "test:calculation-acf": "tsx ./scripts/runCalculationAcfTests.ts",
+    "test:calculation-verify": "tsx ./scripts/runCalculationAnswerVerificationTests.ts",
     "backfill:rubric-fields": "cross-env NODE_ENV=development tsx ./scripts/backfillRubricFields.ts",
     "create:rubrics-from-chunks": "cross-env NODE_ENV=development tsx ./scripts/createRubricsFromTextbookChunks.ts",
     "create:rubrics-bio-f5": "cross-env NODE_ENV=development tsx ./scripts/createRubricsBioForm5All.ts",

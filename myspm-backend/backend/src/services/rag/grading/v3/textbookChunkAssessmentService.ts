@@ -12,6 +12,13 @@ import {
   evidenceUnitsToRubricIdeas,
   saveGeneratedAssessmentCase,
 } from "./assessmentCaseService";
+import {
+  applyVerificationToAcf,
+  extractCalculationMethodFromChunk,
+  runCalculationChunkPipeline,
+  type CalculationMethodContext,
+} from "./calculationChunkPipeline";
+import { isChemistryCalculationSubject } from "./calculationSubjectPolicy";
 import { formatSpmStudentFriendlyRulesBlock } from "../gradingPolicy";
 import type { RubricIdea } from "../../types";
 
@@ -252,6 +259,72 @@ async function generateQuestionFromChunk(params: {
 }
 
 async function createRubricForChunk(params: {
+  chunk: TextbookChunkRow;
+  maxMarks: number;
+  commandHint?: string;
+}): Promise<ChunkRubricResult> {
+  const calcMethod = isChemistryCalculationSubject(params.chunk.subject)
+    ? await extractCalculationMethodFromChunk(params.chunk)
+    : null;
+
+  if (calcMethod) {
+    return createCalculationRubricForChunk({ ...params, method: calcMethod });
+  }
+
+  return createProseRubricForChunk(params);
+}
+
+async function createCalculationRubricForChunk(params: {
+  chunk: TextbookChunkRow;
+  maxMarks: number;
+  commandHint?: string;
+  method: CalculationMethodContext;
+}): Promise<ChunkRubricResult> {
+  const { questionText, verification, verifiedAnswer } = await runCalculationChunkPipeline({
+    chunk: params.chunk,
+    method: params.method,
+    maxMarks: params.maxMarks,
+    commandHint: params.commandHint,
+  });
+
+  const analysis = analyzeQuestion(questionText, params.chunk.subject);
+  const { acf, sourceRef } = await buildAssessmentCasePackage({
+    question: questionText,
+    subject: params.chunk.subject,
+    form: params.chunk.form,
+    maxScore: params.maxMarks,
+    questionAnalysis: analysis,
+    seedChunkContent: params.chunk.content,
+    seedChunkRefs: [chunkSourceRef(params.chunk.textbookId, params.chunk.chunkId)],
+    skipRetrieval: true,
+    verifiedCalculationAnswer: verifiedAnswer,
+  });
+
+  if (!verifiedAnswer) {
+    Object.assign(acf, applyVerificationToAcf(acf, verification));
+  }
+
+  const stored = await saveGeneratedAssessmentCase({
+    question: questionText,
+    subject: params.chunk.subject,
+    form: params.chunk.form,
+    maxScore: params.maxMarks,
+    acf,
+    sourceRef,
+  });
+
+  return {
+    chunkId: params.chunk.chunkId,
+    chunkIndex: params.chunk.chunkIndex,
+    chapter: params.chunk.chapter,
+    questionText,
+    maxMarks: params.maxMarks,
+    rubricId: stored.caseId,
+    rubricIdeas: evidenceUnitsToRubricIdeas(acf),
+  };
+}
+
+async function createProseRubricForChunk(params: {
   chunk: TextbookChunkRow;
   maxMarks: number;
   commandHint?: string;

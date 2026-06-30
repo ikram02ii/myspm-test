@@ -11,8 +11,100 @@ function chunkRef(chunk: RetrievedChunk): string {
   return `textbook:${chunk.textbookId}:chunk:${chunk.chunkId}`;
 }
 
+/**
+ * Question-structure words that appear in exam questions but carry no topic
+ * signal for textbook retrieval. Keeping them inflates the token denominator
+ * in `scoreChunk`, which lowers the lexical-overlap ratio below the 0.35 gate
+ * even when the chunk is relevant.
+ */
+const RETRIEVAL_NOISE_WORDS = new Set([
+  // command verbs (already STOPWORDS: explain, show, find, solve)
+  "describe", "state", "calculate", "name", "define", "write", "compare",
+  "suggest", "predict", "determine", "identify", "list", "outline", "give",
+  // structural question words
+  "answer", "your", "reference", "based", "concept", "observation", "observation",
+  "observations", "experiments", "experiment", "student", "students", "carried",
+  "study", "differences", "difference", "following", "given", "when", "where",
+  "using", "between", "during", "both", "each", "some", "all", "any", "two",
+  "three", "one", "four", "five", "above", "below", "also", "only", "not",
+  "with", "from", "about", "whether", "that", "these", "those", "they",
+  // generic / low-signal verbs (topic nouns are the signal, not these)
+  "affects", "affect", "causes", "cause", "results", "result", "shows",
+  "stored", "stores", "used", "use", "known", "know", "has", "have",
+]);
+
+/**
+ * Clean a question string so it makes a better textbook chunk search query.
+ *
+ * Generated questions are often bilingual (EN: … \nBM: …), contain scenario
+ * wording, BM translations, and mark annotations ("(3 marks)"). These dilute
+ * keyword matching against plain textbook chunk text.
+ *
+ * Strategy:
+ *  1. Keep only the English portion (before the first BM: line).
+ *  2. Strip leading "EN:" prefix.
+ *  3. Remove mark annotations like "(2 marks)" / "(3 markah)".
+ *  4. Remove question-structure and command words that add token-denominator
+ *     noise without contributing topic signal.
+ *  5. Collapse whitespace and truncate to a safe length.
+ *
+ * We deliberately keep scenario nouns (substances, materials, named entities)
+ * because those ARE the topic keywords for retrieval.
+ */
+export function cleanQuestionForRetrieval(raw: string): string {
+  let q = raw.trim();
+
+  // 1. Separate EN and BM portions before any cleaning.
+  const bmIdx = q.search(/\nBM\s*:/i);
+  const enRaw = bmIdx > 0 ? q.slice(0, bmIdx) : q;
+
+  // 2. Clean the EN portion: strip prefix, marks, structure words.
+  let enClean = enRaw.replace(/^EN\s*:\s*/i, "").trim();
+  enClean = enClean.replace(/\(\s*\d+\s*marks?\s*\)/gi, "").replace(/\(\s*\d+\s*markah\s*\)/gi, "").trim();
+  const enWords = enClean.split(/\s+/).filter((w) => {
+    const lower = w.toLowerCase().replace(/[^a-z]/g, "");
+    return lower.length >= 2 && !RETRIEVAL_NOISE_WORDS.has(lower);
+  });
+
+  q = (enWords.length >= 4 ? enWords : enClean.split(/\s+/)).join(" ");
+
+  // 3. Collapse whitespace and truncate.
+  return q.replace(/\s+/g, " ").trim().slice(0, 350);
+}
+
 export function chunkRefsFromList(chunks: RetrievedChunk[]): string[] {
   return chunks.map(chunkRef);
+}
+
+/**
+ * Use a lightweight LLM call to convert a real-life application question into
+ * its underlying scientific concept for textbook retrieval.
+ *
+ * Real-life questions describe a scenario (a household situation, an experiment
+ * setup, etc.) instead of naming the science topic directly. Plain keyword
+ * retrieval then matches the scenario words in the wrong chapter rather than the
+ * chapter that actually teaches the mechanism. This call asks the LLM to name
+ * the underlying syllabus concept so retrieval can target the correct chapter.
+ */
+async function extractConceptQuery(question: string, subject: string): Promise<string | null> {
+  const system = [
+    "You are a Malaysian SPM textbook search assistant.",
+    "Given a question, extract the core scientific concept a textbook chapter would cover to answer it.",
+    "Ignore any real-life application or scenario wording and name only the underlying syllabus topic.",
+    "Return ONLY a short keyword phrase of the underlying scientific topic — max 12 words.",
+    'Return JSON: { "concept": "..." }',
+  ].join(" ");
+
+  const cleaned = cleanQuestionForRetrieval(question);
+  const user = `Subject: ${subject}\nQuestion: ${cleaned}`;
+
+  try {
+    const parsed = await qwenGradingJson(system, user);
+    const concept = typeof parsed?.concept === "string" ? parsed.concept.trim() : null;
+    return concept && concept.length >= 5 ? concept : null;
+  } catch {
+    return null;
+  }
 }
 
 async function retrieveTextbookChunks(params: {
@@ -20,12 +112,16 @@ async function retrieveTextbookChunks(params: {
   subject: string;
   form: string;
   topK?: number;
+  chapterFilter?: string;
+  chapterHint?: string;
 }): Promise<RetrievedChunk[]> {
   const result = await retrieveChunks({
     query: params.question,
     subject: params.subject,
     form: params.form,
     topK: params.topK ?? 12,
+    chapterFilter: params.chapterFilter,
+    chapterHint: params.chapterHint,
   });
   return result.chunks.filter(
     (c) => c.sourceType === "textbook" && !isLowQualityChunk(c.content) && c.content.trim().length >= 80,
@@ -107,6 +203,39 @@ function selectChunksByIds(all: RetrievedChunk[], ids: string[]): RetrievedChunk
   const set = new Set(ids);
   const picked = all.filter((c) => set.has(c.chunkId));
   return picked.length > 0 ? picked : all.slice(0, 3);
+}
+
+function normalizeChapter(chapter: string | undefined | null): string {
+  return (chapter ?? "").trim().toLowerCase();
+}
+
+/**
+ * Keep evidence chunks coherent to a single chapter.
+ *
+ * Keyword retrieval can match scattered words across different chapters and mix
+ * them into one rubric, producing off-topic grounding.
+ *
+ * The dominant chapter is the chapter of the single highest-scoring chunk — the
+ * most topically distinctive match. We deliberately do NOT use summed scores:
+ * generic words can rack up many weak matches in an intro chapter and hijack a
+ * question that really belongs to a later chapter. The best single chunk
+ * reflects the true topic far better.
+ *
+ * Chunks with no chapter label are kept when the best chunk itself has no label,
+ * so we never discard usable evidence just because metadata is missing.
+ */
+function filterToDominantChapter(chunks: RetrievedChunk[]): RetrievedChunk[] {
+  if (chunks.length <= 1) return chunks;
+
+  const sorted = [...chunks].sort((a, b) => b.score - a.score);
+  const dominantChapter = normalizeChapter(sorted[0]?.chapter);
+
+  // Top chunk has no chapter label → can't filter reliably, keep as-is.
+  if (!dominantChapter) return chunks;
+
+  const inDominant = chunks.filter((c) => normalizeChapter(c.chapter) === dominantChapter);
+  // Safety: if filtering leaves too little, keep the original set.
+  return inDominant.length > 0 ? inDominant : chunks;
 }
 
 function consecutiveChunksAroundPrimary(
@@ -218,6 +347,10 @@ export async function retrieveEvidenceContext(params: {
   seedChunkContent?: string;
   seedChunkRefs?: string[];
   skipRetrieval?: boolean;
+  /** When the question's chapter is known, restrict retrieval to that chapter. */
+  chapterFilter?: string;
+  /** Soft ranking boost toward a chapter heading (used when filter is absent). */
+  chapterHint?: string;
 }): Promise<RetrievedEvidenceContext> {
   let excerpt = params.seedChunkContent?.trim() ?? "";
   let chunkRefs = params.seedChunkRefs ?? [];
@@ -232,24 +365,86 @@ export async function retrieveEvidenceContext(params: {
     };
   }
 
-  const all = await retrieveTextbookChunks({
-    question: params.question,
-    subject: params.subject,
-    form: params.form,
-  });
+  const chapterFilter = params.chapterFilter?.trim() || undefined;
+  const chapterHint = params.chapterHint?.trim() || undefined;
+
+  // When the chapter is known, search WITHIN that chapter first. Wrap retrieval
+  // so a strict chapter filter that yields nothing automatically retries without
+  // it — this keeps grounding from breaking on chapter-label mismatches while
+  // still scoping correctly when labels line up.
+  const search = async (query: string): Promise<RetrievedChunk[]> => {
+    if (chapterFilter) {
+      const scoped = await retrieveTextbookChunks({
+        question: query,
+        subject: params.subject,
+        form: params.form,
+        chapterFilter,
+        chapterHint,
+      });
+      if (scoped.length > 0) return scoped;
+    }
+    return retrieveTextbookChunks({
+      question: query,
+      subject: params.subject,
+      form: params.form,
+      chapterHint,
+    });
+  };
+
+  // Pass 1 — keyword query: strip bilingual noise, marks, and structure words.
+  const retrievalQuery = cleanQuestionForRetrieval(params.question);
+  const keywordChunks = await search(retrievalQuery);
+
+  // Pass 2 — concept query: always run in parallel to catch real-life application
+  // questions where keyword matches land in the wrong chapter. The LLM strips the
+  // scenario context and returns the underlying science concept. We compare both
+  // passes and use whichever gives higher-scoring chunks.
+  const conceptQuery = await extractConceptQuery(params.question, params.subject);
+  const conceptChunks = conceptQuery ? await search(conceptQuery) : [];
+
+  const bestKeyword = keywordChunks.length > 0 ? Math.max(...keywordChunks.map((c) => c.score)) : 0;
+  const bestConcept = conceptChunks.length > 0 ? Math.max(...conceptChunks.map((c) => c.score)) : 0;
+  // Prefer concept chunks when they score noticeably better (real-life question
+  // keywords hit the wrong chapters), otherwise keep keyword chunks.
+  const all = bestConcept > bestKeyword + 0.05 ? conceptChunks : keywordChunks.length > 0 ? keywordChunks : conceptChunks;
   const { dskp, textbook } = partitionDskpAndTextbookChunks(all);
   const topDskp = dskp.sort((a, b) => b.score - a.score).slice(0, 4);
   const dskpExcerpt = formatChunksExcerpt(topDskp, "DSKP SYLLABUS MANDATE");
+
+  // Chapter coherence: lock evidence to the single best-matching chapter so a
+  // question never grounds on stray chunks from other chapters that merely
+  // shared a keyword. Drops cross-chapter contamination.
+  const coherentTextbook = filterToDominantChapter(textbook);
+
+  // High-confidence bypass: if textbook chunks already score well, skip the
+  // non-deterministic LLM suitability check and use them directly. This prevents
+  // flaky llm_fallback caused by LLM saying "not suitable" for clearly relevant chunks.
+  // Thresholds: 1+ chunk at ≥0.5 OR 2+ chunks at ≥0.4 (both are high enough to trust).
+  const chunksToCheck = coherentTextbook.length > 0 ? coherentTextbook : all;
+  const highConfidence = chunksToCheck.filter((c) => c.score >= 0.4).slice(0, 4);
+  const bypassSuitability =
+    highConfidence.filter((c) => c.score >= 0.5).length >= 1 || highConfidence.length >= 2;
+  if (bypassSuitability) {
+    const textbookExcerpt = formatChunksExcerpt(highConfidence, "TEXTBOOK GROUNDING EVIDENCE");
+    const mergedExcerpt = [dskpExcerpt, textbookExcerpt].filter(Boolean).join("\n\n");
+    return {
+      dskpExcerpt,
+      textbookExcerpt,
+      mergedExcerpt,
+      chunkRefs: [...topDskp, ...highConfidence].map(chunkRef),
+      contextSource: mergedExcerpt.length >= 80 ? "textbook" : "llm_fallback",
+    };
+  }
 
   const suitability = await assessTextbookChunkSuitability({
     question: params.question,
     subject: params.subject,
     maxScore: params.maxScore,
-    chunks: textbook.length > 0 ? textbook : all,
+    chunks: chunksToCheck,
   });
 
   if (suitability.suitable) {
-    const selected = selectChunksByIds(textbook.length > 0 ? textbook : all, suitability.selectedChunkIds);
+    const selected = selectChunksByIds(chunksToCheck, suitability.selectedChunkIds);
     const textbookExcerpt = formatChunksExcerpt(selected, "TEXTBOOK GROUNDING EVIDENCE");
     const mergedExcerpt = [dskpExcerpt, textbookExcerpt].filter(Boolean).join("\n\n");
     return {

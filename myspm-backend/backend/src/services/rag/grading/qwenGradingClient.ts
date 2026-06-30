@@ -21,6 +21,20 @@ export function resolveQwenGradingConfig(): QwenGradingConfig {
   return { apiKey, baseUrl, model };
 }
 
+/** Optional override for calculation solve/verify only (e.g. qwq-plus). Falls back to grading model. */
+export function resolveQwenCalculationModel(): string {
+  return (
+    process.env["QWEN_CALCULATION_MODEL"]?.trim() ||
+    process.env["QWEN_GRADING_MODEL"]?.trim() ||
+    "qwen-plus"
+  );
+}
+
+function isReasoningModel(model: string): boolean {
+  const m = model.trim().toLowerCase();
+  return m.startsWith("qwq") || m.startsWith("qvq") || m.includes("-thinking");
+}
+
 function messageContentToString(content: unknown): string {
   if (typeof content === "string") return content;
   if (Array.isArray(content)) {
@@ -48,14 +62,21 @@ function extractJson(text: string): string {
 export type QwenGradingJsonOptions = {
   /** Override sampling temperature; Half A rubric generation keeps the default. */
   temperature?: number;
+  /** Override model id (e.g. qwq-plus for calculation verification). */
+  model?: string;
 };
 
-export async function qwenGradingJson(
+function parseJsonFromModelText(raw: string): any {
+  const jsonText = extractJson(raw.trim());
+  return JSON.parse(jsonText);
+}
+
+async function qwenGradingJsonStreaming(
+  config: QwenGradingConfig,
   system: string,
   user: string,
-  options?: QwenGradingJsonOptions,
+  temperature: number,
 ): Promise<any> {
-  const config = resolveQwenGradingConfig();
   const response = await fetch(`${config.baseUrl}/chat/completions`, {
     method: "POST",
     headers: {
@@ -64,7 +85,88 @@ export async function qwenGradingJson(
     },
     body: JSON.stringify({
       model: config.model,
-      temperature: options?.temperature ?? 0.1,
+      temperature,
+      stream: true,
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: user },
+      ],
+    }),
+  });
+
+  if (!response.ok) {
+    const rawText = await response.text();
+    let parsedResponse: any;
+    try {
+      parsedResponse = JSON.parse(rawText);
+    } catch {
+      throw new Error(rawText.slice(0, 500) || `Qwen stream failed (${response.status})`);
+    }
+    throw new Error(
+      parsedResponse?.error?.message || parsedResponse?.message || `Qwen stream failed (${response.status})`,
+    );
+  }
+
+  const reader = response.body?.getReader();
+  if (!reader) throw new Error("Qwen stream: missing response body");
+
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let content = "";
+  let reasoning = "";
+
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed.startsWith("data:")) continue;
+      const payload = trimmed.slice(5).trim();
+      if (!payload || payload === "[DONE]") continue;
+      try {
+        const chunk = JSON.parse(payload) as {
+          choices?: Array<{ delta?: { content?: string; reasoning_content?: string } }>;
+        };
+        const delta = chunk.choices?.[0]?.delta;
+        if (typeof delta?.content === "string") content += delta.content;
+        if (typeof delta?.reasoning_content === "string") reasoning += delta.reasoning_content;
+      } catch {
+        // skip malformed SSE chunk
+      }
+    }
+  }
+
+  const raw = content.trim() || reasoning.trim();
+  if (!raw) throw new Error(`Qwen stream (${config.model}): empty response`);
+  return parseJsonFromModelText(raw);
+}
+
+export async function qwenGradingJson(
+  system: string,
+  user: string,
+  options?: QwenGradingJsonOptions,
+): Promise<any> {
+  const base = resolveQwenGradingConfig();
+  const model = options?.model?.trim() || base.model;
+  const config: QwenGradingConfig = { ...base, model };
+  const temperature = options?.temperature ?? 0.1;
+
+  if (isReasoningModel(model)) {
+    return qwenGradingJsonStreaming(config, system, user, temperature);
+  }
+
+  const response = await fetch(`${config.baseUrl}/chat/completions`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${config.apiKey}`,
+    },
+    body: JSON.stringify({
+      model: config.model,
+      temperature,
       messages: [
         { role: "system", content: system },
         { role: "user", content: user },
@@ -83,8 +185,19 @@ export async function qwenGradingJson(
   }
   const content = parsedResponse?.choices?.[0]?.message?.content;
   const raw = messageContentToString(content).trim();
-  const jsonText = extractJson(raw);
-  return JSON.parse(jsonText);
+  return parseJsonFromModelText(raw);
+}
+
+/** Calculation solve/verify — uses QWEN_CALCULATION_MODEL when set (e.g. qwq-plus). */
+export async function qwenCalculationJson(
+  system: string,
+  user: string,
+  options?: Pick<QwenGradingJsonOptions, "temperature">,
+): Promise<any> {
+  return qwenGradingJson(system, user, {
+    ...options,
+    model: resolveQwenCalculationModel(),
+  });
 }
 
 const VERIFIER_MODE_BLOCKS: Record<VerifierMode, string> = {

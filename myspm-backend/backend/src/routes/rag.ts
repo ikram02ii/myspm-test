@@ -514,6 +514,8 @@ router.post("/grade", gradeUpload.single("diagramImage"), async (req, res) => {
         || (typeof req.body?.diagramImageBase64 === "string" ? req.body.diagramImageBase64 : undefined),
       submissionId: typeof req.body?.submissionId === "string" ? req.body.submissionId : undefined,
       userId: Number.isFinite(userId) ? userId : null,
+      chapterFilter: typeof req.body?.chapterFilter === "string" ? req.body.chapterFilter : undefined,
+      chapterHint: typeof req.body?.chapterHint === "string" ? req.body.chapterHint : undefined,
     });
 
     return res.json(result);

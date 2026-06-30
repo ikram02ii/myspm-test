@@ -79,7 +79,16 @@ export type MarkRuleKind =
 export type MarkRule = {
   kind: MarkRuleKind;
   maxMarks: number;
+  /**
+   * When true (count_distinct_units only): any N distinct valid units earn up to maxMarks —
+   * used for list/recall/open-topic questions, NOT calculations or explanation chains.
+   * Scorer: min(maxMarks, count of demonstrated credit units); ignores unit order.
+   */
   openPool?: boolean;
+  /** Set during generation for calculation questions. */
+  calcPolicy?: "answer_only" | "show_working";
+  /** Subject-specific calculation rule set (chemistry vs generic; physics/math later). */
+  calcDomain?: "chemistry" | "general";
 };
 
 export type AssessmentIntent = {
@@ -104,6 +113,19 @@ export type AssessmentCaseFile = {
   referenceModelAnswer?: string;
   chunkRefs: string[];
   contextSource: "textbook" | "llm_fallback";
+  /** ISO timestamp when calculation reference answer passed independent verification. */
+  verifiedAt?: string;
+  /** How the cached calculation answer was verified before storage. */
+  verificationMethod?: "reverse_check" | "dual_computation" | "pending_review";
+  /** Set when verification failed — answer not cached; needs human review. */
+  verificationNote?: string;
+};
+
+/** Pre-verified calculation answer from the chunk pipeline — skips redundant solve/verify in ACF build. */
+export type VerifiedCalculationAnswer = {
+  referenceModelAnswer: string;
+  verifiedAt: string;
+  verificationMethod: "reverse_check" | "dual_computation";
 };
 
 export type DemonstratedUnit = {
@@ -143,6 +165,8 @@ export type AssessmentCaseSourceMeta = {
   referenceModelAnswer?: string;
   intentFamily?: AssessmentIntentFamily;
   intentCategory?: AssessmentIntentCategory;
+  verifiedAt?: string;
+  verificationMethod?: "reverse_check" | "dual_computation" | "pending_review";
 };
 
 export type StoredAssessmentCase = {

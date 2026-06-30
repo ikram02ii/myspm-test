@@ -1,5 +1,8 @@
 import type { MarkBreakdownItem } from "../../types";
 import type { AssessmentCaseFile, UnderstandingDemonstration } from "./types";
+import { isCalculationIntent } from "./calculationAcfPolicy";
+import { isFixedSetRecallStem } from "./acfFinalizePolicy";
+import { scoreCalculationDemonstration } from "./scoreCalculation";
 import {
   assertZeroCreditWeightInvariant,
   scoreCoverageChain,
@@ -73,16 +76,27 @@ export function scoreFromDemonstration(acf: AssessmentCaseFile, udm: Understandi
   let awardedUnitIds = new Set<string>();
   let chainWalk: ChainWalkResult | undefined;
 
-  switch (rule.kind) {
+  if (isCalculationIntent(acf)) {
+    const calc = scoreCalculationDemonstration(acf, udm);
+    score = calc.score;
+    awardedUnitIds = calc.awardedUnitIds;
+  } else switch (rule.kind) {
     case "count_distinct_units": {
       const validDemonstrated = udm.unitsDemonstrated.filter((d) => d.valid);
       if (rule.openPool) {
-        score = Math.min(max, validDemonstrated.length);
-        awardedUnitIds = new Set(validDemonstrated.slice(0, max).map((d) => d.unitId));
+        const demonstratedCredit = creditUnits(acf).filter((u) => unitAwarded(udm, u.id));
+        score = Math.min(
+          max,
+          demonstratedCredit.reduce((sum, u) => sum + u.creditWeight, 0),
+        );
+        awardedUnitIds = new Set(demonstratedCredit.map((u) => u.id));
       } else {
         const credit = creditUnits(acf);
         const demonstrated = credit.filter((u) => unitAwarded(udm, u.id));
-        score = Math.min(max, demonstrated.length);
+        score = Math.min(
+          max,
+          demonstrated.reduce((sum, u) => sum + u.creditWeight, 0),
+        );
         awardedUnitIds = new Set(demonstrated.map((u) => u.id));
       }
       break;
@@ -144,6 +158,11 @@ export function scoreFromDemonstration(acf: AssessmentCaseFile, udm: Understandi
   }
 
   validateZeroWeightNeverCredited(acf, awardedUnitIds);
+
+  if (isFixedSetRecallStem(acf.question, acf.maxScore) && udm.invalidClaims.length > 0) {
+    score = 0;
+    awardedUnitIds.clear();
+  }
 
   score = Math.max(0, Math.min(max, score));
 

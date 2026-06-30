@@ -32,6 +32,7 @@ import { applyScoreConsistencyRules, computeRetrievalConfidence } from "./gradin
 import {
   detectAnswerLanguage,
   buildLanguageDirective,
+  resolveFeedbackLanguage,
   isDiagramLabelQuestion,
   isGraphReadingQuestion,
   type AnswerLanguage,
@@ -1133,7 +1134,7 @@ async function gradeWithQwen(params: {
   const hasTextbookContext = /\[TEXTBOOK CONTEXT\]/i.test(params.contextText || "");
   const questionType = detectQuestionType(params.question);
   const questionTypeRules = buildQuestionTypeRules(questionType);
-  const answerLanguage = detectAnswerLanguage(params.studentAnswer);
+  const answerLanguage = resolveFeedbackLanguage(params.studentAnswer, params.question);
   const languageDirective = buildLanguageDirective(answerLanguage);
   const answerStyle = detectAnswerStyle(params.studentAnswer);
 
@@ -1562,7 +1563,7 @@ export async function gradeSubmission(input: GradeSubmissionInput): Promise<Grad
       lowConfidenceFlag: lowConfidence,
     });
 
-    const answerLangV2 = detectAnswerLanguage(studentAnswer);
+    const answerLangV2 = resolveFeedbackLanguage(studentAnswer, question);
     const mcqLetterV2 = isMcqLetterOnlyExplanationRequest(question, studentAnswer, maxScore);
     let feedbackOut = sanitizeFeedback(gradedV2.feedback, { maxSentences: mcqLetterV2 ? 8 : undefined });
 
@@ -1667,7 +1668,7 @@ export async function gradeSubmission(input: GradeSubmissionInput): Promise<Grad
   });
 
   const mcqLetterExplainMode = isMcqLetterOnlyExplanationRequest(question, studentAnswer, maxScore);
-  const answerLang = detectAnswerLanguage(studentAnswer);
+  const answerLang = resolveFeedbackLanguage(studentAnswer, question);
   const studentIdeasList = await extractStudentIdeas(question, studentAnswer, answerLang);
   const studentIdeaStrings = studentIdeasList.map((i) => i.idea);
 

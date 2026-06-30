@@ -23,6 +23,7 @@ import { MathLineChart } from "../components/math/MathLineChart";
 import { BiologyStructuredDiagram } from "../components/biology/BiologyStructuredDiagram";
 import { AnimalCellDiagramWithLabels } from "../components/biology/AnimalCellDiagramWithLabels";
 import { LabeledAnimalCellDiagram } from "../components/biology/LabeledAnimalCellDiagram";
+import { CalculationStepsView } from "../components/math/CalculationStepsView";
 import { MathFormattedText } from "../components/math/MathFormattedText";
 import {
   inferOrganelleHighlights,
@@ -1174,7 +1175,9 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
                 {modelAnswerExpanded ? "Model answer" : "View model answer"}
               </Text>
               {modelAnswerExpanded ? (
-                <Text style={styles.modelAnswerBody}>{gradeModelAnswer}</Text>
+                <View style={styles.modelAnswerContent}>
+                  <CalculationStepsView text={gradeModelAnswer} />
+                </View>
               ) : null}
             </Pressable>
           ) : null}
@@ -1587,6 +1590,9 @@ const styles = StyleSheet.create({
     fontFamily: fonts.regular,
     color: colors.text,
     lineHeight: 21,
+  },
+  modelAnswerContent: {
+    marginTop: 8,
   },
   primaryBtn: { marginTop: 22, borderRadius: 16, overflow: "hidden" },
   primaryBtnOff: { opacity: 0.95 },

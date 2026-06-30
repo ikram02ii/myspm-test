@@ -186,6 +186,12 @@ function withChemistryTile(items: MobileSubjectFavourite[]): MobileSubjectFavour
   return [...items, { code: "chemistry", name: "Chemistry" }];
 }
 
+function withPhysicsTile(items: MobileSubjectFavourite[]): MobileSubjectFavourite[] {
+  const hasPhysics = items.some((item) => favouriteKey(item) === "PHYSICS");
+  if (hasPhysics) return items;
+  return [...items, { code: "physics", name: "Physics" }];
+}
+
 function withMathTile(items: MobileSubjectFavourite[]): MobileSubjectFavourite[] {
   const hasMath = items.some((item) => {
     const k = favouriteKey(item);
@@ -197,7 +203,11 @@ function withMathTile(items: MobileSubjectFavourite[]): MobileSubjectFavourite[]
 
 function buildFavouriteTiles(favourites: MobileSubjectFavourite[]): MobileSubjectFavourite[] {
   return withAdditionalMathTile(
-    withMathTile(withChemistryTile(withBiologyTile(withEnglishTile(stripScienceAndHistory(favourites))))),
+    withMathTile(
+      withPhysicsTile(
+        withChemistryTile(withBiologyTile(withEnglishTile(stripScienceAndHistory(favourites)))),
+      ),
+    ),
   );
 }
 
@@ -413,7 +423,7 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
     }
   }, []);
 
-  const favouritesVisible = useMemo(() => stripScienceAndHistory(favourites), [favourites]);
+  const favouriteTiles = useMemo(() => buildFavouriteTiles(favourites), [favourites]);
 
   const subjectsToAdd = useMemo(() => {
     const have = new Set(favourites.map((f) => favouriteKey(f)));
@@ -423,15 +433,13 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
   }, [favourites, onboardingSubjects]);
 
   const setsInFavourites = useMemo(() => {
-    if (favouritesVisible.length === 0) {
+    if (favouriteTiles.length === 0) {
       return sets;
     }
     return sets.filter((item) =>
-      favouritesVisible.some((f) => practiceSetSubjectMatchesFavourite(item.subject, f)),
+      favouriteTiles.some((f) => practiceSetSubjectMatchesFavourite(item.subject, f)),
     );
-  }, [sets, favouritesVisible]);
-
-  const favouriteTiles = useMemo(() => buildFavouriteTiles(favourites), [favourites]);
+  }, [sets, favouriteTiles]);
 
   /** Selected subject for filtering — only use activeSubjectCode (restored in load), never jump to tiles[0] mid-render. */
   const selectedSubjectKey = useMemo(() => {
