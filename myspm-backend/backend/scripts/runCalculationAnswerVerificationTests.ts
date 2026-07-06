@@ -7,7 +7,7 @@ import { test, describe } from "node:test";
 import {
   inferCalculationPolicy,
   isCalculationIntent,
-} from "../src/services/rag/grading/v3/calculationAcfPolicy.js";
+} from "../src/services/ama/grading/v3/calculationAcfPolicy.js";
 import {
   applyVerificationToAcf,
   computeEmpiricalFormulaFromComposition,
@@ -15,8 +15,8 @@ import {
   parseEmpiricalCompositionQuestion,
   reverseCheckEmpiricalFormula,
   verifyCalculationReferenceAnswer,
-} from "../src/services/rag/grading/v3/calculationAnswerVerification.js";
-import type { AssessmentCaseFile, AssessmentIntent } from "../src/services/rag/grading/v3/types.js";
+} from "../src/services/ama/grading/v3/calculationAnswerVerification.js";
+import type { AssessmentCaseFile, AssessmentIntent } from "../src/services/ama/grading/v3/types.js";
 
 const EMPIRICAL_QUESTION =
   "Determine the empirical formula of a compound containing 60% carbon, 13.3% hydrogen and 26.7% oxygen. " +

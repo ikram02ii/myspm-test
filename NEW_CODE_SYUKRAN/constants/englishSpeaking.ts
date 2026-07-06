@@ -1,9 +1,9 @@
 export type EnglishSpeakingPart = "part1" | "part2" | "part3";
 
 export const ENGLISH_SPEAKING_PART_OPTIONS: Array<{ id: EnglishSpeakingPart; label: string }> = [
-  { id: "part1", label: "Part 1: Short Q&A" },
-  { id: "part2", label: "Part 2: Individual Long Turn" },
-  { id: "part3", label: "Part 3: Group Discussion" },
+  { id: "part1", label: "Part 1" },
+  { id: "part2", label: "Part 2" },
+  { id: "part3", label: "Part 3" },
 ];
 
 export const ENGLISH_PART1_TOPIC_CATEGORIES = [

@@ -51,6 +51,71 @@ export const ragTextbookChunksTable = ragPgSchema.table("rag_textbook_chunks", {
   content: text("content").notNull(),
 });
 
+/**
+ * Vision-language (VL) textbook ingestion — book-level row.
+ *
+ * Separate from `rag_textbooks` so the new vision pipeline can coexist with the
+ * old text-extraction pipeline without disturbing existing data. Each page of
+ * the PDF is rendered to an image and transcribed by a vision model so that no
+ * word, table, or figure is lost.
+ */
+export const ragTbTable = ragPgSchema.table("rag_tb", {
+  id: serial("id").primaryKey(),
+  tbId: varchar("tb_id", { length: 64 }).notNull().unique(),
+  subject: varchar("subject", { length: 120 }).notNull(),
+  form: varchar("form", { length: 50 }).notNull(),
+  title: varchar("title", { length: 255 }).notNull(),
+  sourceName: varchar("source_name", { length: 255 }),
+  /** How this book was ingested — always "vision" for this table. */
+  ingestMethod: varchar("ingest_method", { length: 32 }).notNull().default("vision"),
+  /** Vision model used for transcription, e.g. "qwen-vl-plus". */
+  visionModel: varchar("vision_model", { length: 64 }),
+  /** Total PDF pages processed. */
+  totalPages: integer("total_pages"),
+  /** Primary language of the book: "en" | "bm" | "bilingual". */
+  language: varchar("language", { length: 32 }),
+  createdByUserId: integer("created_by_user_id"),
+  uploadedAt: timestamp("uploaded_at").notNull().defaultNow(),
+});
+
+/**
+ * VL textbook chunks. `content` is the verbatim transcription (no paraphrase),
+ * while `figures` and `tables` capture graphs/diagrams/tables as structured text
+ * so nothing visual is lost. `pageImagePath` keeps a reference to the original
+ * rendered page for audit. `chapterNo` is the numeric chapter for reliable
+ * filtering regardless of how the chapter title is worded.
+ */
+export const ragTbChunksTable = ragPgSchema.table("rag_tb_chunks", {
+  id: serial("id").primaryKey(),
+  tbDbId: integer("tb_db_id")
+    .notNull()
+    .references(() => ragTbTable.id, { onDelete: "cascade" }),
+  chunkId: varchar("chunk_id", { length: 64 }).notNull(),
+  chunkIndex: integer("chunk_index").notNull(),
+  /** Numeric chapter for robust filtering (e.g. 5). Null if not determinable. */
+  chapterNo: integer("chapter_no"),
+  /** Full chapter label, e.g. "Chapter 5 Metabolism and Enzymes". */
+  chapter: varchar("chapter", { length: 512 }),
+  conceptTitle: varchar("concept_title", { length: 255 }),
+  conceptSummary: text("concept_summary"),
+  keywords: text("keywords"),
+  pageStart: integer("page_start"),
+  pageEnd: integer("page_end"),
+  /** Verbatim transcribed body text for this chunk. */
+  content: text("content").notNull(),
+  /** True when the source page(s) contained a diagram/graph/figure. */
+  hasFigure: boolean("has_figure").notNull().default(false),
+  /** JSON array describing diagrams/graphs/charts found on the page(s). */
+  figures: text("figures"),
+  /** JSON/markdown of tables found on the page(s). */
+  tables: text("tables"),
+  /** Reference to the stored rendered page image (path or URL) for audit. */
+  pageImagePath: varchar("page_image_path", { length: 512 }),
+  /** "text" | "table" | "figure" | "mixed". */
+  contentType: varchar("content_type", { length: 32 }).notNull().default("text"),
+  isComplete: boolean("is_complete").notNull().default(true),
+});
+
 /** One row per official past paper (or trial paper) you ingest, grouped like rag_textbooks. */
 export const ragPastPapersTable = ragPgSchema.table("rag_past_papers", {
   id: serial("id").primaryKey(),

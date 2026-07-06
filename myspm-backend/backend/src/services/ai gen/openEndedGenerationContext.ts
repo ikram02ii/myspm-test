@@ -1,5 +1,5 @@
 import { randomUUID } from "crypto";
-import type { RetrievedChunk } from "../rag/types";
+import type { RetrievedChunk } from "../ama/types";
 
 type CachedRetrieval = {
   hits: RetrievedChunk[];

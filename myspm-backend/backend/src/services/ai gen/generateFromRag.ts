@@ -6,23 +6,23 @@ import {
   type GenerateRagDiagram,
   type StructuredQuestionDiagram,
 } from "./generateFromRagEnhancements";
-import { fetchConsecutiveTextbookChunks, retrieveChunks } from "../rag/retrieval/retrievalService";
+import { fetchConsecutiveTextbookChunks, retrieveChunks } from "../ama/retrieval/retrievalService";
 import { enrichMathAnswerWithSvg } from "./mathSvg";
-import { analyzeQuestion } from "../rag/grading/questionAnalysisService";
-import { buildEnglishSpeakingPdfContext } from "../rag/speaking/englishSpeakingPdfService";
-import { englishSpeakingPartFromQuery } from "../rag/speaking/englishSpeakingTypes";
+import { analyzeQuestion } from "../ama/grading/questionAnalysisService";
+import { buildEnglishSpeakingPdfContext } from "../ama/speaking/englishSpeakingPdfService";
+import { englishSpeakingPartFromQuery } from "../ama/speaking/englishSpeakingTypes";
 import {
   buildAssessmentCasePackage,
   evidenceUnitsToRubricIdeas,
   saveGeneratedAssessmentCase,
-} from "../rag/grading/v3/assessmentCaseService";
+} from "../ama/grading/v3/assessmentCaseService";
 import {
   buildCandidateChunkPool,
   mergeChunksExcerpt,
   questionDraftContextChunks,
   resolveGroundingChunksForQuestion,
-} from "../rag/grading/v3/groundingChunks";
-import type { RetrievedChunk, RubricIdea, RubricIdeaKind } from "../rag/types";
+} from "../ama/grading/v3/groundingChunks";
+import type { RetrievedChunk, RubricIdea, RubricIdeaKind } from "../ama/types";
 import { getRetrievalContext, storeRetrievalContext } from "./openEndedGenerationContext";
 
 export type GenerateRagInput = {

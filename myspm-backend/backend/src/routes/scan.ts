@@ -2,9 +2,9 @@ import { Router, type IRouter } from "express";
 import multer from "multer";
 import OSS from "ali-oss";
 import { randomUUID } from "node:crypto";
-import { removeQuestionStemFromOcrText } from "../services/rag/ocr/ocrAnswerFilter";
-import { normalizeOcrExtractedText, OCR_EXTRACTION_PROMPT } from "../services/rag/ocr/ocrTextNormalize";
-import { runOcrPostProcessPipeline } from "../services/rag/ocr/ocrPipelineService";
+import { removeQuestionStemFromOcrText } from "../services/ama/ocr/ocrAnswerFilter";
+import { normalizeOcrExtractedText, OCR_EXTRACTION_PROMPT } from "../services/ama/ocr/ocrTextNormalize";
+import { runOcrPostProcessPipeline } from "../services/ama/ocr/ocrPipelineService";
 
 const router: IRouter = Router();
 

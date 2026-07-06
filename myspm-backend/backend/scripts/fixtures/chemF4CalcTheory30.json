@@ -1,0 +1,306 @@
+{
+  "description": "30 Chemistry Form 4 questions: 10 calculation + 20 theory. Used to verify calc evaluator alone vs mixed with theory.",
+  "tests": [
+    {
+      "id": "calc-moles-rtp-full",
+      "kind": "calculation",
+      "label": "Moles at r.t.p. full working",
+      "question": "Calculate the number of moles of gas at room temperature and pressure when the volume is 48 dm³. (3 marks)",
+      "studentAnswer": "n = V/24\nn = 48/24 = 2\n2 mol",
+      "maxScore": 3,
+      "expectedMinScore": 3,
+      "expectedMaxScore": 3
+    },
+    {
+      "id": "calc-moles-rtp-wrong-final",
+      "kind": "calculation",
+      "label": "Moles at r.t.p. wrong final",
+      "question": "Calculate the number of moles of gas at room temperature and pressure when the volume is 48 dm³. (3 marks)",
+      "studentAnswer": "n = V/24\nn = 48/24 = 2\n5 mol",
+      "maxScore": 3,
+      "expectedMinScore": 1,
+      "expectedMaxScore": 2
+    },
+    {
+      "id": "calc-mass-nacl-full",
+      "kind": "calculation",
+      "label": "Mass from moles full",
+      "question": "Calculate the mass of sodium chloride produced when 1 mole of NaCl is formed. [Relative formula mass of NaCl = 58.5] (2 marks)",
+      "studentAnswer": "Mass = n × Mr\nMass = 1 × 58.5 = 58.5 g",
+      "maxScore": 2,
+      "expectedMinScore": 2,
+      "expectedMaxScore": 2
+    },
+    {
+      "id": "calc-mass-nacl-no-formula",
+      "kind": "calculation",
+      "label": "Mass answer only — no formula",
+      "question": "Calculate the mass of sodium chloride when 1 mole of NaCl is formed. [Mr = 58.5] (2 marks)",
+      "studentAnswer": "58.5 g",
+      "maxScore": 2,
+      "expectedMinScore": 1,
+      "expectedMaxScore": 2
+    },
+    {
+      "id": "calc-particles-full",
+      "kind": "calculation",
+      "label": "Avogadro particles",
+      "question": "Calculate the number of particles in 0.5 mol of water. (2 marks)",
+      "studentAnswer": "Number of particles = 0.5 × 6.02 × 10²³ = 3.01 × 10²³ particles",
+      "maxScore": 2,
+      "expectedMinScore": 2,
+      "expectedMaxScore": 2
+    },
+    {
+      "id": "calc-molarity-full",
+      "kind": "calculation",
+      "label": "Molarity calculation",
+      "question": "Calculate the molarity of a solution containing 0.2 mol of sodium hydroxide in 500 cm³ of solution. (2 marks)",
+      "studentAnswer": "M = n/V = 0.2 / 0.5 = 0.4 mol dm⁻³",
+      "maxScore": 2,
+      "expectedMinScore": 2,
+      "expectedMaxScore": 2
+    },
+    {
+      "id": "calc-unit-error",
+      "kind": "calculation",
+      "label": "Correct number wrong unit",
+      "question": "Calculate the number of moles of gas at r.t.p. when the volume is 48 dm³. (1 mark)",
+      "studentAnswer": "2 g",
+      "maxScore": 1,
+      "expectedMinScore": 0,
+      "expectedMaxScore": 0
+    },
+    {
+      "id": "calc-mole-ratio-partial",
+      "kind": "calculation",
+      "label": "Mole ratio partial",
+      "question": "2H₂ + O₂ → 2H₂O. Calculate the number of moles of water formed from 4 mol of hydrogen gas. (2 marks)",
+      "studentAnswer": "Mole ratio H₂:H₂O = 2:2 = 1:1\n4 mol",
+      "maxScore": 2,
+      "expectedMinScore": 0,
+      "expectedMaxScore": 2
+    },
+    {
+      "id": "calc-mr-full",
+      "kind": "calculation",
+      "label": "Relative formula mass",
+      "question": "Calculate the relative formula mass of calcium carbonate, CaCO₃. [Relative atomic mass: Ca = 40, C = 12, O = 16] (2 marks)",
+      "studentAnswer": "Mr = 40 + 12 + (3 × 16) = 100",
+      "maxScore": 2,
+      "expectedMinScore": 2,
+      "expectedMaxScore": 2
+    },
+    {
+      "id": "calc-answer-only-1mk",
+      "kind": "calculation",
+      "label": "1-mark final answer only",
+      "question": "Calculate the number of moles of magnesium in 24 g of magnesium. [Ar of Mg = 24] (1 mark)",
+      "studentAnswer": "1 mol",
+      "maxScore": 1,
+      "expectedMinScore": 1,
+      "expectedMaxScore": 1
+    },
+
+    {
+      "id": "theory-group-period-full",
+      "kind": "theory",
+      "label": "Define group and period",
+      "question": "Define the terms group and period in the Periodic Table.",
+      "studentAnswer": "A group is a vertical column in the Periodic Table while a period is a horizontal row.",
+      "maxScore": 2,
+      "expectedMinScore": 2,
+      "expectedMaxScore": 2
+    },
+    {
+      "id": "theory-group-period-partial",
+      "kind": "theory",
+      "label": "Define group only",
+      "question": "Define the terms group and period in the Periodic Table.",
+      "studentAnswer": "A group is a vertical column.",
+      "maxScore": 2,
+      "expectedMinScore": 1,
+      "expectedMaxScore": 1
+    },
+    {
+      "id": "theory-group-period-wrong",
+      "kind": "theory",
+      "label": "Swapped group/period",
+      "question": "Define the terms group and period in the Periodic Table.",
+      "studentAnswer": "A group is a horizontal row and a period is a vertical column.",
+      "maxScore": 2,
+      "expectedMinScore": 0,
+      "expectedMaxScore": 0
+    },
+    {
+      "id": "theory-group1-properties-full",
+      "kind": "theory",
+      "label": "Group 1 properties full",
+      "question": "State two physical properties of Group 1 elements.",
+      "studentAnswer": "They are soft metals and have low densities.",
+      "maxScore": 2,
+      "expectedMinScore": 2,
+      "expectedMaxScore": 2
+    },
+    {
+      "id": "theory-group1-properties-partial",
+      "kind": "theory",
+      "label": "Group 1 one property",
+      "question": "State two physical properties of Group 1 elements.",
+      "studentAnswer": "They are soft metals.",
+      "maxScore": 2,
+      "expectedMinScore": 1,
+      "expectedMaxScore": 1
+    },
+    {
+      "id": "theory-group1-properties-wrong",
+      "kind": "theory",
+      "label": "Group 1 wrong properties",
+      "question": "State two physical properties of Group 1 elements.",
+      "studentAnswer": "They are hard and brittle.",
+      "maxScore": 2,
+      "expectedMinScore": 0,
+      "expectedMaxScore": 0
+    },
+    {
+      "id": "theory-group1-reactivity-full",
+      "kind": "theory",
+      "label": "Group 1 reactivity trend",
+      "question": "Describe the trend in reactivity of Group 1 elements down the group.",
+      "studentAnswer": "The reactivity increases down Group 1.",
+      "maxScore": 2,
+      "expectedMinScore": 2,
+      "expectedMaxScore": 2
+    },
+    {
+      "id": "theory-group1-reactivity-explain-full",
+      "kind": "theory",
+      "label": "Group 1 reactivity explain",
+      "question": "Explain why the reactivity of Group 1 elements increases down the group.",
+      "studentAnswer": "The atomic size increases down the group. The outermost electron is further from the nucleus and is more easily lost.",
+      "maxScore": 3,
+      "expectedMinScore": 2,
+      "expectedMaxScore": 3
+    },
+    {
+      "id": "theory-group1-reactivity-partial",
+      "kind": "theory",
+      "label": "Group 1 reactivity partial",
+      "question": "Explain why the reactivity of Group 1 elements increases down the group.",
+      "studentAnswer": "The outermost electron is more easily lost.",
+      "maxScore": 3,
+      "expectedMinScore": 1,
+      "expectedMaxScore": 2
+    },
+    {
+      "id": "theory-halogen-trend-full",
+      "kind": "theory",
+      "label": "Halogen reactivity trend",
+      "question": "State the trend in reactivity of halogens down Group 17.",
+      "studentAnswer": "The reactivity decreases down Group 17.",
+      "maxScore": 2,
+      "expectedMinScore": 2,
+      "expectedMaxScore": 2
+    },
+    {
+      "id": "theory-halogen-trend-wrong",
+      "kind": "theory",
+      "label": "Halogen trend wrong",
+      "question": "State the trend in reactivity of halogens down Group 17.",
+      "studentAnswer": "The reactivity increases down Group 17.",
+      "maxScore": 2,
+      "expectedMinScore": 0,
+      "expectedMaxScore": 0
+    },
+    {
+      "id": "theory-halogen-explain-full",
+      "kind": "theory",
+      "label": "Halogen reactivity explain",
+      "question": "Explain why the reactivity of halogens decreases down Group 17.",
+      "studentAnswer": "Atomic size increases down the group. The attraction between the nucleus and incoming electron becomes weaker, making it harder to gain an electron.",
+      "maxScore": 3,
+      "expectedMinScore": 2,
+      "expectedMaxScore": 3
+    },
+    {
+      "id": "theory-halogen-explain-partial",
+      "kind": "theory",
+      "label": "Halogen explain partial",
+      "question": "Explain why the reactivity of halogens decreases down Group 17.",
+      "studentAnswer": "It becomes harder to gain an electron.",
+      "maxScore": 3,
+      "expectedMinScore": 1,
+      "expectedMaxScore": 2
+    },
+    {
+      "id": "theory-noble-gas-full",
+      "kind": "theory",
+      "label": "Noble gas unreactive",
+      "question": "Explain why noble gases are chemically unreactive.",
+      "studentAnswer": "Noble gases have a stable electron arrangement with a complete outermost shell.",
+      "maxScore": 2,
+      "expectedMinScore": 2,
+      "expectedMaxScore": 2
+    },
+    {
+      "id": "theory-noble-gas-partial",
+      "kind": "theory",
+      "label": "Noble gas partial",
+      "question": "Explain why noble gases are chemically unreactive.",
+      "studentAnswer": "They have a stable electron arrangement.",
+      "maxScore": 2,
+      "expectedMinScore": 1,
+      "expectedMaxScore": 2
+    },
+    {
+      "id": "theory-noble-gas-wrong",
+      "kind": "theory",
+      "label": "Noble gas wrong",
+      "question": "Explain why noble gases are chemically unreactive.",
+      "studentAnswer": "They easily lose electrons.",
+      "maxScore": 2,
+      "expectedMinScore": 0,
+      "expectedMaxScore": 0
+    },
+    {
+      "id": "theory-rate-temp-full",
+      "kind": "theory",
+      "label": "Rate vs temperature",
+      "question": "Explain why the rate of reaction increases when temperature increases. (3 marks)",
+      "studentAnswer": "Particles move faster and collide more often. More particles have enough energy to overcome activation energy.",
+      "maxScore": 3,
+      "expectedMinScore": 2,
+      "expectedMaxScore": 3
+    },
+    {
+      "id": "theory-rate-surface-area-full",
+      "kind": "theory",
+      "label": "Rate vs surface area",
+      "question": "Explain why powdered calcium carbonate reacts faster than marble chips with hydrochloric acid. (3 marks)",
+      "studentAnswer": "Powdered calcium carbonate has a larger surface area. More particles are exposed to the acid, so there are more frequent collisions.",
+      "maxScore": 3,
+      "expectedMinScore": 2,
+      "expectedMaxScore": 3
+    },
+    {
+      "id": "theory-chlorine-displacement-full",
+      "kind": "theory",
+      "label": "Halogen displacement",
+      "question": "Explain why chlorine can displace bromine from a bromide solution.",
+      "studentAnswer": "Chlorine is more reactive than bromine, so it displaces bromine from its compound.",
+      "maxScore": 2,
+      "expectedMinScore": 2,
+      "expectedMaxScore": 2
+    },
+    {
+      "id": "theory-chlorine-displacement-partial",
+      "kind": "theory",
+      "label": "Halogen displacement partial",
+      "question": "Explain why chlorine can displace bromine from a bromide solution.",
+      "studentAnswer": "Chlorine is more reactive.",
+      "maxScore": 2,
+      "expectedMinScore": 1,
+      "expectedMaxScore": 1
+    }
+  ]
+}

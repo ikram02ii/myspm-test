@@ -42,7 +42,15 @@ export async function transcribeSpeakingAudio(uri: string): Promise<SpeakingTran
   if (Platform.OS === "web") {
     const response = await fetch(uri);
     const blob = await response.blob();
-    form.append("audio", blob, name);
+    const mime = blob.type || type;
+    const ext = mime.includes("webm")
+      ? "webm"
+      : mime.includes("wav")
+        ? "wav"
+        : mime.includes("mpeg") || mime.includes("mp3")
+          ? "mp3"
+          : "m4a";
+    form.append("audio", blob, `speaking-${Date.now()}.${ext}`);
   } else {
     form.append("audio", { uri, name, type } as unknown as Blob);
   }

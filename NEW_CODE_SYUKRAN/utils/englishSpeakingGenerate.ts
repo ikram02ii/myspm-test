@@ -247,6 +247,7 @@ export function parseEnglishSpeakingAnswer(
       correctAnswer: "",
       explanation: explanation || null,
       questionForGrade: storedText.replace(/\s+/g, " ").trim() || storedText,
+      maxMarks: part === "part1" || part === "part3" ? 10 : undefined,
     };
   });
 }

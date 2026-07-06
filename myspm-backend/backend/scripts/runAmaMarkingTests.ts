@@ -80,7 +80,7 @@ function printBreakdown(markBreakdown: unknown): void {
 }
 
 async function gradeViaService(t: AmaTestCase) {
-  const { gradeSubmission } = await import("../src/services/rag/grading/gradeService");
+  const { gradeSubmission } = await import("../src/services/ama/grading/gradeService");
   return gradeSubmission({
     question: t.question,
     studentAnswer: t.studentAnswer,
@@ -116,7 +116,7 @@ async function gradeViaHttp(t: AmaTestCase, baseUrl: string) {
 
 async function main(): Promise<void> {
   const { filterId, useHttp, baseUrl } = parseArgs(process.argv.slice(2));
-  const bankPath = join(__dirname, "amaMarkingTests.json");
+  const bankPath = join(__dirname, "fixtures/amaMarkingTests.json");
   const bank = JSON.parse(readFileSync(bankPath, "utf8")) as TestBank;
 
   let tests = bank.tests;

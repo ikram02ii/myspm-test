@@ -60,6 +60,71 @@ export async function ensureRagSchema(): Promise<void> {
       ADD COLUMN IF NOT EXISTS is_complete BOOLEAN NOT NULL DEFAULT TRUE;
   `);
 
+  // Vision-language (VL) textbook ingestion tables.
+  await ragPool.query(`
+    CREATE TABLE IF NOT EXISTS ${t("rag_tb")} (
+      id SERIAL PRIMARY KEY,
+      tb_id VARCHAR(64) NOT NULL UNIQUE,
+      subject VARCHAR(120) NOT NULL,
+      form VARCHAR(50) NOT NULL,
+      title VARCHAR(255) NOT NULL,
+      source_name VARCHAR(255),
+      ingest_method VARCHAR(32) NOT NULL DEFAULT 'vision',
+      vision_model VARCHAR(64),
+      total_pages INTEGER,
+      language VARCHAR(32),
+      created_by_user_id INTEGER,
+      uploaded_at TIMESTAMP NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  await ragPool.query(`
+    CREATE TABLE IF NOT EXISTS ${t("rag_tb_chunks")} (
+      id SERIAL PRIMARY KEY,
+      tb_db_id INTEGER NOT NULL REFERENCES ${t("rag_tb")}(id) ON DELETE CASCADE,
+      chunk_id VARCHAR(64) NOT NULL,
+      chunk_index INTEGER NOT NULL,
+      chapter_no INTEGER,
+      chapter VARCHAR(512),
+      concept_title VARCHAR(255),
+      concept_summary TEXT,
+      keywords TEXT,
+      page_start INTEGER,
+      page_end INTEGER,
+      content TEXT NOT NULL,
+      has_figure BOOLEAN NOT NULL DEFAULT FALSE,
+      figures TEXT,
+      tables TEXT,
+      page_image_path VARCHAR(512),
+      content_type VARCHAR(32) NOT NULL DEFAULT 'text',
+      is_complete BOOLEAN NOT NULL DEFAULT TRUE
+    );
+  `);
+
+  await ragPool.query(`
+    CREATE INDEX IF NOT EXISTS idx_rag_tb_subject_form
+      ON ${t("rag_tb")} (subject, form);
+  `);
+
+  await ragPool.query(`
+    CREATE INDEX IF NOT EXISTS idx_rag_tb_chunks_tb_id
+      ON ${t("rag_tb_chunks")} (tb_db_id);
+  `);
+
+  await ragPool.query(`
+    CREATE INDEX IF NOT EXISTS idx_rag_tb_chunks_chapter_no
+      ON ${t("rag_tb_chunks")} (tb_db_id, chapter_no);
+  `);
+
+  await ragPool.query(`
+    CREATE INDEX IF NOT EXISTS idx_rag_tb_chunks_concept_title
+      ON ${t("rag_tb_chunks")} (concept_title);
+  `);
+
+  await ragPool.query(`
+    ALTER TABLE ${t("rag_tb_chunks")} DROP COLUMN IF EXISTS section;
+  `);
+
   await ragPool.query(`
     CREATE TABLE IF NOT EXISTS ${t("rag_grading_results")} (
       id SERIAL PRIMARY KEY,

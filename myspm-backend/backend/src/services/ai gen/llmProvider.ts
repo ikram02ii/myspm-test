@@ -1,4 +1,4 @@
-import { embedTexts as embedTextsViaQwen } from "../rag/retrieval/embeddingsService";
+import { embedTexts as embedTextsViaQwen } from "../ama/retrieval/embeddingsService";
 
 type ChatMessage = {
   role: "system" | "user" | "assistant";
@@ -18,18 +18,17 @@ function isAccessDeniedError(message: string): boolean {
   );
 }
 
-export type LlmProvider = "auto" | "dashscope" | "gemini";
+export type LlmProvider = "auto" | "dashscope";
 
 function normalizeProvider(v: string | undefined): LlmProvider {
   const raw = (v ?? "auto").trim().toLowerCase();
-  if (raw === "dashscope" || raw === "gemini" || raw === "auto") return raw;
+  if (raw === "dashscope" || raw === "auto") return raw;
   return "auto";
 }
 
-export function resolveLlmProvider(): Exclude<LlmProvider, "auto"> {
+export function resolveLlmProvider(): "dashscope" {
   const configured = normalizeProvider(process.env.RAG_LLM_PROVIDER);
-  if (configured === "dashscope" || configured === "gemini") return configured;
-  if ((process.env.GEMINI_API_KEY?.trim() ?? "").length > 0) return "gemini";
+  if (configured === "dashscope") return configured;
   return "dashscope";
 }
 

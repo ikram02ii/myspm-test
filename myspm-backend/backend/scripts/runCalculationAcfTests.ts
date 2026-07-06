@@ -7,6 +7,7 @@ import { test, describe } from "node:test";
 import {
   buildCalculationTemplate,
   CALCULATION_STAGE_LABELS,
+  GENERIC_CALCULATION_STAGE_LABELS,
   finalizeCalculationAssessmentCase,
   inferCalculationPolicy,
   isProseDefinitionUnit,
@@ -16,9 +17,9 @@ import {
   sumCreditWeights,
   validateAcfTopology,
   validateCalculationAcf,
-} from "../src/services/rag/grading/v3/calculationAcfPolicy.js";
-import { scoreFromDemonstration } from "../src/services/rag/grading/v3/scoreFromDemonstration.js";
-import type { AssessmentCaseFile, AssessmentIntent, EvidenceRelation, EvidenceUnit } from "../src/services/rag/grading/v3/types.js";
+} from "../src/services/ama/grading/v3/calculationAcfPolicy.js";
+import { scoreFromDemonstration } from "../src/services/ama/grading/v3/scoreFromDemonstration.js";
+import type { AssessmentCaseFile, AssessmentIntent, EvidenceRelation, EvidenceUnit } from "../src/services/ama/grading/v3/types.js";
 
 function calcIntent(): AssessmentIntent {
   return {
@@ -105,17 +106,22 @@ describe("calculation ACF policy", () => {
     });
   }
 
-  test("physics 2-mark without show working uses answer_only (generic rules)", () => {
+  test("physics 2-mark uses show_working with formula + final stages", () => {
     const q = "Calculate the velocity of the object. (2 marks)";
-    assert.equal(inferCalculationPolicy(q, 2, "Physics"), "answer_only");
+    assert.equal(inferCalculationPolicy(q, 2, "Physics"), "show_working");
     const template = buildCalculationTemplate({
       question: q,
       maxScore: 2,
-      policy: "answer_only",
+      policy: "show_working",
       subject: "Physics",
     });
     assert.equal(template.markRule.calcDomain, "general");
-    assert.equal(template.units.filter((u) => u.creditWeight > 0).length, 1);
+    assert.equal(template.markRule.calcPolicy, "show_working");
+    const credit = template.units.filter((u) => u.creditWeight > 0);
+    assert.equal(credit.length, 2);
+    assert.equal(credit[0]?.id, "calc_s1");
+    assert.equal(credit[0]?.content, GENERIC_CALCULATION_STAGE_LABELS.formula);
+    assert.equal(credit[1]?.content, GENERIC_CALCULATION_STAGE_LABELS.final);
   });
 
   test("normalizes bad LLM-like calculation ACF (3 weights / 2 marks + prose gate)", () => {
@@ -162,13 +168,65 @@ describe("calculation ACF policy", () => {
     assert.equal(validateCalculationAcf(finalized).length, 0);
   });
 
+  test("replaces LLM fact-shaped credit units (u1/u2) with calc_s template", () => {
+    const llmUnits: EvidenceUnit[] = [
+      {
+        id: "u1",
+        type: "fact",
+        content: "Relative formula mass of NaCl = 58.5 g/mol",
+        aliases: [],
+        creditWeight: 1,
+        required: true,
+      },
+      {
+        id: "u2",
+        type: "fact",
+        content: "Mass of NaCl = 58.5 g",
+        aliases: [],
+        creditWeight: 1,
+        required: true,
+      },
+    ];
+
+    const normalized = normalizeCalculationAcf({
+      question: "Calculate the mass of NaCl when 1 mole is formed. (2 marks)",
+      maxScore: 2,
+      subject: "Chemistry",
+      units: llmUnits,
+      relations: [],
+      markRule: { kind: "ordered_stages", maxMarks: 2, openPool: false, calcPolicy: "show_working" },
+    });
+
+    const credit = normalized.units.filter((u) => u.creditWeight > 0);
+    assert.equal(credit.length, 2);
+    assert.equal(credit[0]?.id, "calc_s1");
+    assert.equal(credit[1]?.id, "calc_s2");
+    assert.equal(credit[0]?.content, CALCULATION_STAGE_LABELS.formula);
+    assert.equal(credit[1]?.content, CALCULATION_STAGE_LABELS.final);
+  });
+
   test("relation direction fixed when supports present", () => {
     const units: EvidenceUnit[] = [
-      { id: "a", type: "stage", content: "Method", aliases: [], creditWeight: 1, required: true },
-      { id: "b", type: "stage", content: "Answer", aliases: [], creditWeight: 1, required: false, supports: ["a"] },
+      {
+        id: "calc_s1",
+        type: "stage",
+        content: CALCULATION_STAGE_LABELS.formula,
+        aliases: [],
+        creditWeight: 1,
+        required: true,
+      },
+      {
+        id: "calc_s2",
+        type: "stage",
+        content: CALCULATION_STAGE_LABELS.final,
+        aliases: [],
+        creditWeight: 1,
+        required: false,
+        supports: ["calc_s1"],
+      },
     ];
     const relations: EvidenceRelation[] = [
-      { id: "r1", type: "sequence_next", from: "b", to: "a", requiredForMarks: true },
+      { id: "r1", type: "sequence_next", from: "calc_s2", to: "calc_s1", requiredForMarks: true },
     ];
 
     const normalized = normalizeCalculationAcf({
@@ -181,10 +239,15 @@ describe("calculation ACF policy", () => {
     });
 
     const issues = validateAcfTopology(
-      baseAcf({ question: "Calculate X. Show your working. (2 marks)", units: normalized.units, relations: normalized.relations, markRule: normalized.markRule }),
+      baseAcf({
+        question: "Calculate X. Show your working. (2 marks)",
+        units: normalized.units,
+        relations: normalized.relations,
+        markRule: normalized.markRule,
+      }),
     );
     assert.equal(issues.filter((i) => i.code === "relation_direction_inverted").length, 0);
-    assert.ok(normalized.relations.some((r) => r.from === "a" && r.to === "b"));
+    assert.ok(normalized.relations.some((r) => r.from === "calc_s1" && r.to === "calc_s2"));
   });
 
   test("answer-only scoring: 1-mark final answer alone earns full marks", () => {

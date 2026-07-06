@@ -1,0 +1,552 @@
+{
+  "generatedAt": "2026-07-03T07:23:56.554Z",
+  "subject": "Physics",
+  "form": "Form 4",
+  "results": [
+    {
+      "id": "phy-speed-full-1mk",
+      "label": "Speed basic",
+      "score": 1,
+      "maxScore": 1,
+      "pass": true,
+      "intentFamily": "calculation",
+      "markRule": "count_distinct_units",
+      "calcPolicy": "answer_only",
+      "calcRoute": true,
+      "errs": [],
+      "matchedIdeas": [
+        "Correct final answer with appropriate units"
+      ],
+      "missingIdeas": []
+    },
+    {
+      "id": "phy-speed-wrong-1mk",
+      "label": "Speed wrong value",
+      "score": 0,
+      "maxScore": 1,
+      "pass": true,
+      "intentFamily": "calculation",
+      "markRule": "count_distinct_units",
+      "calcPolicy": "answer_only",
+      "calcRoute": true,
+      "errs": [],
+      "matchedIdeas": [],
+      "missingIdeas": [
+        "Correct final answer with appropriate units"
+      ]
+    },
+    {
+      "id": "phy-acceleration-full-3mk",
+      "label": "Acceleration v=u+at full",
+      "score": 2,
+      "maxScore": 3,
+      "pass": true,
+      "intentFamily": "calculation",
+      "markRule": "ordered_stages",
+      "calcPolicy": "show_working",
+      "calcRoute": true,
+      "errs": [],
+      "matchedIdeas": [
+        "Correct method or approach",
+        "Correct working"
+      ],
+      "missingIdeas": [
+        "Correct final answer with appropriate units"
+      ]
+    },
+    {
+      "id": "phy-acceleration-wrong-final",
+      "label": "Acceleration wrong final",
+      "score": 2,
+      "maxScore": 3,
+      "pass": true,
+      "intentFamily": "calculation",
+      "markRule": "ordered_stages",
+      "calcPolicy": "show_working",
+      "calcRoute": true,
+      "errs": [],
+      "matchedIdeas": [
+        "Correct formula or equation",
+        "Correct substitution/working"
+      ],
+      "missingIdeas": [
+        "Correct final answer with appropriate units"
+      ]
+    },
+    {
+      "id": "phy-force-full-2mk",
+      "label": "F=ma full",
+      "score": 1,
+      "maxScore": 2,
+      "pass": false,
+      "intentFamily": "calculation",
+      "markRule": "ordered_stages",
+      "calcPolicy": "show_working",
+      "calcRoute": true,
+      "errs": [
+        "score 1 < min 2"
+      ],
+      "matchedIdeas": [
+        "Correct formula or equation"
+      ],
+      "missingIdeas": [
+        "Correct final answer with appropriate units"
+      ]
+    },
+    {
+      "id": "phy-force-answer-only",
+      "label": "F=ma final only",
+      "score": 0,
+      "maxScore": 2,
+      "pass": false,
+      "intentFamily": "calculation",
+      "markRule": "ordered_stages",
+      "calcPolicy": "show_working",
+      "calcRoute": true,
+      "errs": [
+        "score 0 < min 1"
+      ],
+      "matchedIdeas": [],
+      "missingIdeas": [
+        "Correct formula or equation",
+        "Correct final answer with appropriate units"
+      ]
+    },
+    {
+      "id": "phy-weight-full-2mk",
+      "label": "Weight W=mg",
+      "score": 1,
+      "maxScore": 2,
+      "pass": false,
+      "intentFamily": "calculation",
+      "markRule": "ordered_stages",
+      "calcPolicy": "show_working",
+      "calcRoute": true,
+      "errs": [
+        "score 1 < min 2"
+      ],
+      "matchedIdeas": [
+        "Correct formula or equation"
+      ],
+      "missingIdeas": [
+        "Correct final answer with appropriate units"
+      ]
+    },
+    {
+      "id": "phy-pressure-full-2mk",
+      "label": "Pressure P=F/A",
+      "score": 1,
+      "maxScore": 2,
+      "pass": false,
+      "intentFamily": "calculation",
+      "markRule": "ordered_stages",
+      "calcPolicy": "show_working",
+      "calcRoute": true,
+      "errs": [
+        "score 1 < min 2"
+      ],
+      "matchedIdeas": [
+        "Correct formula or equation"
+      ],
+      "missingIdeas": [
+        "Correct final answer with appropriate units"
+      ]
+    },
+    {
+      "id": "phy-work-full-2mk",
+      "label": "Work W=Fs",
+      "score": 1,
+      "maxScore": 2,
+      "pass": false,
+      "intentFamily": "calculation",
+      "markRule": "ordered_stages",
+      "calcPolicy": "show_working",
+      "calcRoute": true,
+      "errs": [
+        "score 1 < min 2"
+      ],
+      "matchedIdeas": [
+        "Correct formula or equation"
+      ],
+      "missingIdeas": [
+        "Correct final answer with appropriate units"
+      ]
+    },
+    {
+      "id": "phy-power-full-2mk",
+      "label": "Power P=W/t",
+      "score": 1,
+      "maxScore": 2,
+      "pass": false,
+      "intentFamily": "calculation",
+      "markRule": "ordered_stages",
+      "calcPolicy": "show_working",
+      "calcRoute": true,
+      "errs": [
+        "score 1 < min 2"
+      ],
+      "matchedIdeas": [
+        "Correct formula or equation"
+      ],
+      "missingIdeas": [
+        "Correct final answer with appropriate units"
+      ]
+    },
+    {
+      "id": "phy-density-full-2mk",
+      "label": "Density ρ=m/V",
+      "score": -1,
+      "maxScore": 2,
+      "pass": false,
+      "errs": [
+        "Unexpected non-whitespace character after JSON at position 324"
+      ],
+      "matchedIdeas": [],
+      "missingIdeas": []
+    },
+    {
+      "id": "phy-ohms-full-2mk",
+      "label": "Ohm's law full",
+      "score": 1,
+      "maxScore": 2,
+      "pass": false,
+      "intentFamily": "calculation",
+      "markRule": "ordered_stages",
+      "calcPolicy": "show_working",
+      "calcRoute": true,
+      "errs": [
+        "score 1 < min 2"
+      ],
+      "matchedIdeas": [
+        "Correct formula or equation"
+      ],
+      "missingIdeas": [
+        "Correct final answer with appropriate units"
+      ]
+    },
+    {
+      "id": "phy-ohms-wrong-unit",
+      "label": "Current wrong unit",
+      "score": 0,
+      "maxScore": 1,
+      "pass": true,
+      "intentFamily": "calculation",
+      "markRule": "count_distinct_units",
+      "calcPolicy": "answer_only",
+      "calcRoute": true,
+      "errs": [],
+      "matchedIdeas": [],
+      "missingIdeas": [
+        "Correct final answer with appropriate units"
+      ]
+    },
+    {
+      "id": "phy-heat-full-3mk",
+      "label": "Heat Q=mcθ",
+      "score": 2,
+      "maxScore": 3,
+      "pass": true,
+      "intentFamily": "calculation",
+      "markRule": "ordered_stages",
+      "calcPolicy": "show_working",
+      "calcRoute": true,
+      "errs": [],
+      "matchedIdeas": [
+        "Correct method or approach",
+        "Correct working"
+      ],
+      "missingIdeas": [
+        "Correct final answer with appropriate units"
+      ]
+    },
+    {
+      "id": "phy-ke-full-2mk",
+      "label": "Kinetic energy",
+      "score": 1,
+      "maxScore": 2,
+      "pass": false,
+      "intentFamily": "calculation",
+      "markRule": "ordered_stages",
+      "calcPolicy": "show_working",
+      "calcRoute": true,
+      "errs": [
+        "score 1 < min 2"
+      ],
+      "matchedIdeas": [
+        "Correct formula or equation"
+      ],
+      "missingIdeas": [
+        "Correct final answer with appropriate units"
+      ]
+    },
+    {
+      "id": "phy-pe-full-2mk",
+      "label": "Gravitational PE",
+      "score": 1,
+      "maxScore": 2,
+      "pass": false,
+      "intentFamily": "calculation",
+      "markRule": "ordered_stages",
+      "calcPolicy": "show_working",
+      "calcRoute": true,
+      "errs": [
+        "score 1 < min 2"
+      ],
+      "matchedIdeas": [
+        "Correct formula or equation"
+      ],
+      "missingIdeas": [
+        "Correct final answer with appropriate units"
+      ]
+    },
+    {
+      "id": "phy-momentum-full-2mk",
+      "label": "Momentum p=mv",
+      "score": 1,
+      "maxScore": 2,
+      "pass": false,
+      "intentFamily": "calculation",
+      "markRule": "ordered_stages",
+      "calcPolicy": "show_working",
+      "calcRoute": true,
+      "errs": [
+        "score 1 < min 2"
+      ],
+      "matchedIdeas": [
+        "Correct formula or equation"
+      ],
+      "missingIdeas": [
+        "Correct final answer with appropriate units"
+      ]
+    },
+    {
+      "id": "phy-resistance-full-2mk",
+      "label": "Resistance R=V/I",
+      "score": 1,
+      "maxScore": 2,
+      "pass": false,
+      "intentFamily": "calculation",
+      "markRule": "ordered_stages",
+      "calcPolicy": "show_working",
+      "calcRoute": true,
+      "errs": [
+        "score 1 < min 2"
+      ],
+      "matchedIdeas": [
+        "Correct formula or equation"
+      ],
+      "missingIdeas": [
+        "Correct final answer with appropriate units"
+      ]
+    },
+    {
+      "id": "phy-speed-partial",
+      "label": "Speed partial",
+      "score": 0,
+      "maxScore": 2,
+      "pass": false,
+      "intentFamily": "calculation",
+      "markRule": "ordered_stages",
+      "calcPolicy": "show_working",
+      "calcRoute": true,
+      "errs": [
+        "score 0 < min 1"
+      ],
+      "matchedIdeas": [],
+      "missingIdeas": [
+        "Correct formula or equation",
+        "Correct final answer with appropriate units"
+      ]
+    },
+    {
+      "id": "phy-force-wrong",
+      "label": "Force completely wrong",
+      "score": 0,
+      "maxScore": 2,
+      "pass": true,
+      "intentFamily": "calculation",
+      "markRule": "ordered_stages",
+      "calcPolicy": "show_working",
+      "calcRoute": true,
+      "errs": [],
+      "matchedIdeas": [],
+      "missingIdeas": [
+        "Correct formula or equation",
+        "Correct final answer with appropriate units"
+      ]
+    },
+    {
+      "id": "phy-voltage-1mk",
+      "label": "Voltage 1 mark",
+      "score": 0,
+      "maxScore": 1,
+      "pass": false,
+      "intentFamily": "calculation",
+      "markRule": "count_distinct_units",
+      "calcPolicy": "answer_only",
+      "calcRoute": true,
+      "errs": [
+        "score 0 < min 1"
+      ],
+      "matchedIdeas": [],
+      "missingIdeas": [
+        "Correct final answer with appropriate units"
+      ]
+    },
+    {
+      "id": "phy-density-answer-only",
+      "label": "Density final only",
+      "score": 0,
+      "maxScore": 2,
+      "pass": false,
+      "intentFamily": "calculation",
+      "markRule": "ordered_stages",
+      "calcPolicy": "show_working",
+      "calcRoute": true,
+      "errs": [
+        "score 0 < min 1"
+      ],
+      "matchedIdeas": [],
+      "missingIdeas": [
+        "Correct formula or equation",
+        "Correct final answer with appropriate units"
+      ]
+    },
+    {
+      "id": "phy-power-partial",
+      "label": "Power partial working",
+      "score": -1,
+      "maxScore": 2,
+      "pass": false,
+      "errs": [
+        "Unexpected non-whitespace character after JSON at position 428"
+      ],
+      "matchedIdeas": [],
+      "missingIdeas": []
+    },
+    {
+      "id": "phy-weight-wrong-g",
+      "label": "Weight used wrong g",
+      "score": 0,
+      "maxScore": 2,
+      "pass": true,
+      "intentFamily": "calculation",
+      "markRule": "ordered_stages",
+      "calcPolicy": "show_working",
+      "calcRoute": true,
+      "errs": [],
+      "matchedIdeas": [],
+      "missingIdeas": [
+        "Correct formula or equation",
+        "Correct final answer with appropriate units"
+      ]
+    },
+    {
+      "id": "phy-ke-wrong",
+      "label": "KE forgot half",
+      "score": -1,
+      "maxScore": 2,
+      "pass": false,
+      "errs": [
+        "Unexpected non-whitespace character after JSON at position 390"
+      ],
+      "matchedIdeas": [],
+      "missingIdeas": []
+    },
+    {
+      "id": "phy-wave-full-2mk",
+      "label": "Wave v=fλ",
+      "score": 1,
+      "maxScore": 2,
+      "pass": false,
+      "intentFamily": "calculation",
+      "markRule": "ordered_stages",
+      "calcPolicy": "show_working",
+      "calcRoute": true,
+      "errs": [
+        "score 1 < min 2"
+      ],
+      "matchedIdeas": [
+        "Correct formula or equation"
+      ],
+      "missingIdeas": [
+        "Correct final answer with appropriate units"
+      ]
+    },
+    {
+      "id": "phy-efficiency-full-2mk",
+      "label": "Efficiency",
+      "score": 1,
+      "maxScore": 2,
+      "pass": true,
+      "intentFamily": "calculation",
+      "markRule": "ordered_stages",
+      "calcPolicy": "show_working",
+      "calcRoute": true,
+      "errs": [],
+      "matchedIdeas": [
+        "Correct formula or equation"
+      ],
+      "missingIdeas": [
+        "Correct final answer with appropriate units"
+      ]
+    },
+    {
+      "id": "phy-pressure-partial",
+      "label": "Pressure answer only",
+      "score": 0,
+      "maxScore": 2,
+      "pass": false,
+      "intentFamily": "calculation",
+      "markRule": "ordered_stages",
+      "calcPolicy": "show_working",
+      "calcRoute": true,
+      "errs": [
+        "score 0 < min 1"
+      ],
+      "matchedIdeas": [],
+      "missingIdeas": [
+        "Correct formula or equation",
+        "Correct final answer with appropriate units"
+      ]
+    },
+    {
+      "id": "phy-ohms-3mk-working",
+      "label": "Ohm 3 mark show working",
+      "score": 2,
+      "maxScore": 3,
+      "pass": true,
+      "intentFamily": "calculation",
+      "markRule": "ordered_stages",
+      "calcPolicy": "show_working",
+      "calcRoute": true,
+      "errs": [],
+      "matchedIdeas": [
+        "Correct method or approach",
+        "Correct working"
+      ],
+      "missingIdeas": [
+        "Correct final answer with appropriate units"
+      ]
+    },
+    {
+      "id": "phy-displacement-speed",
+      "label": "Average speed from total distance",
+      "score": 0,
+      "maxScore": 2,
+      "pass": false,
+      "intentFamily": "calculation",
+      "markRule": "ordered_stages",
+      "calcPolicy": "show_working",
+      "calcRoute": true,
+      "errs": [
+        "score 0 < min 1"
+      ],
+      "matchedIdeas": [],
+      "missingIdeas": [
+        "Correct formula or equation",
+        "Correct final answer with appropriate units"
+      ]
+    }
+  ]
+}

@@ -1,17 +1,17 @@
 import { Router, type IRouter, type Request, type RequestHandler, type Response } from "express";
 import multer from "multer";
 import { authMiddleware, type AuthRequest } from "../middlewares/auth";
-import { extractTextFromPdfBuffer } from "../services/rag/ingestion/pdfTextExtract";
-import { gradeSubmission } from "../services/rag/grading/gradeService";
-import { buildGradingContextPayload, retrieveChunks } from "../services/rag/retrieval/retrievalService";
-import { listTextbooks, registerTextbook } from "../services/rag/ingestion/textbookService";
+import { extractTextFromPdfBuffer } from "../services/ama/ingestion/pdfTextExtract";
+import { gradeSubmission } from "../services/ama/grading/gradeService";
+import { buildGradingContextPayload, retrieveChunks } from "../services/ama/retrieval/retrievalService";
+import { listTextbooks, registerTextbook } from "../services/ama/ingestion/textbookService";
 import { generateOpenEndedQuestionStep, generateWithRag } from "../services/ai gen/generateFromRag";
 import { runGenerateFromUpload } from "../services/ai gen/generateFromUpload";
 import { ingestMarkSchemeImage } from "../services/ai gen/markSchemeImageIngest";
-import { listTextbookChaptersForSubjectForm } from "../services/rag/ingestion/textbookChaptersService";
-import { createRubricsFromTextbookChunks } from "../services/rag/grading/v3/textbookChunkAssessmentService";
-import { gradeSpeakingPhase } from "../services/rag/speaking/speakingGradeService";
-import { transcribeSpeakingAudio } from "../services/rag/speaking/speakingTranscribeService";
+import { listTextbookChaptersForSubjectForm } from "../services/ama/ingestion/textbookChaptersService";
+import { createRubricsFromTextbookChunks } from "../services/ama/grading/v3/textbookChunkAssessmentService";
+import { gradeSpeakingPhase } from "../services/ama/speaking/speakingGradeService";
+import { transcribeSpeakingAudio } from "../services/ama/speaking/speakingTranscribeService";
 
 const router: IRouter = Router();
 const disableRagAuth = process.env["DISABLE_RAG_AUTH"] === "true";
