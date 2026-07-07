@@ -1,5 +1,9 @@
 import { ragApiPost } from "./ragApi";
-import type { PracticeSetQuestion } from "./mobilePracticeSets";
+import {
+  normalizeRagSourcesFromApi,
+  type PracticeSetQuestion,
+  type RagSourceAttribution,
+} from "./mobilePracticeSets";
 
 export type OpenEndedStepApiQuestion = {
   id?: number;
@@ -13,6 +17,8 @@ export type OpenEndedStepApiQuestion = {
   rubricId?: string;
   modelAnswer?: string;
   rubricIdeas?: PracticeSetQuestion["rubricIdeas"];
+  sources?: RagSourceAttribution[];
+  sourceLabel?: string;
 };
 
 export type OpenEndedStepResponse = {
@@ -20,6 +26,8 @@ export type OpenEndedStepResponse = {
   generationContextId: string;
   questionIndex: number;
   totalQuestions: number;
+  sources?: RagSourceAttribution[];
+  sourceLabel?: string;
 };
 
 export type OpenEndedGenerationRequest = {
@@ -41,7 +49,16 @@ export type OpenEndedBackgroundJob = OpenEndedGenerationRequest & {
 export function mapOpenEndedStepToPracticeQuestion(
   item: OpenEndedStepApiQuestion,
   sortOrder: number,
+  stepMeta?: { sources?: unknown; sourceLabel?: string },
 ): PracticeSetQuestion {
+  const sourcesFromItem = normalizeRagSourcesFromApi(item.sources);
+  const sourcesFromStep = normalizeRagSourcesFromApi(stepMeta?.sources);
+  const sources = sourcesFromItem.length > 0 ? sourcesFromItem : sourcesFromStep;
+  const sourceLabel =
+    item.sourceLabel?.trim() ||
+    stepMeta?.sourceLabel?.trim() ||
+    sources[0]?.label?.trim() ||
+    "";
   return {
     id: typeof item.id === "number" ? item.id : sortOrder,
     sortOrder: typeof item.sortOrder === "number" ? item.sortOrder : sortOrder,
@@ -56,6 +73,8 @@ export function mapOpenEndedStepToPracticeQuestion(
     rubricId: typeof item.rubricId === "string" ? item.rubricId : undefined,
     modelAnswer: typeof item.modelAnswer === "string" ? item.modelAnswer : undefined,
     rubricIdeas: Array.isArray(item.rubricIdeas) ? item.rubricIdeas : undefined,
+    sources,
+    sourceLabel: sourceLabel || undefined,
   };
 }
 

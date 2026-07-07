@@ -4,39 +4,77 @@ import {
   isScienceDiagramSubject,
   shouldGenerateEducationalDiagrams,
 } from "./educationalDiagramService";
+import { finalizeGeneratedAnswer } from "./generateFromRagEnhancements";
 import type { StructuredQuestionDiagram } from "./structuredDiagramPlanner";
+import {
+  chunksToGenerationSources,
+  formatSourcesSummary,
+  type RagGenerationSource,
+} from "../rag/retrieval/ragSourceAttribution";
 import {
   buildPastPaperMarksGuidance,
   isMcqGenerationQuery,
   isSubjectiveGenerationQuery,
-} from "../rag/pastPaperMarksHints";
-import { retrieveChunks } from "../rag/retrievalService";
+} from "../rag/retrieval/pastPaperMarksHints";
+import { retrieveChunks } from "../rag/retrieval/retrievalService";
 import type { RetrievedChunk } from "../rag/types";
 import { enrichMathAnswerWithSvg } from "./mathSvg";
+import { generateQuestionFromRagContext } from "./ragQuestionGenerator";
+import {
+  isValidatedDiagramPipelineEnabled,
+  runValidatedDiagramGenerationPipeline,
+} from "./validatedDiagramGenerationPipeline";
 
 export type GenerateRagInput = {
   /** Natural language: topic + what to generate (BM/EN). */
   query: string;
   subject?: string | null;
+  form?: string | null;
+  chapterHint?: string | null;
+  chapterFilter?: string | null;
   topK?: number;
   generateImage?: boolean;
   imagePrompt?: string | null;
 };
+
+/** Retrieval should use syllabus/topic keywords — not the full MCQ generation prompt. */
+export function buildGenerationRetrievalQuery(
+  generationQuery: string,
+  subject?: string | null,
+  form?: string | null,
+  chapterHint?: string | null,
+): string {
+  const hint = chapterHint?.trim();
+  if (hint) {
+    return [subject?.trim(), hint, form?.trim(), "SPM exam soalan past paper textbook"]
+      .filter(Boolean)
+      .join(" ");
+  }
+
+  const topicMatch = generationQuery.match(
+    /focused on(?:\s+topic)?:\s*([^.(]+?)(?:\s*\(|\.|,|$)/i,
+  );
+  const topic = topicMatch?.[1]?.trim();
+  const subjectPart = subject?.trim() ?? "";
+  const formPart = form?.trim() ?? "";
+
+  if (topic) {
+    return [subjectPart, topic, formPart, "SPM exam soalan past paper textbook"].filter(Boolean).join(" ");
+  }
+
+  return [subjectPart, formPart, "SPM exam soalan past year paper trial textbook syllabus"]
+    .filter(Boolean)
+    .join(" ");
+}
 
 export type GenerateRagResult = {
   answer: string;
   diagram?: GenerateRagDiagram;
   diagrams?: GenerateRagDiagram[];
   structuredDiagrams?: StructuredQuestionDiagram[];
-  sources: Array<{
-    documentId: number;
-    chunkIndex: number;
-    title: string | null;
-    subject: string | null;
-    sourceType: string;
-    excerpt: string;
-    distance: number;
-  }>;
+  sources: RagGenerationSource[];
+  /** One-line BM/EN-friendly summary for UI */
+  sourceLabel: string;
   /** Page PNGs from retrieved source PDFs (diagrams / layout). */
   sourcePageImages: Array<{
     documentId: number;
@@ -346,16 +384,6 @@ function biologyDiagramBiasRule(query: string, subject?: string | null): string 
 Biology visual bias: for cell structure, organelle identification, microscope observation, osmosis, plasmolysis/turgidity, plasma-membrane transport, or plant-vs-animal-cell comparison questions, prefer "Perlu rajah: Ya" more often because a visual commonly helps students interpret the item. Use "Tidak" only when the stem is fully clear without any diagram.`;
 }
 
-function formatGeneratorContextBlock(chunk: RetrievedChunk, index: number): string {
-  const meta: string[] = [];
-  if (chunk.sourceType === "past_paper") {
-    if (chunk.questionRef) meta.push(`ref=${chunk.questionRef}`);
-    if (typeof chunk.maxMarks === "number") meta.push(`stored marks=${chunk.maxMarks}`);
-  }
-  const header = meta.length > 0 ? `[${index}] (${meta.join(", ")})\n` : `[${index}]\n`;
-  return `${header}${chunk.content}`;
-}
-
 function mcqFormatReminder(query: string, subject?: string | null): string {
   if (!isMcqGenerationQuery(query)) return "";
   const isScience = Boolean(subject && isScienceDiagramSubject(subject));
@@ -543,16 +571,64 @@ function buildGraphDiagrams(
   return [];
 }
 
+async function packageGeneratedAnswer(
+  input: GenerateRagInput,
+  answerRaw: string,
+  extras: Omit<GenerateRagResult, "answer" | "diagram" | "diagrams" | "structuredDiagrams" | "generatedImages">,
+  opts?: {
+    prebuiltGeneratedImages?: GenerateRagResult["generatedImages"];
+    validatedPipelineRan?: boolean;
+    validatedDiagramsApproved?: boolean;
+  },
+): Promise<GenerateRagResult> {
+  const finalized = await finalizeGeneratedAnswer(
+    {
+      query: input.query,
+      subject: input.subject,
+      generateImage: input.generateImage,
+      imagePrompt: input.imagePrompt,
+      prebuiltGeneratedImages: opts?.prebuiltGeneratedImages,
+      validatedPipelineRan: opts?.validatedPipelineRan,
+      validatedDiagramsApproved: opts?.validatedDiagramsApproved,
+    },
+    answerRaw,
+  );
+  const answer = ensureNoRetrievalParseableAnswer(input.query, input.subject, finalized.answer);
+  return {
+    ...extras,
+    answer,
+    diagram: finalized.diagram,
+    diagrams: finalized.diagrams,
+    structuredDiagrams: finalized.structuredDiagrams,
+    generatedImages: finalized.generatedImages,
+  };
+}
+
 export async function generateWithRag(
   input: GenerateRagInput,
 ): Promise<GenerateRagResult> {
   const topK = input.topK ?? 8;
+  const retrievalQuery = buildGenerationRetrievalQuery(
+    input.query,
+    input.subject,
+    input.form,
+    input.chapterHint,
+  );
   const retrieval = await retrieveChunks({
-    query: input.query,
+    query: retrievalQuery,
     subject: input.subject ?? undefined,
+    form: input.form ?? undefined,
+    chapterHint: input.chapterHint ?? undefined,
+    chapterFilter: input.chapterFilter ?? undefined,
     topK,
   });
   const hits = retrieval.chunks;
+  console.info("[rag/generate] retrieval", {
+    subject: input.subject ?? null,
+    hitCount: hits.length,
+    pastPaperHits: hits.filter((h) => h.sourceType === "past_paper").length,
+    retrievalQuery: retrievalQuery.slice(0, 160),
+  });
 
   if (hits.length === 0) {
     let answerRaw = await chatCompletion([
@@ -566,64 +642,80 @@ Follow the appropriate template from the system message (MCQ vs subjective). Use
       },
     ], { subject: input.subject, query: input.query });
     answerRaw = ensureNoRetrievalParseableAnswer(input.query, input.subject, answerRaw);
-    const answerWithSvg = shouldPostProcessMathSvg(input.subject)
-      ? enrichMathAnswerWithSvg(answerRaw)
-      : answerRaw;
-    const { answer: answerRaw2, diagrams: diagramsFromBlock } = extractDiagramBlock(answerWithSvg);
-    const answer = promoteBiologyDiagramFlags(
-      normalizeBilingualAnswer(answerRaw2),
-      input.query,
-      input.subject,
-    );
-    const structuredDiagrams: StructuredQuestionDiagram[] = [];
-    const diagrams = buildGraphDiagrams(input, answer, diagramsFromBlock);
-    const diagram = diagrams[0];
-    const generatedImages = await buildGeneratedImages(input, answer);
-    return { answer, diagram, diagrams, structuredDiagrams, sources: [], sourcePageImages: [], generatedImages };
+    let validatedPipelineRan = false;
+    let validatedDiagramsApproved = false;
+    let prebuiltImages: GenerateRagResult["generatedImages"] | undefined;
+
+    if (isValidatedDiagramPipelineEnabled(input.subject, input.generateImage)) {
+      validatedPipelineRan = true;
+      const pipeline = await runValidatedDiagramGenerationPipeline({
+        query: input.query,
+        subject: input.subject,
+        hits: [],
+        generateImage: input.generateImage,
+        imagePrompt: input.imagePrompt,
+        initialAnswerRaw: answerRaw,
+      });
+      answerRaw = pipeline.answerRaw;
+      validatedDiagramsApproved = pipeline.validation?.approved === true;
+      prebuiltImages = pipeline.generatedImages;
+      if (isForceBmSubject(input.subject)) {
+        answerRaw = ensureNoRetrievalParseableAnswer(input.query, input.subject, answerRaw);
+      }
+    }
+
+    return packageGeneratedAnswer(input, answerRaw, {
+      sources: [],
+      sourceLabel: "",
+      sourcePageImages: [],
+    }, { prebuiltGeneratedImages: prebuiltImages, validatedPipelineRan, validatedDiagramsApproved });
   }
 
-  const contextBlocks = hits.map((h, i) => formatGeneratorContextBlock(h, i + 1));
-
-  const userContent = `Below are short excerpts from the syllabus/material (numbered for your use only; never show these numbers or any reference to them in your reply):\n\n${contextBlocks.join("\n\n---\n\n")}\n\nUser request:\n${input.query}\n\nFollow the appropriate template from the system message (MCQ vs subjective).${graphJsonReminder(input.subject, input.query)}${mcqFormatReminder(input.query, input.subject)}${subjectiveGenerationReminder(input.query, hits, input.subject)}`;
-
-  let answerRaw = await chatCompletion([
-    { role: "system", content: systemPromptForSubject(input.subject) },
-    { role: "user", content: userContent },
-  ], { subject: input.subject, query: input.query });
+  let answerRaw = await generateQuestionFromRagContext(hits, {
+    query: input.query,
+    subject: input.subject,
+  });
   if (isForceBmSubject(input.subject)) {
     answerRaw = ensureNoRetrievalParseableAnswer(input.query, input.subject, answerRaw);
   }
-  const answerWithSvg = shouldPostProcessMathSvg(input.subject)
-    ? enrichMathAnswerWithSvg(answerRaw)
-    : answerRaw;
-  const { answer: answerRaw2, diagrams: diagramsFromBlock } = extractDiagramBlock(answerWithSvg);
-  const answer = promoteBiologyDiagramFlags(
-    normalizeBilingualAnswer(answerRaw2),
-    input.query,
-    input.subject,
+
+  const generationSources = chunksToGenerationSources(hits);
+  let prebuiltImages: GenerateRagResult["generatedImages"] | undefined;
+  let validatedPipelineRan = false;
+  let validatedDiagramsApproved = false;
+
+  if (isValidatedDiagramPipelineEnabled(input.subject, input.generateImage)) {
+    validatedPipelineRan = true;
+    const pipeline = await runValidatedDiagramGenerationPipeline({
+      query: input.query,
+      subject: input.subject,
+      hits,
+      generateImage: input.generateImage,
+      imagePrompt: input.imagePrompt,
+      initialAnswerRaw: answerRaw,
+    });
+    answerRaw = pipeline.answerRaw;
+    validatedDiagramsApproved = pipeline.validation?.approved === true;
+    prebuiltImages = pipeline.generatedImages;
+    if (isForceBmSubject(input.subject)) {
+      answerRaw = ensureNoRetrievalParseableAnswer(input.query, input.subject, answerRaw);
+    }
+    console.info("[rag/generate] validated diagram pipeline", {
+      attempts: pipeline.attempts,
+      approved: validatedDiagramsApproved,
+      imageCount: prebuiltImages.length,
+    });
+  }
+
+  return packageGeneratedAnswer(
+    input,
+    answerRaw,
+    {
+      sources: generationSources,
+      sourceLabel:
+        formatSourcesSummary(generationSources) || generationSources[0]?.label?.trim() || "",
+      sourcePageImages: [],
+    },
+    { prebuiltGeneratedImages: prebuiltImages, validatedPipelineRan, validatedDiagramsApproved },
   );
-  const structuredDiagrams: StructuredQuestionDiagram[] = [];
-  const diagrams = buildGraphDiagrams(input, answer, diagramsFromBlock);
-  const diagram = diagrams[0];
-
-  const sourcePageImages: GenerateRagResult["sourcePageImages"] = [];
-  const generatedImages = await buildGeneratedImages(input, answer);
-
-  return {
-    answer,
-    diagram,
-    diagrams,
-    structuredDiagrams,
-    sources: hits.map((h) => ({
-      documentId: Number(h.textbookId) || 0,
-      chunkIndex: h.chunkIndex,
-      title: h.title ?? null,
-      subject: h.subject ?? null,
-      sourceType: h.sourceType,
-      excerpt: h.content.slice(0, 400) + (h.content.length > 400 ? "…" : ""),
-      distance: h.score ?? 0,
-    })),
-    sourcePageImages,
-    generatedImages,
-  };
 }

@@ -1,5 +1,5 @@
-import { embedTexts as embedTextsViaQwen } from "../rag/embeddingsService";
-import { isSubjectiveGenerationQuery } from "../rag/pastPaperMarksHints";
+import { embedTexts as embedTextsViaQwen } from "../rag/retrieval/embeddingsService";
+import { isSubjectiveGenerationQuery } from "../rag/retrieval/pastPaperMarksHints";
 
 type ChatMessage = {
   role: "system" | "user" | "assistant";

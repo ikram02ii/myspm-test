@@ -5,7 +5,8 @@ import { extractTextFromPdfBuffer } from "../services/rag/ingestion/pdfTextExtra
 import { gradeSubmission } from "../services/rag/grading/gradeService";
 import { buildGradingContextPayload, retrieveChunks } from "../services/rag/retrieval/retrievalService";
 import { listTextbooks, registerTextbook } from "../services/rag/ingestion/textbookService";
-import { generateOpenEndedQuestionStep, generateWithRag } from "../services/ai gen/generateFromRag";
+import { generateWithRag } from "../services/ai gen/generateFromRag";
+import { generateOpenEndedQuestionStep } from "../services/ai gen/generateOpenEndedStep";
 import { runGenerateFromUpload } from "../services/ai gen/generateFromUpload";
 import { ingestMarkSchemeImage } from "../services/ai gen/markSchemeImageIngest";
 import { listTextbookChaptersForSubjectForm } from "../services/rag/ingestion/textbookChaptersService";

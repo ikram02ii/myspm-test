@@ -170,16 +170,17 @@ Return plain text only. No markdown fences. No commentary about your process.`,
   return text;
 }
 
-async function uploadPageImageToOss(
+export async function uploadPageImageToOss(
   buffer: Buffer,
   mime: string,
   pageNumber: number,
   originalStem: string,
+  ossFolder = "myspm/rag/past-papers/vision",
 ): Promise<{ key: string; url: string }> {
   const client = makeOssClient();
   const safeStem = originalStem.replace(/[^a-zA-Z0-9._-]+/g, "-").slice(0, 80) || "document";
   const ext = mime === "image/jpeg" ? "jpg" : "png";
-  const key = `myspm/rag/past-papers/vision/${Date.now()}-${safeStem}-p${pageNumber}-${randomUUID()}.${ext}`;
+  const key = `${ossFolder}/${Date.now()}-${safeStem}-p${pageNumber}-${randomUUID()}.${ext}`;
   await client.put(key, buffer, {
     headers: {
       "Content-Type": mime,

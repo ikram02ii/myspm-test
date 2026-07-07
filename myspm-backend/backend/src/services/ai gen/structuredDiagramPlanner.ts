@@ -25,9 +25,23 @@ type DiagramTarget = {
   stem: string;
 };
 
-function shouldPlanBiologyDiagramFromStem(stem: string): boolean {
-  return /\b(cell|cells|organelle|osmosis|plasmolys|turgid|hypertonic|hypotonic|plant cell|animal cell|cell wall|cell membrane|plasma membrane|chloroplast|vacuole|nucleus|golgi|mitochondr|compare|comparison)\b/i.test(
+export function shouldPlanBiologyDiagramFromStem(stem: string): boolean {
+  return /\b(plant cell|animal cell|sel tumbuhan|sel haiwan|organelle|organel|osmosis|plasmolys|plasmolysis|turgid|turgor|hypertonic|hypotonic|cell wall|dinding sel|cell membrane|membran sel|plasma membrane|chloroplast|kloroplas|vacuole|vakuol|nucleus|nukleus|cytoplasm|sitoplasma|mitochondr|mitokondria|golgi|endoplasmic|reticulum|microscope|mikroskop|compare.{0,48}(plant|animal).{0,48}cell|perbandingan.{0,48}sel)\b/i.test(
     stem,
+  );
+}
+
+export function shouldPlanBiologyDiagramFromQuery(query: string): boolean {
+  return /\b(cell structure|struktur sel|plant cell|animal cell|sel tumbuhan|sel haiwan|organelle|organel|osmosis|plasmolys|chloroplast|vacuole|cell wall|dinding sel|microscope|mikroskop)\b/i.test(
+    query,
+  );
+}
+
+/** Topics like plant tissues should use AI-generated diagrams, not the orange cell SVG template. */
+export function isNonCellBiologyTopicQuery(query: string): boolean {
+  if (shouldPlanBiologyDiagramFromQuery(query)) return false;
+  return /\b(plant tissue|tissues|meristem|meristematik|growth|pertumbuhan|organisasi|vascular|xylem|phloem|transpiration|support tissue|epiderm|parenchyma|collenchyma|sclerenchyma)\b/i.test(
+    query,
   );
 }
 
@@ -182,8 +196,10 @@ export async function planStructuredQuestionDiagrams(params: {
 }): Promise<StructuredQuestionDiagram[]> {
   const subjectNorm = params.subject?.trim().toLowerCase() ?? "";
   if (subjectNorm !== "biology") return [];
+  if (isNonCellBiologyTopicQuery(params.query)) return [];
 
-  const targets = extractGeneratedQuestionStems(params.answer)
+  const stems = extractGeneratedQuestionStems(params.answer);
+  const targets = stems
     .filter((item) => shouldPlanBiologyDiagramFromStem(item.stem))
     .map((item) => ({ questionIndex: item.questionIndex, stem: item.stem }));
 

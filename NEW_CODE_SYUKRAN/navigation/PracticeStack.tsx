@@ -8,7 +8,7 @@ import PracticeSetDetailScreen from "../screens/PracticeSetDetailScreen";
 import PracticeSessionScreen from "../screens/PracticeSessionScreen";
 import OralPracticeScreen from "../screens/OralPracticeScreen";
 import OralReviewScreen from "../screens/OralReviewScreen";
-import type { PracticeSetQuestion } from "../services/mobilePracticeSets";
+import type { PracticeSetQuestion, RagSourceAttribution } from "../services/mobilePracticeSets";
 import type { OpenEndedBackgroundJob } from "../services/aiOpenEndedGeneration";
 import type { SttLanguage } from "../services/oralApi";
 
@@ -30,6 +30,11 @@ export type PracticeStackParamList = {
         formLevel?: string;
         practiceMode?: "speaking";
         openEndedBackground?: OpenEndedBackgroundJob;
+        /** Session-level RAG attribution (fallback if per-question fields missing). */
+        ragSourceLabel?: string;
+        ragSources?: RagSourceAttribution[];
+        isAiPractice?: boolean;
+        aiSourcePayload?: string;
       };
   OralPractice: {
     prompt: string;

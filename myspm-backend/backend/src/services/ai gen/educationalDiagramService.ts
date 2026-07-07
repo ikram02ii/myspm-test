@@ -1,5 +1,6 @@
 import { chatCompletion, generateImage } from "./llmProvider";
 import { extractGeneratedQuestionStems } from "./extractQuestionStems";
+import { validateDiagramImageRelevance, buildDiagramVisionFixHint } from "./diagramVisionValidation";
 
 export type GeneratedEducationalDiagram = {
   url: string;
@@ -42,9 +43,13 @@ export function shouldGenerateEducationalDiagrams(
   return true;
 }
 
-function maxDiagramsPerRequest(): number {
-  const raw = Number(process.env["RAG_SCIENCE_DIAGRAM_MAX_PER_REQUEST"] ?? "2");
-  return Number.isFinite(raw) && raw >= 1 ? Math.min(5, Math.floor(raw)) : 2;
+function maxDiagramsPerRequest(answer?: string): number {
+  const raw = Number(process.env["RAG_SCIENCE_DIAGRAM_MAX_PER_REQUEST"] ?? "5");
+  const envCap = Number.isFinite(raw) && raw >= 1 ? Math.min(8, Math.floor(raw)) : 5;
+  if (!answer?.trim()) return envCap;
+  const questionCount = extractGeneratedQuestionStems(answer).length;
+  if (questionCount <= 0) return envCap;
+  return Math.min(envCap, questionCount);
 }
 
 function combinedContext(stem: string, userQuery: string): string {
@@ -87,12 +92,36 @@ function inferVisualScene(subject: string, stem: string, userQuery: string): str
       );
     }
 
-    if (/\b(mitosis|meiosis|cell division|prophase|metaphase|anaphase|telophase)\b/.test(ctx)) {
-      return "wordless row of four simple cells showing chromosome stages during division, line art only";
+    if (/\b(mitosis|meiosis|cell division|prophase|metaphase|anaphase|telophase|homologous|crossing over|synapsis|karyotype|chromosome)\b/.test(ctx)) {
+      return (
+        "wordless SPM textbook meiosis or mitosis sketch: circular cell outline, homologous chromosome pairs " +
+        "crossing over in the centre, spindle fibres and centriole starbursts on left and right, " +
+        "fine black ink line art on white paper, no labels"
+      );
+    }
+
+    if (/\b(tissue|meristem|xylem|phloem|epiderm|parenchyma|collenchyma|sclerenchyma|transverse section|cross section)\b/.test(ctx)) {
+      return (
+        "wordless biology tissue cross-section sketch matching the structure in the question, " +
+        "black ink line art on white paper, no labels"
+      );
     }
 
     if (/\b(chloroplast|photosynth|leaf|palisade)\b/.test(ctx)) {
       return "wordless rectangular plant cell with cell wall, chloroplasts, vacuole, nucleus";
+    }
+
+    if (/\b(chloroplast|cell wall|vacuole|centriole|unicellular|euglena|chlorella|spirogyra|algae)\b/.test(ctx)) {
+      if (/\b(centriole|animal)\b/.test(ctx) && !/\b(chloroplast|cell wall)\b/.test(ctx)) {
+        return (
+          "wordless single animal cell cross-section: round cell membrane, nucleus, mitochondria, " +
+          "no cell wall, no chloroplasts, black ink line art only"
+        );
+      }
+      return (
+        "wordless single plant or plant-like cell cross-section: thick cell wall, large central vacuole, " +
+        "chloroplasts, nucleus, no cilia, no paramecium shape, black ink line art only"
+      );
     }
 
     if (/\b(dna|gene|chromosome|inheritance)\b/.test(ctx)) {
@@ -133,6 +162,27 @@ function inferVisualScene(subject: string, stem: string, userQuery: string): str
 
     if (/\b(force|motion|vector|pulley)\b/.test(ctx)) {
       return "wordless block on slope with force arrows as plain arrows only, no text";
+    }
+
+    if (/\b(cooling curve|cooling|freez|solidif|heat removed|heat is being removed|liquid to solid)\b/.test(ctx)) {
+      return (
+        "wordless temperature-versus-time COOLING curve sketch: line trends DOWNWARD from left to right " +
+        "(temperature falling), optional horizontal plateau during freezing, black ink line art only, no labels"
+      );
+    }
+
+    if (/\b(heating curve|heating|melt|boil|heat added|solid to liquid|liquid to gas)\b/.test(ctx)) {
+      return (
+        "wordless temperature-versus-time HEATING curve sketch: line trends UPWARD from left to right " +
+        "(temperature rising), optional horizontal plateau during melting, black ink line art only, no labels"
+      );
+    }
+
+    if (/\b(phase change|plateau|temperature.time|latent heat)\b/.test(ctx)) {
+      return (
+        "wordless temperature-versus-time phase-change graph with correct slope direction for the process in the question, " +
+        "black ink line art only, no labels"
+      );
     }
 
     return "wordless physics schematic with simple shapes and arrows, line art only";
@@ -177,8 +227,10 @@ export function buildEducationalDiagramPrompt(params: {
   }
 
   return (
-    `SPM Malaysian ${params.subject} textbook diagram only (drawing). ${scene}. ` +
-    `Black ink line art on white paper, high detail, no typography: no words, letters, numbers, labels, captions, or arrows with text anywhere. ` +
+    `SPM Malaysian ${params.subject} textbook scientific illustration only. ${scene}. ` +
+    `Style: monochrome black ink line drawing on plain white background, clean textbook figure, high detail, ` +
+    `uniform line weight, no colour fills, no shading gradients. ` +
+    `Strictly no typography: no words, letters, numbers, labels, captions, titles, or arrows with text anywhere. ` +
     `For coordinate-geometry questions, never write point names like A/B/C and never print coordinate pairs on the image.`
   ).slice(0, 500);
 }
@@ -225,7 +277,7 @@ function shouldHeuristicallyNeedDiagram(subject: string, stem: string, query: st
   const subjectNorm = subject.trim().toLowerCase();
 
   if (subjectNorm === "biology") {
-    return /\b(cell|organelle|osmosis|plasmolys|turgid|hypertonic|hypotonic|mitosis|meiosis|chloroplast|nucleus|cytoskeleton|microscope|compare)\b/.test(
+    return /\b(cell|organelle|osmosis|plasmolys|turgid|hypertonic|hypotonic|mitosis|meiosis|chloroplast|nucleus|cytoskeleton|microscope|compare|chromosome|homologous|crossing over|tissue|meristem|xylem|phloem|diagram|rajah|structure|section)\b/.test(
       ctx,
     );
   }
@@ -857,6 +909,59 @@ async function planEducationalDiagramsForAnswer(params: {
   }
 }
 
+async function generateEducationalDiagramWithVisionCheck(params: {
+  subject: string;
+  questionStem: string;
+  imagePrompt: string;
+  questionIndex: number;
+}): Promise<GeneratedEducationalDiagram | null> {
+  let prompt = params.imagePrompt;
+  const stemSnippet = params.questionStem.replace(/\s+/g, " ").trim().slice(0, 220);
+
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    try {
+      const urls = await generateImage(prompt, {
+        promptExtend: false,
+        n: 1,
+        negativePrompt: EDUCATIONAL_DIAGRAM_NEGATIVE_PROMPT,
+      });
+      const url = urls[0];
+      if (!url) return null;
+
+      const vision = await validateDiagramImageRelevance({
+        questionStem: params.questionStem,
+        imageUrl: url,
+        subject: params.subject,
+      });
+      if (vision.relevant) {
+        return { url, prompt, questionIndex: params.questionIndex };
+      }
+
+      console.warn("[educational-diagram] vision rejected diagram", {
+        questionIndex: params.questionIndex,
+        attempt,
+        reason: vision.reason,
+      });
+      if (attempt < 2) {
+        const fixHint = buildDiagramVisionFixHint(params.subject, params.questionStem, vision.reason);
+        prompt = (
+          `${params.imagePrompt}. Must illustrate this question only: ${stemSnippet}. ` +
+          `${fixHint} Black ink line art, no labels.`
+        ).slice(0, 500);
+      }
+    } catch (error) {
+      console.warn("[educational-diagram] vision check error", {
+        questionIndex: params.questionIndex,
+        attempt,
+        message: error instanceof Error ? error.message : error,
+      });
+      if (attempt >= 2) return null;
+    }
+  }
+
+  return null;
+}
+
 export async function generateEducationalDiagramsForAnswer(params: {
   subject: string;
   query: string;
@@ -879,7 +984,7 @@ export async function generateEducationalDiagramsForAnswer(params: {
   const plans = await planEducationalDiagramsForAnswer(params);
   const targets = plans
     .filter((item) => item.needDiagram && item.imagePrompt.trim())
-    .slice(0, maxDiagramsPerRequest());
+    .slice(0, maxDiagramsPerRequest(params.answer));
   if (targets.length === 0) {
     return [];
   }
@@ -897,15 +1002,15 @@ export async function generateEducationalDiagramsForAnswer(params: {
         });
         continue;
       }
-      const urls = await generateImage(item.imagePrompt, {
-        promptExtend: false,
-        n: 1,
-        negativePrompt: EDUCATIONAL_DIAGRAM_NEGATIVE_PROMPT,
+      const stem = stems.find((s) => s.questionIndex === item.questionIndex)?.stem ?? "";
+      const diagram = await generateEducationalDiagramWithVisionCheck({
+        subject,
+        questionStem: stem,
+        imagePrompt: item.imagePrompt,
+        questionIndex: item.questionIndex,
       });
-
-      const url = urls[0];
-      if (url) {
-        results.push({ url, prompt: item.imagePrompt, questionIndex: item.questionIndex });
+      if (diagram) {
+        results.push(diagram);
       }
     } catch (error) {
       console.error("[educational-diagram] image generation failed", {

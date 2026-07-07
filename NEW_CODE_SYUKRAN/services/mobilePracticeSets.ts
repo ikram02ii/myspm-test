@@ -38,6 +38,129 @@ export type StructuredQuestionDiagram = {
   focusLabels?: BiologyCellFocusLabel[];
 };
 
+/** RAG grounding metadata returned by /rag/generate and open-ended step APIs. */
+export type RagSourceAttribution = {
+  sourceType: "textbook" | "past_paper";
+  documentId: string;
+  chunkId: string;
+  chunkIndex: number;
+  title: string | null;
+  subject: string | null;
+  form: string | null;
+  chapter: string | null;
+  year: number | null;
+  paperLabel: string | null;
+  questionRef: string | null;
+  pageStart: number | null;
+  pageEnd: number | null;
+  sourceName: string | null;
+  relevanceScore: number;
+  label: string;
+  excerpt: string;
+};
+
+/** Build display label from API source (new or legacy shape). */
+export function ragSourceLabelFromApiItem(raw: Record<string, unknown>): string {
+  const label = typeof raw.label === "string" ? raw.label.trim() : "";
+  if (label) return label;
+
+  const sourceType = String(raw.sourceType ?? raw.source_type ?? "textbook");
+  const title = typeof raw.title === "string" ? raw.title.trim() : "";
+  const chapter = typeof raw.chapter === "string" ? raw.chapter.trim() : "";
+  const paperLabel = typeof raw.paperLabel === "string" ? raw.paperLabel.trim() : "";
+  const questionRef = typeof raw.questionRef === "string" ? raw.questionRef.trim() : "";
+  const year = typeof raw.year === "number" && Number.isFinite(raw.year) ? raw.year : null;
+  const pageStart = typeof raw.pageStart === "number" ? raw.pageStart : null;
+  const pageEnd = typeof raw.pageEnd === "number" ? raw.pageEnd : null;
+  const pages =
+    pageStart != null
+      ? pageEnd != null && pageEnd !== pageStart
+        ? `p. ${pageStart}–${pageEnd}`
+        : `p. ${pageStart}`
+      : "";
+
+  if (sourceType === "past_paper") {
+    return [year != null ? String(year) : null, title || "Past year paper", paperLabel, questionRef, pages]
+      .filter(Boolean)
+      .join(" · ");
+  }
+
+  return ["Textbook", title, chapter, pages].filter(Boolean).join(" · ");
+}
+
+export function normalizeRagSourcesFromApi(raw: unknown): RagSourceAttribution[] {
+  if (!Array.isArray(raw)) return [];
+  const out: RagSourceAttribution[] = [];
+  const seen = new Set<string>();
+
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const row = item as Record<string, unknown>;
+    const label = ragSourceLabelFromApiItem(row);
+    if (!label) continue;
+    const documentId = String(row.documentId ?? row.document_id ?? row.textbookId ?? "");
+    const chunkId = String(row.chunkId ?? row.chunk_id ?? row.chunkIndex ?? "");
+    const key = `${row.sourceType ?? "textbook"}:${documentId}:${chunkId}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    out.push({
+      sourceType: row.sourceType === "past_paper" ? "past_paper" : "textbook",
+      documentId,
+      chunkId,
+      chunkIndex: Number(row.chunkIndex ?? row.chunk_index ?? 0) || 0,
+      title: typeof row.title === "string" ? row.title : null,
+      subject: typeof row.subject === "string" ? row.subject : null,
+      form: typeof row.form === "string" ? row.form : null,
+      chapter: typeof row.chapter === "string" ? row.chapter : null,
+      year: typeof row.year === "number" ? row.year : null,
+      paperLabel: typeof row.paperLabel === "string" ? row.paperLabel : null,
+      questionRef: typeof row.questionRef === "string" ? row.questionRef : null,
+      pageStart: typeof row.pageStart === "number" ? row.pageStart : null,
+      pageEnd: typeof row.pageEnd === "number" ? row.pageEnd : null,
+      sourceName: typeof row.sourceName === "string" ? row.sourceName : null,
+      relevanceScore: Number(row.relevanceScore ?? row.distance ?? row.score ?? 0) || 0,
+      label,
+      excerpt: typeof row.excerpt === "string" ? row.excerpt : "",
+    });
+  }
+
+  return out;
+}
+
+export function formatRagSourcesSummary(sources: RagSourceAttribution[]): string {
+  if (sources.length === 0) return "";
+  const labels = [...new Set(sources.map((s) => s.label).filter(Boolean))];
+  if (labels.length === 0) return "";
+  if (labels.length === 1) return labels[0]!;
+  const head = labels.slice(0, 2).join("; ");
+  return labels.length > 2 ? `${head}; +${labels.length - 2} more` : head;
+}
+
+export function resolveQuestionSourceLabel(
+  question: PracticeSetQuestion,
+  session?: { sourceLabel?: string; sources?: RagSourceAttribution[] },
+): string {
+  const fromQuestion = question.sourceLabel?.trim() || question.sources?.[0]?.label?.trim();
+  if (fromQuestion) return fromQuestion;
+  const fromSession = session?.sourceLabel?.trim() || session?.sources?.[0]?.label?.trim();
+  return fromSession ?? "";
+}
+
+/** Best-effort label for AI Practice screens (question, route param, in-memory store). */
+export function resolveAiPracticeSourceLabel(
+  question: PracticeSetQuestion | undefined,
+  options?: { routeSourceLabel?: string; storeSourceLabel?: string },
+): string {
+  const fromQuestion = question?.sourceLabel?.trim() || question?.sources?.[0]?.label?.trim();
+  if (fromQuestion) return fromQuestion;
+  const fromRoute = options?.routeSourceLabel?.trim();
+  if (fromRoute) return fromRoute;
+  const fromStore = options?.storeSourceLabel?.trim();
+  if (fromStore) return fromStore;
+  return "";
+}
+
 export type PracticeSetQuestion = {
   id: number;
   sortOrder: number;
@@ -63,6 +186,12 @@ export type PracticeSetQuestion = {
   structuredDiagram?: StructuredQuestionDiagram;
   /** Qwen image URL for science educational diagrams. */
   diagramImageUrl?: string;
+  /** Human-readable source line, e.g. "2021 SPM Physics K2 · Paper 2 · p. 14" */
+  sourceLabel?: string;
+  /** Detailed RAG chunks used to generate this question. */
+  sources?: RagSourceAttribution[];
+  /** Compact JSON source payload (survives web navigation). */
+  sourcePayload?: string;
 };
 
 /**
@@ -89,6 +218,24 @@ export function inferQuestionMaxMarks(questionText: string): number | null {
     }
   }
   return null;
+}
+
+/** Attach RAG source metadata from /rag/generate to each generated practice question. */
+export function attachGenerationSourcesToQuestions(
+  questions: PracticeSetQuestion[],
+  params?: { sources?: unknown; sourceLabel?: string; sourcePayload?: string },
+): PracticeSetQuestion[] {
+  const sources = normalizeRagSourcesFromApi(params?.sources);
+  const sourceLabel =
+    params?.sourceLabel?.trim() || formatRagSourcesSummary(sources) || sources[0]?.label?.trim() || "";
+  const sourcePayload = params?.sourcePayload?.trim() || "";
+  if (!sourceLabel && sources.length === 0 && !sourcePayload) return questions;
+  return questions.map((question) => ({
+    ...question,
+    sourceLabel: sourceLabel || undefined,
+    sources: sources.length > 0 ? sources : question.sources,
+    sourcePayload: sourcePayload || question.sourcePayload,
+  }));
 }
 
 const MARKS_AT_END_RE = /\(\s*(\d{1,2})\s*(?:marks?|markah)\s*\)\s*$/i;

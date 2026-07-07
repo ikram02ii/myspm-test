@@ -65,6 +65,12 @@ export function buildPastPaperMarksGuidance(chunks: RetrievedChunk[]): string {
 }
 
 export function isSubjectiveGenerationQuery(query: string): boolean {
+  if (/\bMCQ\b|objektif|multiple[- ]choice|A[-–]D\b|A-D options/i.test(query)) {
+    return false;
+  }
+  if (/\bdo\s+not\s+use\b[\s\S]{0,80}\b(?:marking\s+points?|markah|marks?)\b/i.test(query)) {
+    return false;
+  }
   return /\bsubjective\b|essay|karangan|open[- ]?ended|structured\s+question|marking\s+points?|short\s+answer(?!\s+[A-D])/i.test(
     query,
   );

@@ -87,6 +87,91 @@ function sanitizeChapterFilter(raw: string): string {
   return raw.replace(/[%_\\]/g, " ").replace(/\s+/g, " ").trim();
 }
 
+/**
+ * Round-robin pick across chapters so general (non-topic) generation does not
+ * ground every question on consecutive chunks from a single chapter.
+ */
+export function diversifyChunksAcrossChapters(
+  ranked: RetrievedChunk[],
+  topK: number,
+): RetrievedChunk[] {
+  if (ranked.length <= topK) return ranked;
+
+  const byChapter = new Map<string, RetrievedChunk[]>();
+  for (const chunk of ranked) {
+    const key =
+      chunk.chapter?.trim() ||
+      (chunk.sourceType === "past_paper"
+        ? `paper:${chunk.title}:${chunk.year ?? ""}`
+        : `doc:${chunk.textbookId}`);
+    const list = byChapter.get(key) ?? [];
+    list.push(chunk);
+    byChapter.set(key, list);
+  }
+
+  if (byChapter.size <= 1) return ranked.slice(0, topK);
+
+  const queues = [...byChapter.values()];
+  const out: RetrievedChunk[] = [];
+  let round = 0;
+  while (out.length < topK && round < topK * 2) {
+    let added = false;
+    for (const queue of queues) {
+      if (out.length >= topK) break;
+      const chunk = queue[round];
+      if (chunk) {
+        out.push(chunk);
+        added = true;
+      }
+    }
+    if (!added) break;
+    round += 1;
+  }
+
+  return out.length > 0 ? out : ranked.slice(0, topK);
+}
+
+/** Reserve slots for past-paper chunks when the pool has any (generation should cite exam papers). */
+export function ensurePastPaperMix(
+  ranked: RetrievedChunk[],
+  selected: RetrievedChunk[],
+  topK: number,
+  minPast = MIN_PAST_PAPER_IN_TOP_K,
+): RetrievedChunk[] {
+  const papersInPool = ranked.filter((c) => c.sourceType === "past_paper");
+  if (papersInPool.length === 0) return selected.slice(0, topK);
+
+  const out: RetrievedChunk[] = [];
+  const used = new Set<string>();
+  const chunkKey = (c: RetrievedChunk) => `${c.sourceType}:${c.textbookId}:${c.chunkId}`;
+
+  for (const paper of papersInPool) {
+    if (out.filter((c) => c.sourceType === "past_paper").length >= minPast) break;
+    const key = chunkKey(paper);
+    if (used.has(key)) continue;
+    out.push(paper);
+    used.add(key);
+  }
+
+  for (const chunk of selected) {
+    if (out.length >= topK) break;
+    const key = chunkKey(chunk);
+    if (used.has(key)) continue;
+    out.push(chunk);
+    used.add(key);
+  }
+
+  for (const chunk of ranked) {
+    if (out.length >= topK) break;
+    const key = chunkKey(chunk);
+    if (used.has(key)) continue;
+    out.push(chunk);
+    used.add(key);
+  }
+
+  return out.length > 0 ? out : selected.slice(0, topK);
+}
+
 function countPhraseHits(text: string, phrases: string[]): number {
   const lowered = text.toLowerCase();
   return phrases.reduce((count, phrase) => (lowered.includes(phrase) ? count + 1 : count), 0);
@@ -140,7 +225,9 @@ function isLowQualityPastPaperChunk(chunkText: string): boolean {
 }
 
 /** Slight preference so official mark schemes compete with long textbook passages. */
-const PAST_PAPER_RETRIEVAL_BOOST = 0.12;
+const PAST_PAPER_RETRIEVAL_BOOST = 0.22;
+
+const MIN_PAST_PAPER_IN_TOP_K = 2;
 
 function buildSearchTokens(queryTokens: string[]): string[] {
   const filtered = queryTokens.filter((token) => {
@@ -309,6 +396,7 @@ export async function retrieveChunks(input: RetrieveChunksInput): Promise<Retrie
       subject: ragTextbooksTable.subject,
       form: ragTextbooksTable.form,
       title: ragTextbooksTable.title,
+      sourceName: ragTextbooksTable.sourceName,
       chunkId: ragTextbookChunksTable.chunkId,
       chunkIndex: ragTextbookChunksTable.chunkIndex,
       conceptTitle: ragTextbookChunksTable.conceptTitle,
@@ -328,17 +416,24 @@ export async function retrieveChunks(input: RetrieveChunksInput): Promise<Retrie
 
   const paperRows =
     whereClausePaper != null
-      ? await ragDb
+      ? await ragDb!
           .select({
             paperId: ragPastPapersTable.paperId,
             subject: ragPastPapersTable.subject,
             form: ragPastPapersTable.form,
             title: ragPastPapersTable.title,
+            year: ragPastPapersTable.year,
+            paperLabel: ragPastPapersTable.paperLabel,
+            sourceName: ragPastPapersTable.sourceName,
             chunkId: ragPastPaperChunksTable.chunkId,
             chunkIndex: ragPastPaperChunksTable.chunkIndex,
             conceptTitle: ragPastPaperChunksTable.conceptTitle,
             conceptSummary: ragPastPaperChunksTable.conceptSummary,
             keywords: ragPastPaperChunksTable.keywords,
+            questionRef: ragPastPaperChunksTable.questionRef,
+            maxMarks: ragPastPaperChunksTable.maxMarks,
+            pageStart: ragPastPaperChunksTable.pageStart,
+            pageEnd: ragPastPaperChunksTable.pageEnd,
             content: ragPastPaperChunksTable.content,
             uploadedAt: ragPastPapersTable.uploadedAt,
           })
@@ -352,24 +447,29 @@ export async function retrieveChunks(input: RetrieveChunksInput): Promise<Retrie
   const qualityFilteredRows = rows.filter((row) => !isLowQualityChunk(row.content));
   const qualityFilteredPaperRows = paperRows.filter((row) => !isLowQualityPastPaperChunk(row.content));
 
-  const mapToScored = (
-    sourceType: RetrievedChunkSource,
-    textbookId: string,
-    subjectVal: string,
-    formVal: string,
-    titleVal: string,
-    chunkId: string,
-    chunkIndex: number,
-    conceptTitle: string | null | undefined,
-    conceptSummary: string | null | undefined,
-    keywords: string | null | undefined,
-    content: string,
-    chapter: string | undefined,
-    pageStart: number | undefined,
-    pageEnd: number | undefined,
-    scoreBoost: number,
-  ): RetrievedChunk => {
-    const retrievalText = [conceptTitle ?? "", conceptSummary ?? "", keywords ?? "", content]
+  const mapRowToScored = (params: {
+    sourceType: RetrievedChunkSource;
+    textbookId: string;
+    subject: string;
+    form: string;
+    title: string;
+    chunkId: string;
+    chunkIndex: number;
+    conceptTitle: string | null | undefined;
+    conceptSummary: string | null | undefined;
+    keywords: string | null | undefined;
+    content: string;
+    chapter?: string;
+    pageStart?: number;
+    pageEnd?: number;
+    questionRef?: string;
+    maxMarks?: number | null;
+    year?: number | null;
+    paperLabel?: string | null;
+    sourceName?: string | null;
+    scoreBoost: number;
+  }): RetrievedChunk => {
+    const retrievalText = [params.conceptTitle ?? "", params.conceptSummary ?? "", params.keywords ?? "", params.content]
       .filter(Boolean)
       .join("\n");
     const base =
@@ -377,67 +477,77 @@ export async function retrieveChunks(input: RetrieveChunksInput): Promise<Retrie
         ? scoreChunkRelevance(query, retrievalText)
         : scoreChunk(queryTokens, equationAnchors, retrievalText, query, conceptProfile);
     return {
-      score: base + scoreBoost,
-      sourceType,
-      textbookId,
-      subject: subjectVal,
-      form: formVal,
-      title: titleVal,
-      chunkId,
-      chunkIndex,
-      conceptTitle: conceptTitle ?? undefined,
-      conceptSummary: conceptSummary ?? undefined,
-      keywords: keywords ? keywords.split(",").map((k) => k.trim()).filter(Boolean) : undefined,
-      chapter,
-      pageStart,
-      pageEnd,
-      content,
+      score: base + params.scoreBoost,
+      sourceType: params.sourceType,
+      textbookId: params.textbookId,
+      subject: params.subject,
+      form: params.form,
+      title: params.title,
+      chunkId: params.chunkId,
+      chunkIndex: params.chunkIndex,
+      conceptTitle: params.conceptTitle ?? undefined,
+      conceptSummary: params.conceptSummary ?? undefined,
+      keywords: params.keywords ? params.keywords.split(",").map((k) => k.trim()).filter(Boolean) : undefined,
+      chapter: params.chapter,
+      pageStart: params.pageStart,
+      pageEnd: params.pageEnd,
+      questionRef: params.questionRef,
+      maxMarks: params.maxMarks ?? undefined,
+      year: params.year ?? undefined,
+      paperLabel: params.paperLabel ?? undefined,
+      sourceName: params.sourceName ?? undefined,
+      content: params.content,
     };
   };
 
   const textbookScored: RetrievedChunk[] = qualityFilteredRows.map((row) => {
     const chapterBoost =
       chapterHintLower.length >= 2 && row.chapter?.toLowerCase().includes(chapterHintLower) ? 0.45 : 0;
-    return mapToScored(
-      "textbook",
-      row.textbookId,
-      row.subject,
-      row.form,
-      row.title,
-      row.chunkId,
-      row.chunkIndex,
-      row.conceptTitle,
-      row.conceptSummary,
-      row.keywords,
-      row.content,
-      row.chapter ?? undefined,
-      row.pageStart ?? undefined,
-      row.pageEnd ?? undefined,
-      chapterBoost,
-    );
+    return mapRowToScored({
+      sourceType: "textbook",
+      textbookId: row.textbookId,
+      subject: row.subject,
+      form: row.form,
+      title: row.title,
+      chunkId: row.chunkId,
+      chunkIndex: row.chunkIndex,
+      conceptTitle: row.conceptTitle,
+      conceptSummary: row.conceptSummary,
+      keywords: row.keywords,
+      content: row.content,
+      chapter: row.chapter ?? undefined,
+      pageStart: row.pageStart ?? undefined,
+      pageEnd: row.pageEnd ?? undefined,
+      sourceName: row.sourceName ?? undefined,
+      scoreBoost: chapterBoost,
+    });
   });
 
   const paperScored: RetrievedChunk[] = qualityFilteredPaperRows.map((row) =>
-    mapToScored(
-      "past_paper",
-      row.paperId,
-      row.subject,
-      row.form,
-      row.title,
-      row.chunkId,
-      row.chunkIndex,
-      row.conceptTitle,
-      row.conceptSummary,
-      row.keywords,
-      row.content,
-      undefined,
-      undefined,
-      undefined,
-      PAST_PAPER_RETRIEVAL_BOOST,
-    ),
+    mapRowToScored({
+      sourceType: "past_paper",
+      textbookId: row.paperId,
+      subject: row.subject,
+      form: row.form,
+      title: row.title,
+      chunkId: row.chunkId,
+      chunkIndex: row.chunkIndex,
+      conceptTitle: row.conceptTitle,
+      conceptSummary: row.conceptSummary,
+      keywords: row.keywords,
+      content: row.content,
+      pageStart: row.pageStart ?? undefined,
+      pageEnd: row.pageEnd ?? undefined,
+      questionRef: row.questionRef ?? undefined,
+      maxMarks: row.maxMarks ?? undefined,
+      year: row.year ?? undefined,
+      paperLabel: row.paperLabel ?? undefined,
+      sourceName: row.sourceName ?? undefined,
+      scoreBoost: PAST_PAPER_RETRIEVAL_BOOST,
+    }),
   );
 
-  const scored: RetrievedChunk[] = [...textbookScored, ...paperScored]
+  const ranked: RetrievedChunk[] = [...textbookScored, ...paperScored]
     .filter((row) => row.score >= 0.35)
     .filter((row) =>
       passesRelevanceGate(
@@ -447,8 +557,13 @@ export async function retrieveChunks(input: RetrieveChunksInput): Promise<Retrie
         conceptProfile,
       ),
     )
-    .sort((a, b) => b.score - a.score)
-    .slice(0, topK);
+    .sort((a, b) => b.score - a.score);
+
+  const generalSyllabusMode = chapterFilterSanitized.length < 2 && chapterHintLower.length < 2;
+  const diversified = generalSyllabusMode
+    ? diversifyChunksAcrossChapters(ranked, topK)
+    : ranked.slice(0, topK);
+  const scored = ensurePastPaperMix(ranked, diversified, topK);
 
   return {
     query,

@@ -8,10 +8,7 @@ import {
   isScienceDiagramSubject,
   shouldGenerateEducationalDiagrams,
 } from "./educationalDiagramService";
-import {
-  planStructuredQuestionDiagrams,
-  type StructuredQuestionDiagram,
-} from "./structuredDiagramPlanner";
+import type { StructuredQuestionDiagram } from "./structuredDiagramPlanner";
 import {
   buildPastPaperMarksGuidance,
   isMcqGenerationQuery,
@@ -42,6 +39,12 @@ export type FinalizeGenerateAnswerInput = {
   subject?: string | null;
   generateImage?: boolean;
   imagePrompt?: string | null;
+  /** When set, skip legacy diagram planner (validated pipeline already ran). */
+  prebuiltGeneratedImages?: GenerateImageItem[];
+  /** True when the 4-agent validated pipeline ran (do not fall back to legacy diagrams on failure). */
+  validatedPipelineRan?: boolean;
+  /** True only when agent 4 approved all diagrams. */
+  validatedDiagramsApproved?: boolean;
 };
 
 export type FinalizeGenerateAnswerResult = {
@@ -281,10 +284,17 @@ async function buildGeneratedImages(
 
 export function formatGeneratorContextBlock(chunk: RetrievedChunk, index: number): string {
   const meta: string[] = [];
-  if (chunk.chapter?.trim()) meta.push(`chapter=${chunk.chapter.trim()}`);
   if (chunk.sourceType === "past_paper") {
+    if (chunk.year != null) meta.push(`year=${chunk.year}`);
+    if (chunk.title?.trim()) meta.push(`paper=${chunk.title.trim()}`);
+    if (chunk.paperLabel?.trim()) meta.push(`label=${chunk.paperLabel.trim()}`);
     if (chunk.questionRef) meta.push(`ref=${chunk.questionRef}`);
     if (typeof chunk.maxMarks === "number") meta.push(`stored marks=${chunk.maxMarks}`);
+    if (chunk.pageStart != null) meta.push(`page=${chunk.pageStart}`);
+  } else {
+    if (chunk.title?.trim()) meta.push(`book=${chunk.title.trim()}`);
+    if (chunk.chapter?.trim()) meta.push(`chapter=${chunk.chapter.trim()}`);
+    if (chunk.pageStart != null) meta.push(`page=${chunk.pageStart}`);
   }
   const header = meta.length > 0 ? `[${index}] (${meta.join(", ")})\n` : `[${index}]\n`;
   return `${header}${chunk.content}`;
@@ -351,18 +361,28 @@ export async function finalizeGeneratedAnswer(
   );
   const diagrams = buildGraphDiagrams(input, answer, diagramsFromBlock);
   const diagram = diagrams[0];
-  const generatedImages = await buildGeneratedImages(input, answer);
-  const structuredDiagrams = await planStructuredQuestionDiagrams({
-    subject: input.subject,
-    query: input.query,
-    answer,
-  });
+  let generatedImages: GenerateImageItem[];
+  const prebuilt = input.prebuiltGeneratedImages ?? [];
+  if (input.validatedPipelineRan) {
+    if (input.validatedDiagramsApproved && prebuilt.length > 0) {
+      generatedImages = prebuilt;
+    } else {
+      // Validated pipeline ran but produced no usable images (rejected, or classifier
+      // skipped all diagrams). Fall back to the legacy educational-diagram service so
+      // science MCQs still get rajah after RAG/source retrieval was enabled.
+      if (prebuilt.length === 0) {
+        console.info("[rag/generate] validated pipeline had no images — falling back to educational-diagram");
+      }
+      generatedImages = await buildGeneratedImages(input, answer);
+    }
+  } else {
+    generatedImages = prebuilt.length > 0 ? prebuilt : await buildGeneratedImages(input, answer);
+  }
 
   return {
     answer,
     diagram,
     diagrams: diagrams.length > 0 ? diagrams : undefined,
-    structuredDiagrams: structuredDiagrams.length > 0 ? structuredDiagrams : undefined,
     generatedImages,
   };
 }

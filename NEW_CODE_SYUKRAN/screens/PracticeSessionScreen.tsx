@@ -1,8 +1,9 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Animated,
   Image,
+  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -11,32 +12,29 @@ import {
   View,
 } from "react-native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
+import { useFocusEffect } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
-import { Camera, Check, ChevronLeft, ImageUp } from "lucide-react-native";
+import { Camera, Check, ChevronLeft, ImageUp, Info } from "lucide-react-native";
 import * as ImagePicker from "expo-image-picker";
 
 import { colors } from "../constants/colors";
 import { fonts } from "../constants/fonts";
 import { theme } from "../constants/palette";
 import { MathLineChart } from "../components/math/MathLineChart";
-import { BiologyStructuredDiagram } from "../components/biology/BiologyStructuredDiagram";
-import { AnimalCellDiagramWithLabels } from "../components/biology/AnimalCellDiagramWithLabels";
-import { LabeledAnimalCellDiagram } from "../components/biology/LabeledAnimalCellDiagram";
 import { CalculationStepsView } from "../components/math/CalculationStepsView";
 import { MathFormattedText } from "../components/math/MathFormattedText";
-import {
-  inferOrganelleHighlights,
-  isBiologySubject,
-  shouldShowLabeledCellDiagram,
-} from "../utils/biologyDiagramHighlights";
 import { isMatrixOnlyOption } from "../utils/parseMatrixNotation";
 import type { PracticeStackParamList } from "../navigation/PracticeStack";
 import {
   fetchPracticeSetDetail,
+  resolveAiPracticeSourceLabel,
   resolveQuestionMarks,
   type PracticeSetQuestion,
+  type RagSourceAttribution,
 } from "../services/mobilePracticeSets";
+import { getAiPracticeAttribution, loadAiPracticeAttribution, setAiPracticeAttribution } from "../services/aiPracticeAttributionStore";
+import { parseAiAttributionPayload } from "../services/aiPracticeAttributionPayload";
 import {
   fetchOpenEndedQuestionStep,
   mapOpenEndedStepToPracticeQuestion,
@@ -58,6 +56,21 @@ import {
 } from "../utils/bilingualQuestionStem";
 
 const BRAND = theme.brand;
+
+function mergeRagSources(...lists: Array<RagSourceAttribution[] | undefined>): RagSourceAttribution[] {
+  const seen = new Set<string>();
+  const out: RagSourceAttribution[] = [];
+  for (const list of lists) {
+    for (const row of list ?? []) {
+      const label = row.label?.trim();
+      const key = label || `${row.sourceType}:${row.documentId}:${row.chunkId}`;
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      out.push(row);
+    }
+  }
+  return out;
+}
 
 type Props = NativeStackScreenProps<PracticeStackParamList, "PracticeSession">;
 
@@ -245,9 +258,50 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
         formLevel?: string;
         practiceMode?: "speaking";
         openEndedBackground?: OpenEndedBackgroundJob;
+        ragSourceLabel?: string;
+        ragSources?: RagSourceAttribution[];
+        /** Explicit flag — more reliable than title string on web. */
+        isAiPractice?: boolean;
+        /** Compact JSON source payload (reliable on web navigation). */
+        aiSourcePayload?: string;
       };
   const hasQuestions = "questions" in routeParams && Array.isArray(routeParams.questions);
   const initialQuestions = hasQuestions ? routeParams.questions : [];
+  const questionSourcePayload = useMemo(() => {
+    const fromRoute =
+      hasQuestions && typeof routeParams.aiSourcePayload === "string"
+        ? routeParams.aiSourcePayload
+        : "";
+    const fromQuestion = initialQuestions.find((item) => item.sourcePayload?.trim())?.sourcePayload?.trim() ?? "";
+    return fromRoute || fromQuestion;
+  }, [hasQuestions, routeParams, initialQuestions]);
+  const routePayload = useMemo(
+    () =>
+      questionSourcePayload
+        ? parseAiAttributionPayload(questionSourcePayload)
+        : hasQuestions && typeof routeParams.aiSourcePayload === "string"
+          ? parseAiAttributionPayload(routeParams.aiSourcePayload)
+          : null,
+    [hasQuestions, questionSourcePayload, routeParams],
+  );
+  const routeRagSourceLabel =
+    hasQuestions && typeof routeParams.ragSourceLabel === "string"
+      ? routeParams.ragSourceLabel.trim()
+      : "";
+  const storedAttribution = getAiPracticeAttribution();
+  const sessionRagSourceLabel =
+    routeRagSourceLabel ||
+    routePayload?.sourceLabel?.trim() ||
+    storedAttribution?.sourceLabel?.trim() ||
+    "";
+  const sessionRagSources =
+    routePayload?.sources?.length
+      ? routePayload.sources
+      : storedAttribution?.sources ?? [];
+  const sessionAttributionRef = useRef({
+    sourceLabel: sessionRagSourceLabel?.trim() ?? "",
+    sources: sessionRagSources ?? [],
+  });
   const openEndedBackground =
     hasQuestions && "openEndedBackground" in routeParams ? routeParams.openEndedBackground : undefined;
   const practiceMode = routeParams.practiceMode;
@@ -259,7 +313,31 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
 
   const [loading, setLoading] = useState(!hasQuestions);
   const [error, setError] = useState<string | null>(null);
-  const [questions, setQuestions] = useState<PracticeSetQuestion[]>(initialQuestions);
+  const [questions, setQuestions] = useState<PracticeSetQuestion[]>(() => {
+    const payloadFromQuestion = parseAiAttributionPayload(
+      initialQuestions.find((item) => item.sourcePayload?.trim())?.sourcePayload,
+    );
+    const label =
+      sessionAttributionRef.current.sourceLabel ||
+      payloadFromQuestion?.sourceLabel ||
+      initialQuestions.find((item) => item.sourceLabel?.trim())?.sourceLabel?.trim() ||
+      "";
+    const sources =
+      sessionAttributionRef.current.sources.length > 0
+        ? sessionAttributionRef.current.sources
+        : payloadFromQuestion?.sources ?? [];
+    if (!label && sources.length === 0) return initialQuestions;
+    return initialQuestions.map((question) => ({
+      ...question,
+      sourceLabel: question.sourceLabel?.trim() || label || undefined,
+      sources:
+        question.sources?.length && question.sources[0]?.label?.trim()
+          ? question.sources
+          : sources.length > 0
+            ? sources
+            : question.sources,
+    }));
+  });
   const [index, setIndex] = useState(0);
   const [selected, setSelected] = useState<Set<number>>(() => new Set());
   const [showFeedback, setShowFeedback] = useState(false);
@@ -277,6 +355,82 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
   const [speakingMarkingText, setSpeakingMarkingText] = useState<string | null>(null);
   const [openEndedBgBusy, setOpenEndedBgBusy] = useState(Boolean(openEndedBackground));
   const [questionLangView, setQuestionLangView] = useState<QuestionLangView>("en");
+  const [aiSourceLabel, setAiSourceLabel] = useState(
+    () => routePayload?.sourceLabel?.trim() || sessionRagSourceLabel || "",
+  );
+  const [aiSources, setAiSources] = useState<RagSourceAttribution[]>(
+    () => routePayload?.sources ?? sessionRagSources,
+  );
+  const [sourceModalOpen, setSourceModalOpen] = useState(false);
+  const isAiPractice =
+    title === "AI Practice" ||
+    (hasQuestions && "isAiPractice" in routeParams && routeParams.isAiPractice === true);
+
+  const refreshAiAttribution = useCallback(() => {
+    if (!isAiPractice) {
+      setAiSourceLabel("");
+      setAiSources([]);
+      return;
+    }
+    const fromQuestionLabel = questions.find((item) => item.sourceLabel?.trim())?.sourceLabel?.trim() ?? "";
+    const fromQuestionPayload = parseAiAttributionPayload(
+      questions.find((item) => item.sourcePayload?.trim())?.sourcePayload,
+    );
+    const fromRoute =
+      routeRagSourceLabel ||
+      routePayload?.sourceLabel?.trim() ||
+      fromQuestionPayload?.sourceLabel?.trim() ||
+      sessionRagSourceLabel;
+    const fromMemory = getAiPracticeAttribution();
+    const fromRef = sessionAttributionRef.current;
+    const label =
+      fromQuestionLabel ||
+      fromRoute ||
+      fromMemory?.sourceLabel?.trim() ||
+      fromRef.sourceLabel?.trim() ||
+      "";
+    const sources = mergeRagSources(
+      questions.find((item) => item.sources?.length)?.sources,
+      routePayload?.sources,
+      fromQuestionPayload?.sources,
+      fromRef.sources,
+      fromMemory?.sources,
+      sessionRagSources,
+    );
+    setAiSourceLabel(label);
+    setAiSources(sources);
+  }, [isAiPractice, questions, routeRagSourceLabel, routePayload, sessionRagSourceLabel, sessionRagSources]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!isAiPractice) return;
+      refreshAiAttribution();
+      void loadAiPracticeAttribution().then((stored) => {
+        if (!stored?.sourceLabel?.trim() && (stored?.sources?.length ?? 0) === 0) return;
+        sessionAttributionRef.current = {
+          sourceLabel: stored.sourceLabel?.trim() ?? "",
+          sources: stored.sources ?? [],
+        };
+        setAiSourceLabel((prev) => prev || stored.sourceLabel?.trim() || "");
+        setAiSources((prev) => mergeRagSources(prev, stored.sources));
+      });
+    }, [isAiPractice, refreshAiAttribution]),
+  );
+
+  useEffect(() => {
+    if (!routePayload) return;
+    sessionAttributionRef.current = {
+      sourceLabel: routePayload.sourceLabel,
+      sources: routePayload.sources,
+    };
+    setAiSourceLabel(routePayload.sourceLabel);
+    setAiSources(routePayload.sources);
+    setAiPracticeAttribution(routePayload);
+  }, [routePayload]);
+
+  useEffect(() => {
+    refreshAiAttribution();
+  }, [refreshAiAttribution]);
 
   const questionFade = useRef(new Animated.Value(1)).current;
   const questionLift = useRef(new Animated.Value(0)).current;
@@ -320,6 +474,41 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
   }, [load, hasQuestions, questionFade, questionLift]);
 
   useEffect(() => {
+    if (!hasQuestions) return;
+    const stored = getAiPracticeAttribution();
+    const sourceLabel =
+      sessionAttributionRef.current.sourceLabel ||
+      stored?.sourceLabel?.trim() ||
+      "";
+    const sources =
+      sessionAttributionRef.current.sources.length > 0
+        ? sessionAttributionRef.current.sources
+        : (stored?.sources ?? []);
+    if (!sourceLabel && sources.length === 0) return;
+
+    sessionAttributionRef.current = { sourceLabel, sources };
+
+    setQuestions((prev) => {
+      const needsPatch = prev.some(
+        (question) =>
+          !question.sourceLabel?.trim() &&
+          !(question.sources?.length && question.sources[0]?.label?.trim()),
+      );
+      if (!needsPatch) return prev;
+      return prev.map((question) => ({
+        ...question,
+        sourceLabel: question.sourceLabel?.trim() || sourceLabel || undefined,
+        sources:
+          question.sources?.length && question.sources[0]?.label?.trim()
+            ? question.sources
+            : sources.length > 0
+              ? sources
+              : question.sources,
+      }));
+    });
+  }, [hasQuestions]);
+
+  useEffect(() => {
     navigation.setOptions({ title: title || "Practice" });
   }, [navigation, title]);
 
@@ -357,7 +546,16 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
           contextId = step.generationContextId;
           if (cancelled || !step.question?.questionText?.trim()) continue;
 
-          const mapped = mapOpenEndedStepToPracticeQuestion(step.question, idx);
+          const mapped = mapOpenEndedStepToPracticeQuestion(step.question, idx, {
+            sources: step.sources,
+            sourceLabel: step.sourceLabel,
+          });
+          if (mapped.sourceLabel || mapped.sources?.length) {
+            setAiPracticeAttribution({
+              sourceLabel: mapped.sourceLabel ?? step.sourceLabel ?? "",
+              sources: mapped.sources ?? [],
+            });
+          }
           priorStems.push(mapped.questionText);
           setQuestions((prev) => {
             if (prev.some((q) => q.sortOrder === mapped.sortOrder)) return prev;
@@ -506,6 +704,30 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
   const speakingForm = routeFormLevel ?? "Form 4";
   const isSpeakingQuestion =
     practiceMode === "speaking" || (q ? isSpeakingQuestionType(q.questionType) : false);
+  const displaySourceLabel =
+    q && !isSpeakingQuestion
+      ? aiSourceLabel ||
+        resolveAiPracticeSourceLabel(q, {
+          routeSourceLabel: sessionRagSourceLabel || routeRagSourceLabel,
+          storeSourceLabel: getAiPracticeAttribution()?.sourceLabel,
+        })
+      : "";
+  const displaySources = mergeRagSources(q?.sources, aiSources, sessionAttributionRef.current.sources);
+  const showSourceButton = isAiPractice && !isSpeakingQuestion;
+
+  const openSourceModal = useCallback(() => {
+    void loadAiPracticeAttribution().then((stored) => {
+      if (stored) {
+        sessionAttributionRef.current = {
+          sourceLabel: stored.sourceLabel?.trim() ?? sessionAttributionRef.current.sourceLabel,
+          sources: mergeRagSources(sessionAttributionRef.current.sources, stored.sources),
+        };
+        setAiSourceLabel((prev) => prev || stored.sourceLabel?.trim() || "");
+        setAiSources((prev) => mergeRagSources(prev, stored.sources));
+      }
+    });
+    setSourceModalOpen(true);
+  }, []);
   const isSpeakingPart2 =
     isSpeakingQuestion && (q?.questionType ?? "").toLowerCase() === "speaking_part2";
   const isReviewMode = showFeedback || (isSpeakingQuestion && speakingReadyForNext);
@@ -916,12 +1138,25 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
           }}
         >
           <View style={styles.questionMetaRow}>
-            <Text style={styles.diffChip}>
+            <Text style={styles.diffChip} numberOfLines={1}>
               {isSpeakingQuestion ? "English speaking" : q.difficulty}
             </Text>
-            <View style={styles.marksBadge} accessibilityLabel={`${questionMarks} marks`}>
-              <Text style={styles.marksBadgeNum}>{questionMarks}</Text>
-              <Text style={styles.marksBadgeLabel}>marks</Text>
+            <View style={styles.questionMetaTrailing}>
+              {showSourceButton ? (
+                <Pressable
+                  style={({ pressed }) => [styles.sourceInfoBtn, pressed && styles.sourceInfoBtnPressed]}
+                  onPress={openSourceModal}
+                  accessibilityRole="button"
+                  accessibilityLabel="View question source"
+                >
+                  <Info size={15} color={BRAND} strokeWidth={2.4} />
+                  <Text style={styles.sourceInfoBtnText}>Source</Text>
+                </Pressable>
+              ) : null}
+              <View style={styles.marksBadge} accessibilityLabel={`${questionMarks} marks`}>
+                <Text style={styles.marksBadgeNum}>{questionMarks}</Text>
+                <Text style={styles.marksBadgeLabel}>marks</Text>
+              </View>
             </View>
           </View>
           {showLangToggle ? (
@@ -968,26 +1203,7 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
               />
             </View>
           ) : null}
-          {!isSpeakingQuestion && q.structuredDiagram?.type === "biology-cell" ? (
-            <View style={styles.diagramWrap}>
-              <BiologyStructuredDiagram spec={q.structuredDiagram} />
-            </View>
-          ) : null}
-          {!isSpeakingQuestion &&
-          !q.structuredDiagram &&
-          isBiologySubject(routeSubject) &&
-          shouldShowLabeledCellDiagram(q.questionText) ? (
-            <View style={styles.diagramWrap}>
-              {q.diagramImageUrl ? (
-                <AnimalCellDiagramWithLabels
-                  imageUrl={q.diagramImageUrl}
-                  highlights={inferOrganelleHighlights(q.questionText)}
-                />
-              ) : (
-                <LabeledAnimalCellDiagram highlights={inferOrganelleHighlights(q.questionText)} />
-              )}
-            </View>
-          ) : !isSpeakingQuestion && q.diagramImageUrl && !q.structuredDiagram ? (
+          {!isSpeakingQuestion && q.diagramImageUrl ? (
             <View style={styles.diagramWrap}>
               <Image
                 source={{ uri: q.diagramImageUrl }}
@@ -1247,6 +1463,62 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
         )
       ) : null}
     </ScrollView>
+
+    <Modal
+      transparent
+      visible={sourceModalOpen}
+      animationType="slide"
+      onRequestClose={() => setSourceModalOpen(false)}
+    >
+      <Pressable style={styles.sourceModalBackdrop} onPress={() => setSourceModalOpen(false)}>
+        <Pressable style={[styles.sourceModalCard, { paddingBottom: insets.bottom + 20 }]} onPress={() => {}}>
+          <View style={styles.sourceModalHandle} />
+          <Text style={styles.sourceModalTitle}>Sumber / Source</Text>
+          <Text style={styles.sourceModalSubtitle}>
+            Textbook or past-paper material used to generate this AI practice question.
+          </Text>
+          {displaySourceLabel ? (
+            <Text style={styles.sourceModalSummary} selectable>
+              {displaySourceLabel}
+            </Text>
+          ) : null}
+          <ScrollView
+            style={styles.sourceModalScroll}
+            contentContainerStyle={styles.sourceModalScrollContent}
+            showsVerticalScrollIndicator={false}
+          >
+            {displaySources.length > 0 ? (
+              displaySources.map((source, sourceIndex) => (
+                <View key={`${source.label}-${sourceIndex}`} style={styles.sourceModalItem}>
+                  <Text style={styles.sourceModalItemType}>
+                    {source.sourceType === "past_paper" ? "Past year paper" : "Textbook"}
+                  </Text>
+                  <Text style={styles.sourceModalItemLabel} selectable>
+                    {source.label}
+                  </Text>
+                  {source.excerpt?.trim() ? (
+                    <Text style={styles.sourceModalExcerpt} selectable>
+                      {source.excerpt.trim()}
+                    </Text>
+                  ) : null}
+                </View>
+              ))
+            ) : displaySourceLabel ? null : (
+              <Text style={styles.sourceModalEmpty}>
+                No textbook or past-paper source was recorded for this session. Reload the app, generate a
+                new AI practice set, then tap Source again.
+              </Text>
+            )}
+          </ScrollView>
+          <Pressable
+            style={({ pressed }) => [styles.sourceModalCloseBtn, pressed && styles.sourceInfoBtnPressed]}
+            onPress={() => setSourceModalOpen(false)}
+          >
+            <Text style={styles.sourceModalCloseBtnText}>Close</Text>
+          </Pressable>
+        </Pressable>
+      </Pressable>
+    </Modal>
     </>
   );
 }
@@ -1324,10 +1596,37 @@ const styles = StyleSheet.create({
   },
   diffChip: {
     flex: 1,
+    flexShrink: 1,
     fontSize: 11,
     fontFamily: fonts.bold,
     color: BRAND,
     textTransform: "capitalize",
+    marginRight: 8,
+  },
+  questionMetaTrailing: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    flexShrink: 0,
+  },
+  sourceInfoBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 999,
+    backgroundColor: "#DDE8DF",
+    borderWidth: 1.5,
+    borderColor: BRAND,
+  },
+  sourceInfoBtnPressed: {
+    opacity: 0.85,
+  },
+  sourceInfoBtnText: {
+    fontSize: 12,
+    fontFamily: fonts.semiBold,
+    color: BRAND,
   },
   marksBadge: {
     flexDirection: "row",
@@ -1389,6 +1688,105 @@ const styles = StyleSheet.create({
     color: colors.text,
     lineHeight: 26,
     marginBottom: 16,
+  },
+  sourceModalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(15, 23, 42, 0.45)",
+    justifyContent: "flex-end",
+  },
+  sourceModalCard: {
+    backgroundColor: "#FFFFFF",
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    maxHeight: "78%",
+  },
+  sourceModalHandle: {
+    alignSelf: "center",
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: "rgba(15, 23, 42, 0.15)",
+    marginBottom: 14,
+  },
+  sourceModalTitle: {
+    fontSize: 18,
+    fontFamily: fonts.bold,
+    color: colors.text,
+    marginBottom: 6,
+  },
+  sourceModalSubtitle: {
+    fontSize: 13,
+    fontFamily: fonts.regular,
+    color: colors.textSecondary,
+    lineHeight: 18,
+    marginBottom: 14,
+  },
+  sourceModalSummary: {
+    fontSize: 14,
+    fontFamily: fonts.semiBold,
+    color: "#274A2A",
+    lineHeight: 20,
+    marginBottom: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    backgroundColor: "#DDE8DF",
+  },
+  sourceModalScroll: {
+    maxHeight: 320,
+  },
+  sourceModalScrollContent: {
+    paddingBottom: 8,
+    gap: 10,
+  },
+  sourceModalItem: {
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    backgroundColor: "#F8FAF8",
+    borderWidth: 1,
+    borderColor: "rgba(39, 74, 42, 0.12)",
+  },
+  sourceModalItemType: {
+    fontSize: 10,
+    fontFamily: fonts.semiBold,
+    color: colors.textSecondary,
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
+    marginBottom: 4,
+  },
+  sourceModalItemLabel: {
+    fontSize: 14,
+    fontFamily: fonts.medium,
+    color: colors.text,
+    lineHeight: 20,
+    marginBottom: 6,
+  },
+  sourceModalExcerpt: {
+    fontSize: 12,
+    fontFamily: fonts.regular,
+    color: colors.textSecondary,
+    lineHeight: 17,
+  },
+  sourceModalEmpty: {
+    fontSize: 13,
+    fontFamily: fonts.regular,
+    color: colors.textSecondary,
+    lineHeight: 18,
+  },
+  sourceModalCloseBtn: {
+    marginTop: 14,
+    paddingVertical: 14,
+    borderRadius: 14,
+    backgroundColor: BRAND,
+    alignItems: "center",
+  },
+  sourceModalCloseBtnText: {
+    fontSize: 15,
+    fontFamily: fonts.semiBold,
+    color: "#FFFFFF",
   },
   diagramWrap: {
     marginBottom: 16,

@@ -49,6 +49,9 @@ export const ragTextbookChunksTable = ragPgSchema.table("rag_textbook_chunks", {
   pageEnd: integer("page_end"),
   isComplete: boolean("is_complete").notNull().default(true),
   content: text("content").notNull(),
+  sourceImageUrl: text("source_image_url"),
+  embedding: text("embedding"),
+  chunkKind: varchar("chunk_kind", { length: 32 }),
 });
 
 /** One row per official past paper (or trial paper) you ingest, grouped like rag_textbooks. */
@@ -84,6 +87,11 @@ export const ragPastPaperChunksTable = ragPgSchema.table("rag_past_paper_chunks"
   keywords: text("keywords"),
   maxMarks: integer("max_marks"),
   content: text("content").notNull(),
+  pageStart: integer("page_start"),
+  pageEnd: integer("page_end"),
+  sourceImageUrl: text("source_image_url"),
+  embedding: text("embedding"),
+  chunkKind: varchar("chunk_kind", { length: 32 }),
 });
 
 /**

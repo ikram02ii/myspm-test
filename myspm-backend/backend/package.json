@@ -13,6 +13,8 @@
     "ingest:textbook": "tsx ./scripts/ingestTextbook.ts",
     "ingest:past-paper": "tsx ./scripts/ingestPastPaper.ts",
     "ingest:past-paper-vision": "tsx ./scripts/ingestPastPaperVision.ts",
+    "ingest:pdf-hybrid": "tsx ./scripts/ingestPdfHybrid.ts",
+    "classify:pdf-pages": "tsx ./scripts/classifyPdfPages.ts",
     "ingest:past-paper-qa": "tsx ./scripts/ingestPastPaperQa.ts",
     "extract:pdf-text": "tsx ./scripts/extractPastPaperPdfText.ts",
     "typecheck:libs": "tsc -b tsconfig.workspace.json",
@@ -67,6 +69,9 @@
     "typescript": "~5.9.2"
   },
   "overrides": {
-    "@esbuild-kit/esm-loader": "npm:tsx@^4.21.0"
+    "@esbuild-kit/esm-loader": "npm:tsx@^4.21.0",
+    "pdf-parse": {
+      "pdfjs-dist": "5.7.284"
+    }
   }
 }
