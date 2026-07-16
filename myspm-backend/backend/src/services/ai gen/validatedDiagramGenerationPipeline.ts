@@ -99,13 +99,23 @@ export async function classifyDiagramNeedsAgent(params: {
   const system = [
     "You are agent 2 in an SPM question pipeline: diagram necessity classifier.",
     "Questions are already finalized. For EACH question decide if a black-and-white textbook diagram would help.",
+    "",
+    "CRITICAL — the diagram is a QUESTION STIMULUS, never an answer key:",
+    "- The diagram must show ONLY the given scenario, setup, apparatus, or structure the student is asked to READ or INTERPRET.",
+    "- NEVER draw, highlight, mark, point to, circle, or otherwise reveal the correct answer.",
+    "- Do NOT illustrate the thing the student must identify, name, choose, calculate, or predict.",
+    "- If the diagram itself would give away the answer (e.g. 'Which graph shows cooling?' or 'Identify the labelled organelle X'), set needDiagram=false.",
+    "- If the question already fully describes the answer in the stem, a diagram is redundant → needDiagram=false.",
+    "- Only set needDiagram=true when the diagram provides neutral context the student needs, WITHOUT resolving the question.",
+    "",
     'Return JSON only: {"plans":[{"questionIndex":1,"needDiagram":true|false,"imagePrompt":"..."}]}',
-    "imagePrompt: when needDiagram=true, one specific silent line-art prompt; else empty string.",
+    "imagePrompt: when needDiagram=true, one specific silent line-art prompt describing ONLY the neutral setup (no answer, no highlighted/labelled correct part); else empty string.",
   ].join("\n");
 
   const user = [
     `Subject: ${params.subject}`,
     `User topic request: ${params.query}`,
+    "Remember: draw only the given setup — the diagram must NOT reveal the correct answer.",
     `Questions:\n${JSON.stringify(catalog, null, 2)}`,
   ].join("\n\n");
 

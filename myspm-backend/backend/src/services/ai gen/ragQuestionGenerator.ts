@@ -111,10 +111,12 @@ function generalSyllabusSpreadReminder(query: string, hits: RetrievedChunk[]): s
   if (/focused on(?:\s+topic)?:/i.test(query)) return "";
   const chapters = [...new Set(hits.map((h) => h.chapter?.trim()).filter(Boolean))];
   if (chapters.length < 2) return "";
-  const preview = chapters.slice(0, 6).join("; ");
+  const preview = chapters.slice(0, 8).join("; ");
   return `
 
-General syllabus mode: excerpts span multiple chapters (${preview}). Spread questions across different chapters — do NOT write every Soalan from only one chapter. Use a different excerpt as the main basis for each question where possible.`;
+General syllabus mode: excerpts span ${chapters.length} different chapters (${preview}).
+Write exactly one question per excerpt where possible — each Soalan must use a DIFFERENT excerpt/chapter as its main basis.
+Do NOT write every Soalan from the same chapter or repeat the same concept (e.g. cell hierarchy, bar charts, voluntary action) across multiple questions.`;
 }
 
 export type RagQuestionGeneratorInput = {

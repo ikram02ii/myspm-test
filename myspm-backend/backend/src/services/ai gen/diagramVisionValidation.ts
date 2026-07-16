@@ -9,6 +9,13 @@ export type { TemperatureCurveDirection } from "./diagramValidatorSyllabusPrompt
 
 export { buildAgent4TextValidatorSystemPrompt } from "./diagramValidatorSyllabusPrompts";
 
+export type DiagramVisionValidationResult = {
+  relevant: boolean;
+  reason: string;
+  /** Better image prompt from the vision model when invalid; use for regenerate. */
+  newImagePrompt?: string;
+};
+
 function parseJsonObject(raw: string): Record<string, unknown> | null {
   const trimmed = raw.trim();
   const start = trimmed.indexOf("{");
@@ -35,8 +42,17 @@ export function inferTemperatureCurveDirection(stem: string): TemperatureCurveDi
 }
 
 /** Full vision validation prompt (exported for review / tests). */
-export function buildDiagramVisionCheckPrompt(subject: string, questionStem: string): string {
-  return buildDiagramVisionCheckPromptBody(subject, questionStem, inferTemperatureCurveDirection(questionStem));
+export function buildDiagramVisionCheckPrompt(
+  subject: string,
+  questionStem: string,
+  topicName?: string | null,
+): string {
+  return buildDiagramVisionCheckPromptBody(
+    subject,
+    questionStem,
+    inferTemperatureCurveDirection(questionStem),
+    topicName,
+  );
 }
 
 /** Short fix hint for image regeneration after vision rejection. */
@@ -64,12 +80,40 @@ export function buildDiagramVisionFixHint(subject: string, questionStem: string,
   return `Fix: ${reason}. Diagram must match the SPM syllabus topic in the question exactly.`;
 }
 
+function parseVisionDecision(decision: Record<string, unknown> | null, fallback: string): DiagramVisionValidationResult {
+  if (!decision) {
+    return { relevant: false, reason: fallback.slice(0, 120) };
+  }
+
+  const relevant =
+    decision.is_valid === true ||
+    decision.relevant === true ||
+    /^(true|yes|ya)$/i.test(String(decision.is_valid ?? decision.relevant ?? "").trim());
+
+  const reasonRaw =
+    (typeof decision.error_reason === "string" && decision.error_reason.trim()) ||
+    (typeof decision.reason === "string" && decision.reason.trim()) ||
+    fallback.slice(0, 120);
+
+  const newImagePrompt =
+    typeof decision.new_image_prompt === "string" && decision.new_image_prompt.trim()
+      ? decision.new_image_prompt.trim().slice(0, 500)
+      : undefined;
+
+  return {
+    relevant,
+    reason: reasonRaw,
+    newImagePrompt: relevant ? undefined : newImagePrompt,
+  };
+}
+
 /** Agent 4 vision step: does the generated image match the question stem? */
 export async function validateDiagramImageRelevance(params: {
   questionStem: string;
   imageUrl: string;
   subject: string;
-}): Promise<{ relevant: boolean; reason: string }> {
+  topicName?: string | null;
+}): Promise<DiagramVisionValidationResult> {
   const { apiKey, baseUrl } = resolveQwenVisionPair();
   const model = resolveVisionModel();
 
@@ -88,7 +132,7 @@ export async function validateDiagramImageRelevance(params: {
             { type: "image_url", image_url: { url: params.imageUrl } },
             {
               type: "text",
-              text: buildDiagramVisionCheckPrompt(params.subject, params.questionStem),
+              text: buildDiagramVisionCheckPrompt(params.subject, params.questionStem, params.topicName),
             },
           ],
         },
@@ -110,10 +154,5 @@ export async function validateDiagramImageRelevance(params: {
   const message = first?.message as Record<string, unknown> | undefined;
   const content = typeof message?.content === "string" ? message.content : "";
   const decision = parseJsonObject(content);
-  const relevant =
-    decision?.relevant === true || /^(true|yes|ya)$/i.test(String(decision?.relevant ?? "").trim());
-  return {
-    relevant,
-    reason: typeof decision?.reason === "string" ? decision.reason : content.slice(0, 120),
-  };
+  return parseVisionDecision(decision, content);
 }

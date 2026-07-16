@@ -221,13 +221,15 @@ export function buildEducationalDiagramPrompt(params: {
 
   if (params.imagePrompt?.trim()) {
     return (
-      `Silent monochrome textbook illustration. ${params.imagePrompt.trim()}. ` +
+      `Silent monochrome textbook illustration (question stimulus, not an answer key — never reveal, highlight, or mark the correct answer). ` +
+      `${params.imagePrompt.trim()}. ` +
       `Pure drawing with zero typography anywhere.`
     ).slice(0, 500);
   }
 
   return (
     `SPM Malaysian ${params.subject} textbook scientific illustration only. ${scene}. ` +
+    `This is a question stimulus, not an answer: show only the given setup and do NOT highlight, mark, circle, or reveal the correct answer/structure. ` +
     `Style: monochrome black ink line drawing on plain white background, clean textbook figure, high detail, ` +
     `uniform line weight, no colour fills, no shading gradients. ` +
     `Strictly no typography: no words, letters, numbers, labels, captions, titles, or arrows with text anywhere. ` +
@@ -943,11 +945,18 @@ async function generateEducationalDiagramWithVisionCheck(params: {
         reason: vision.reason,
       });
       if (attempt < 2) {
-        const fixHint = buildDiagramVisionFixHint(params.subject, params.questionStem, vision.reason);
-        prompt = (
-          `${params.imagePrompt}. Must illustrate this question only: ${stemSnippet}. ` +
-          `${fixHint} Black ink line art, no labels.`
-        ).slice(0, 500);
+        if (vision.newImagePrompt?.trim()) {
+          prompt = (
+            `Silent monochrome textbook illustration (question stimulus, not an answer key — never reveal the correct answer). ` +
+            `${vision.newImagePrompt.trim()}. Pure drawing with zero typography anywhere.`
+          ).slice(0, 500);
+        } else {
+          const fixHint = buildDiagramVisionFixHint(params.subject, params.questionStem, vision.reason);
+          prompt = (
+            `${params.imagePrompt}. Must illustrate this question only: ${stemSnippet}. ` +
+            `${fixHint} Black ink line art, no labels.`
+          ).slice(0, 500);
+        }
       }
     } catch (error) {
       console.warn("[educational-diagram] vision check error", {

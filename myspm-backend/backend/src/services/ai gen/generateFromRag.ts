@@ -16,7 +16,7 @@ import {
   isMcqGenerationQuery,
   isSubjectiveGenerationQuery,
 } from "../rag/retrieval/pastPaperMarksHints";
-import { retrieveChunks } from "../rag/retrieval/retrievalService";
+import { retrieveChunks, retrieveGeneralSyllabusChunks } from "../rag/retrieval/retrievalService";
 import type { RetrievedChunk } from "../rag/types";
 import { enrichMathAnswerWithSvg } from "./mathSvg";
 import { generateQuestionFromRagContext } from "./ragQuestionGenerator";
@@ -65,6 +65,20 @@ export function buildGenerationRetrievalQuery(
   return [subjectPart, formPart, "SPM exam soalan past year paper trial textbook syllabus"]
     .filter(Boolean)
     .join(" ");
+}
+
+/** Parse "Variation seed: abc-123" from mobile generation query. */
+export function parseVariationSeedFromQuery(query: string): string | undefined {
+  const m = query.match(/Variation\s*seed:\s*(\S+)/i);
+  return m?.[1]?.trim() || undefined;
+}
+
+/** Parse "Generate 5 SPM ..." so retrieval can fetch at least one chunk per question. */
+export function parseQuestionCountFromQuery(query: string): number | undefined {
+  const m = query.match(/Generate\s+(\d+)\s+SPM/i);
+  if (!m) return undefined;
+  const n = Number(m[1]);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : undefined;
 }
 
 export type GenerateRagResult = {
@@ -607,27 +621,47 @@ async function packageGeneratedAnswer(
 export async function generateWithRag(
   input: GenerateRagInput,
 ): Promise<GenerateRagResult> {
-  const topK = input.topK ?? 8;
+  const questionCount = parseQuestionCountFromQuery(input.query);
+  const topK = Math.max(input.topK ?? 8, questionCount ?? 0);
+  const variationSeed = parseVariationSeedFromQuery(input.query);
+  const hasChapterFilter = Boolean(input.chapterFilter?.trim());
+  const hasChapterHint = Boolean(input.chapterHint?.trim());
+  const hasExplicitTopic = /focused on(?:\s+topic)?:\s*\S/i.test(input.query);
+  const generalSyllabusMode = !hasChapterFilter && !hasChapterHint && !hasExplicitTopic;
+
   const retrievalQuery = buildGenerationRetrievalQuery(
     input.query,
     input.subject,
     input.form,
     input.chapterHint,
   );
-  const retrieval = await retrieveChunks({
-    query: retrievalQuery,
-    subject: input.subject ?? undefined,
-    form: input.form ?? undefined,
-    chapterHint: input.chapterHint ?? undefined,
-    chapterFilter: input.chapterFilter ?? undefined,
-    topK,
-  });
+
+  // General (no-topic) mode: sample chunks spread across DIFFERENT chapters,
+  // randomized each call. Keyword search with a generic query keeps hitting the
+  // same few chunks, so every generated set ends up identical with the same source.
+  const retrieval = generalSyllabusMode
+    ? await retrieveGeneralSyllabusChunks({
+        subject: input.subject ?? undefined,
+        form: input.form ?? undefined,
+        topK,
+        variationSeed,
+      })
+    : await retrieveChunks({
+        query: retrievalQuery,
+        subject: input.subject ?? undefined,
+        form: input.form ?? undefined,
+        chapterHint: input.chapterHint ?? undefined,
+        chapterFilter: input.chapterFilter ?? undefined,
+        topK,
+      });
   const hits = retrieval.chunks;
   console.info("[rag/generate] retrieval", {
     subject: input.subject ?? null,
+    mode: generalSyllabusMode ? "general-sample" : "keyword",
     hitCount: hits.length,
     pastPaperHits: hits.filter((h) => h.sourceType === "past_paper").length,
-    retrievalQuery: retrievalQuery.slice(0, 160),
+    chapters: [...new Set(hits.map((h) => h.chapter ?? "(none)"))].slice(0, 10),
+    retrievalQuery: generalSyllabusMode ? "general-sample" : retrievalQuery.slice(0, 160),
   });
 
   if (hits.length === 0) {
