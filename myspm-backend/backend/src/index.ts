@@ -12,10 +12,7 @@ if (dotenvResult.error) {
 
 const { default: app } = await import("./app");
 const { pool } = await import("@workspace/db");
-const { ragPool, isRagDatabaseConfigured, ragDatabaseSourceLabel, ragDatabaseTarget } = await import(
-  "./lib/ragDb"
-);
-const { getRagPgSchemaName } = await import("./lib/ragSchema");
+const { ragPool } = await import("./lib/ragDb");
 const { ensureRagSchema } = await import("./database/initRagDatabase");
 
 const rawPort = process.env["PORT"];
@@ -40,37 +37,13 @@ try {
   throw error;
 }
 
-const ragDbOptional = process.env["RAG_DB_OPTIONAL"] === "true";
-if (isRagDatabaseConfigured() && ragPool) {
-  try {
-    await ragPool.query("SELECT 1");
-    await ensureRagSchema();
-    const ragTarget = ragDatabaseTarget();
-    const ragTargetLabel = ragTarget
-      ? `${ragTarget.host}:${ragTarget.port}/${ragTarget.database}`
-      : "unknown";
-    console.info(
-      `RAG database connected (via ${ragDatabaseSourceLabel()}) → ${ragTargetLabel} schema=${getRagPgSchemaName()}`,
-    );
-  } catch (error) {
-    if (ragDbOptional) {
-      console.warn(
-        "RAG database unavailable — continuing without it. " +
-          "Textbook/RAG generate needs DATABASE_URL or RAG_DATABASE_URL with rag_* tables present.",
-      );
-    } else {
-      console.error("RAG database connection failed:", error);
-      throw error;
-    }
-  }
-} else if (ragDbOptional) {
-  console.info(
-    "RAG database not configured — skipping. Set DATABASE_URL or RAG_DATABASE_URL in .env to enable textbook/RAG features.",
-  );
-} else {
-  throw new Error(
-    "RAG database is required. Set DATABASE_URL or RAG_DATABASE_URL in .env, or set RAG_DB_OPTIONAL=true for dev.",
-  );
+try {
+  await ragPool.query("SELECT 1");
+  await ensureRagSchema();
+  console.info("RAG database connected");
+} catch (error) {
+  console.error("RAG database connection failed:", error);
+  throw error;
 }
 
 const server = app.listen(port, () => {
@@ -87,13 +60,6 @@ process.on("uncaughtException", (error) => {
   process.exit(1);
 });
 
-server.on("error", (error: NodeJS.ErrnoException) => {
-  if (error.code === "EADDRINUSE") {
-    console.error(
-      `Port ${port} is already in use. Stop the other process (e.g. taskkill /PID <pid> /F) or change PORT in .env.`,
-    );
-    process.exit(1);
-  }
+server.on("error", (error) => {
   console.error("Server error:", error);
-  process.exit(1);
 });

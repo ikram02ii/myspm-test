@@ -1,7 +1,32 @@
 /**
- * Shared mandatory examiner phrasing for all LLM marking prompts.
+ * Shared mandatory / strict phrasing for all LLM prompts (generation, grading, feedback).
  * Prepended so softer policy blocks cannot override these rules.
  */
+
+export const STRICT_PROMPT_COMPLIANCE_HEADER = [
+  "STRICT COMPLIANCE (binding — overrides any softer wording in this prompt):",
+  "- You MUST treat every instruction below as compulsory, not advisory.",
+  "- You MUST NOT ignore, soften, or reinterpret any MUST / NEVER / MANDATORY rule.",
+  "- Violation of format, mark-scheme, or evidence rules is an invalid response.",
+].join("\n");
+
+export const GENERATION_MANDATORY_LANGUAGE_HEADER = [
+  "MANDATORY GENERATION RULES (binding):",
+  "- You MUST output ONLY the requested exam blocks — no preamble, apology, or meta-commentary.",
+  "- You MUST follow the exact layout template — every required label and section is compulsory.",
+  "- You MUST NOT invent marks, marking points, or requirements beyond the rules given.",
+  "- You MUST NOT copy long passages verbatim from context; paraphrase into original stems.",
+  "- Markah MUST equal the count of distinct, non-redundant marking points — NEVER inflate.",
+].join("\n");
+
+export const FEEDBACK_MANDATORY_LANGUAGE_HEADER = [
+  "MANDATORY FEEDBACK RULES (binding):",
+  "- You MUST evaluate the student ONLY against the binding marking points provided.",
+  "- You MUST NOT penalize or criticize a missing idea unless it is an explicit unawarded marking point.",
+  "- You MUST NOT import requirements from the model answer, textbook, or stem beyond those marking points.",
+  "- strengths[] MUST mirror awarded marking points only; improvements[] MUST mirror unawarded marking points only.",
+  "- If score = maxScore, improvements MUST be [].",
+].join("\n");
 
 export const MARKING_MANDATORY_LANGUAGE_HEADER = [
   "MANDATORY EXAMINER RULES (binding — override any softer wording elsewhere in this prompt):",
@@ -55,8 +80,42 @@ export const CONCEPT_ANCHORED_MARKING_BLOCK = [
   "- For open_pool rows: award when the student names any valid syllabus-level member of the category, even if not listed in validMembers.",
 ].join("\n");
 
-export function withMandatoryMarkingLanguage(systemPrompt: string): string {
+function alreadyHasStrictHeader(prompt: string): boolean {
+  return /STRICT COMPLIANCE|MANDATORY EXAMINER RULES|MANDATORY GENERATION RULES/i.test(prompt);
+}
+
+export function withStrictComplianceLanguage(systemPrompt: string): string {
+  if (alreadyHasStrictHeader(systemPrompt)) return systemPrompt;
+  return [STRICT_PROMPT_COMPLIANCE_HEADER, "", systemPrompt].join("\n");
+}
+
+export function withStrictGenerationLanguage(systemPrompt: string): string {
+  if (/MANDATORY GENERATION RULES/i.test(systemPrompt)) return systemPrompt;
   return [
+    STRICT_PROMPT_COMPLIANCE_HEADER,
+    "",
+    GENERATION_MANDATORY_LANGUAGE_HEADER,
+    "",
+    systemPrompt,
+  ].join("\n");
+}
+
+export function withStrictFeedbackLanguage(systemPrompt: string): string {
+  if (/MANDATORY FEEDBACK RULES/i.test(systemPrompt)) return systemPrompt;
+  return [
+    STRICT_PROMPT_COMPLIANCE_HEADER,
+    "",
+    FEEDBACK_MANDATORY_LANGUAGE_HEADER,
+    "",
+    systemPrompt,
+  ].join("\n");
+}
+
+export function withMandatoryMarkingLanguage(systemPrompt: string): string {
+  if (/MANDATORY EXAMINER RULES/i.test(systemPrompt)) return systemPrompt;
+  return [
+    STRICT_PROMPT_COMPLIANCE_HEADER,
+    "",
     MARKING_MANDATORY_LANGUAGE_HEADER,
     "",
     MARKING_PER_TYPE_MANDATORY_RULES,

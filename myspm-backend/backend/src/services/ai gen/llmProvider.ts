@@ -1,4 +1,5 @@
 import { embedTexts as embedTextsViaQwen } from "../ama/retrieval/embeddingsService";
+import { isSubjectiveGenerationQuery } from "../ama/retrieval/pastPaperMarksHints";
 
 type ChatMessage = {
   role: "system" | "user" | "assistant";
@@ -8,27 +9,20 @@ type ChatMessage = {
 type ChatOpts = {
   subject?: string | null;
   query?: string;
-  /** Use the same model as grading (QWEN_GRADING_MODEL) — avoids RAG_MODEL_* the key may not access. */
-  preferGradingModel?: boolean;
 };
 
-function isAccessDeniedError(message: string): boolean {
-  return /access\s*denied|accessdenied|permission|forbidden|not\s+authorized|invalidapikey/i.test(
-    message,
-  );
-}
-
-export type LlmProvider = "auto" | "dashscope";
+export type LlmProvider = "auto" | "dashscope" | "gemini";
 
 function normalizeProvider(v: string | undefined): LlmProvider {
   const raw = (v ?? "auto").trim().toLowerCase();
-  if (raw === "dashscope" || raw === "auto") return raw;
+  if (raw === "dashscope" || raw === "gemini" || raw === "auto") return raw;
   return "auto";
 }
 
-export function resolveLlmProvider(): "dashscope" {
+export function resolveLlmProvider(): Exclude<LlmProvider, "auto"> {
   const configured = normalizeProvider(process.env.RAG_LLM_PROVIDER);
-  if (configured === "dashscope") return configured;
+  if (configured === "dashscope" || configured === "gemini") return configured;
+  if ((process.env.GEMINI_API_KEY?.trim() ?? "").length > 0) return "gemini";
   return "dashscope";
 }
 
@@ -58,40 +52,12 @@ export async function chatCompletion(
     process.env["ALIBABA_LLM_API_BASE_URL"]?.trim() ||
     ""
   ).replace(/\/+$/, "");
+  const model = resolveChatModel(opts);
 
   if (!baseUrl) {
     throw new Error("Set ALIBABA_LLM_API_BASE_URL, QWEN_GRADING_BASE_URL, or QWEN_OCR_BASE_URL in backend/.env");
   }
 
-  const candidates = resolveChatModelCandidates(opts);
-  let lastError = "Qwen chat failed";
-
-  for (const model of candidates) {
-    try {
-      return await chatCompletionWithModel(baseUrl, apiKey, model, messages);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      lastError = message;
-      if (!isAccessDeniedError(message)) {
-        throw err;
-      }
-      console.warn(`[llm] model "${model}" access denied — trying fallback`);
-    }
-  }
-
-  throw new Error(
-    `${lastError} (tried: ${candidates.join(", ")}). ` +
-      "Use a model your DashScope key can access (e.g. qwen-plus or qwen-max on the intl compatible-mode URL), " +
-      "or set RAG_MODEL_LANGUAGE_KBAT to match QWEN_GRADING_MODEL.",
-  );
-}
-
-async function chatCompletionWithModel(
-  baseUrl: string,
-  apiKey: string,
-  model: string,
-  messages: ChatMessage[],
-): Promise<string> {
   const response = await fetch(`${baseUrl}/chat/completions`, {
     method: "POST",
     headers: {
@@ -127,19 +93,10 @@ async function chatCompletionWithModel(
 }
 
 function resolveChatModel(opts?: ChatOpts): string {
-  return resolveChatModelCandidates(opts)[0] ?? "qwen-plus";
-}
-
-/** Ordered list: primary first, then fallbacks when DashScope returns Access denied. */
-function resolveChatModelCandidates(opts?: ChatOpts): string[] {
-  const gradingModel =
+  const explicitModel =
     process.env["QWEN_GRADING_MODEL"]?.trim() ||
     process.env["QWEN_MODEL"]?.trim() ||
     process.env["ALIBABA_LLM_API_MODEL"]?.trim();
-
-  if (opts?.preferGradingModel && gradingModel) {
-    return uniqueModels([gradingModel, "qwen-plus", "qwen-turbo"]);
-  }
 
   const subject = opts?.subject?.trim().toLowerCase() ?? "";
   const query = opts?.query?.trim().toLowerCase() ?? "";
@@ -153,44 +110,33 @@ function resolveChatModelCandidates(opts?: ChatOpts): string[] {
     "chemistry",
     "science",
   ]);
+  const sejarahSubjects = new Set([
+    "sejarah",
+    "history",
+    "pendidikan islam",
+    "pendidikan moral",
+  ]);
   const languageSubjects = new Set(["bm", "bahasa melayu", "english", "chinese"]);
-  const wantsKbat = /\bkbat\b|essay|karangan|subjective|open[- ]ended/.test(query);
+  // KBAT/essay model is for BM/English/Chinese only. Subjective prompts for other subjects
+  // still contain "KBAT/HOTS" in variation boilerplate — do not route those to the KBAT model.
+  const wantsKbatModel =
+    languageSubjects.has(subject) &&
+    (isSubjectiveGenerationQuery(query) ||
+      /\bessay\b|karangan|open[- ]ended/.test(query));
 
   if (mathScienceSubjects.has(subject)) {
-    return uniqueModels([
-      process.env["RAG_MODEL_MATH_SCIENCE"]?.trim(),
-      gradingModel,
-      "qwen-plus",
-    ]);
+    return process.env["RAG_MODEL_MATH_SCIENCE"]?.trim() || explicitModel || "qwen-plus";
   }
 
-  if (languageSubjects.has(subject) || wantsKbat) {
-    // Prefer QWEN_GRADING_MODEL (same as marking agent); RAG_MODEL_LANGUAGE_KBAT often lacks API access.
-    return uniqueModels([
-      gradingModel,
-      process.env["RAG_MODEL_LANGUAGE_KBAT"]?.trim(),
-      "qwen-plus",
-      "qwen-turbo",
-    ]);
+  if (sejarahSubjects.has(subject)) {
+    return process.env["RAG_MODEL_SEJARAH"]?.trim() || "qwen-plus";
   }
 
-  return uniqueModels([
-    process.env["RAG_MODEL_GENERAL"]?.trim(),
-    gradingModel,
-    "qwen-plus",
-  ]);
-}
-
-function uniqueModels(models: Array<string | undefined>): string[] {
-  const out: string[] = [];
-  const seen = new Set<string>();
-  for (const m of models) {
-    const t = m?.trim();
-    if (!t || seen.has(t)) continue;
-    seen.add(t);
-    out.push(t);
+  if (wantsKbatModel) {
+    return process.env["RAG_MODEL_LANGUAGE_KBAT"]?.trim() || explicitModel || "qwen-plus";
   }
-  return out;
+
+  return process.env["RAG_MODEL_GENERAL"]?.trim() || explicitModel || "qwen-plus";
 }
 
 export type GenerateImageOptions = {
@@ -216,7 +162,17 @@ const DASHSCOPE_NATIVE_IMAGE_ENDPOINT =
 
 function resolveImageEndpoint(): string {
   const explicit = process.env["RAG_IMAGE_ENDPOINT"]?.trim();
-  if (explicit) return explicit.replace(/\/+$/, "");
+  if (explicit) {
+    const endpoint = explicit.replace(/\/+$/, "");
+    // OpenAI-compatible /images/generations does not host qwen-image-2.0 — use native API.
+    if (usesOpenAiImageFormat(endpoint) && /qwen-image/i.test(resolveImageModel())) {
+      console.warn(
+        "[llmProvider] RAG_IMAGE_ENDPOINT uses OpenAI images format; qwen-image needs native DashScope endpoint.",
+      );
+      return DASHSCOPE_NATIVE_IMAGE_ENDPOINT;
+    }
+    return endpoint;
+  }
   return DASHSCOPE_NATIVE_IMAGE_ENDPOINT;
 }
 

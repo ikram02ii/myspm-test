@@ -1,0 +1,812 @@
+{
+  "meta": {
+    "subject": "Physics",
+    "form": "Form 4",
+    "chapter": "Chapter 1: Measurement",
+    "chapterTopics": [
+      "1.1 Physical Quantities (base, derived, SI units, prefixes, scalar, vector)",
+      "1.2 Scientific Investigation (variables, graphs, inference, hypothesis)"
+    ],
+    "purpose": "Accuracy benchmark for theory marking points, scores, and model-answer cards",
+    "questionCount": 30
+  },
+  "questions": [
+    {
+      "id": "P4C1-01",
+      "topic": "base_quantity",
+      "maxScore": 2,
+      "question": "Define base quantity and give three examples. (2 marks)",
+      "expectedMarkingPoints": [
+        "Base quantity cannot be defined/derived from other physical quantities",
+        "Any three valid examples (e.g. length, mass, time, current, temperature, luminous intensity, amount of substance)"
+      ],
+      "trials": [
+        {
+          "id": "full",
+          "studentAnswer": "A base quantity is a physical quantity that cannot be derived from other physical quantities. Examples are length, mass and time.",
+          "expectedScore": 2
+        },
+        {
+          "id": "partial",
+          "studentAnswer": "Length, mass and time are base quantities.",
+          "expectedScore": 1
+        },
+        {
+          "id": "junk",
+          "studentAnswer": "8",
+          "expectedScore": 0
+        }
+      ]
+    },
+    {
+      "id": "P4C1-02",
+      "topic": "derived_quantity",
+      "maxScore": 2,
+      "question": "Define derived quantity and give two examples. (2 marks)",
+      "expectedMarkingPoints": [
+        "Derived quantity is obtained from combinations of base quantities by multiplication and/or division",
+        "Two valid examples (e.g. speed, density, force, area, volume, acceleration)"
+      ],
+      "trials": [
+        {
+          "id": "full",
+          "studentAnswer": "A derived quantity is a physical quantity that is derived from base quantities by multiplication or division. Examples are speed and density.",
+          "expectedScore": 2
+        },
+        {
+          "id": "partial",
+          "studentAnswer": "Speed and force are derived quantities.",
+          "expectedScore": 1
+        },
+        {
+          "id": "wrong",
+          "studentAnswer": "Derived quantity is the same as base quantity like mass.",
+          "expectedScore": 0
+        }
+      ]
+    },
+    {
+      "id": "P4C1-03",
+      "topic": "physical_quantity",
+      "maxScore": 1,
+      "question": "What is meant by a physical quantity? (1 mark)",
+      "expectedMarkingPoints": [
+        "A quantity that can be measured (and stated with magnitude and unit)"
+      ],
+      "trials": [
+        {
+          "id": "full",
+          "studentAnswer": "A physical quantity is a quantity that can be measured.",
+          "expectedScore": 1
+        },
+        {
+          "id": "junk",
+          "studentAnswer": "idk",
+          "expectedScore": 0
+        }
+      ]
+    },
+    {
+      "id": "P4C1-04",
+      "topic": "si_units_base",
+      "maxScore": 2,
+      "question": "State the SI units for mass and electric current. (2 marks)",
+      "expectedMarkingPoints": [
+        "Mass: kilogram (kg)",
+        "Electric current: ampere (A)"
+      ],
+      "trials": [
+        {
+          "id": "full",
+          "studentAnswer": "Mass is measured in kilogram, kg. Electric current is measured in ampere, A.",
+          "expectedScore": 2
+        },
+        {
+          "id": "partial",
+          "studentAnswer": "Mass is in kg.",
+          "expectedScore": 1
+        },
+        {
+          "id": "wrong",
+          "studentAnswer": "Mass is in grams and current is in volts.",
+          "expectedScore": 0
+        }
+      ]
+    },
+    {
+      "id": "P4C1-05",
+      "topic": "seven_base",
+      "maxScore": 3,
+      "question": "List three base quantities and their SI units. (3 marks)",
+      "expectedMarkingPoints": [
+        "One correct base quantity with SI unit",
+        "Second correct base quantity with SI unit",
+        "Third correct base quantity with SI unit"
+      ],
+      "trials": [
+        {
+          "id": "full",
+          "studentAnswer": "Length — metre (m); Mass — kilogram (kg); Time — second (s).",
+          "expectedScore": 3
+        },
+        {
+          "id": "partial",
+          "studentAnswer": "Length — metre. Mass — kilogram.",
+          "expectedScore": 2
+        },
+        {
+          "id": "wrong",
+          "studentAnswer": "Speed — m/s; Force — N; Energy — J.",
+          "expectedScore": 0
+        }
+      ]
+    },
+    {
+      "id": "P4C1-06",
+      "topic": "scalar_vector",
+      "maxScore": 2,
+      "question": "Differentiate between a scalar quantity and a vector quantity. (2 marks)",
+      "expectedMarkingPoints": [
+        "Scalar has magnitude only",
+        "Vector has magnitude and direction"
+      ],
+      "trials": [
+        {
+          "id": "full",
+          "studentAnswer": "A scalar quantity has magnitude only while a vector quantity has both magnitude and direction.",
+          "expectedScore": 2
+        },
+        {
+          "id": "partial",
+          "studentAnswer": "Vector has magnitude and direction.",
+          "expectedScore": 1
+        },
+        {
+          "id": "junk",
+          "studentAnswer": "???",
+          "expectedScore": 0
+        }
+      ]
+    },
+    {
+      "id": "P4C1-07",
+      "topic": "scalar_examples",
+      "maxScore": 2,
+      "question": "State two examples of scalar quantities. (2 marks)",
+      "expectedMarkingPoints": [
+        "One valid scalar example (e.g. mass, time, distance, speed, energy, temperature)",
+        "Second valid scalar example"
+      ],
+      "trials": [
+        {
+          "id": "full",
+          "studentAnswer": "Mass and time.",
+          "expectedScore": 2
+        },
+        {
+          "id": "partial",
+          "studentAnswer": "Mass.",
+          "expectedScore": 1
+        },
+        {
+          "id": "wrong",
+          "studentAnswer": "Force and velocity.",
+          "expectedScore": 0
+        }
+      ]
+    },
+    {
+      "id": "P4C1-08",
+      "topic": "vector_examples",
+      "maxScore": 2,
+      "question": "State two examples of vector quantities. (2 marks)",
+      "expectedMarkingPoints": [
+        "One valid vector example (e.g. displacement, velocity, force, acceleration, weight, momentum)",
+        "Second valid vector example"
+      ],
+      "trials": [
+        {
+          "id": "full",
+          "studentAnswer": "Force and velocity.",
+          "expectedScore": 2
+        },
+        {
+          "id": "partial",
+          "studentAnswer": "Force.",
+          "expectedScore": 1
+        },
+        {
+          "id": "wrong",
+          "studentAnswer": "Mass and energy.",
+          "expectedScore": 0
+        }
+      ]
+    },
+    {
+      "id": "P4C1-09",
+      "topic": "distance_displacement",
+      "maxScore": 2,
+      "question": "Explain the difference between distance and displacement. (2 marks)",
+      "expectedMarkingPoints": [
+        "Distance is the total length of path travelled (scalar)",
+        "Displacement is the shortest length from initial to final position in a stated direction (vector)"
+      ],
+      "trials": [
+        {
+          "id": "full",
+          "studentAnswer": "Distance is the total length of the path travelled and is a scalar. Displacement is the shortest distance from start to end point in a given direction and is a vector.",
+          "expectedScore": 2
+        },
+        {
+          "id": "partial",
+          "studentAnswer": "Displacement has direction but distance does not.",
+          "expectedScore": 1
+        },
+        {
+          "id": "wrong",
+          "studentAnswer": "Distance and displacement are the same thing.",
+          "expectedScore": 0
+        }
+      ]
+    },
+    {
+      "id": "P4C1-10",
+      "topic": "speed_velocity",
+      "maxScore": 2,
+      "question": "Differentiate between speed and velocity. (2 marks)",
+      "expectedMarkingPoints": [
+        "Speed is rate of change of distance (scalar / magnitude only)",
+        "Velocity is rate of change of displacement (vector / has direction)"
+      ],
+      "trials": [
+        {
+          "id": "full",
+          "studentAnswer": "Speed is the rate of change of distance and is a scalar quantity. Velocity is the rate of change of displacement and is a vector quantity.",
+          "expectedScore": 2
+        },
+        {
+          "id": "partial",
+          "studentAnswer": "Velocity has direction but speed does not.",
+          "expectedScore": 1
+        },
+        {
+          "id": "junk",
+          "studentAnswer": "asdf",
+          "expectedScore": 0
+        }
+      ]
+    },
+    {
+      "id": "P4C1-11",
+      "topic": "density_base_units",
+      "maxScore": 2,
+      "question": "Density is a derived quantity. Express density in terms of base quantities and state its SI unit in base units. (2 marks)",
+      "expectedMarkingPoints": [
+        "Density = mass / volume (or mass / length³)",
+        "SI base unit: kg m⁻³"
+      ],
+      "trials": [
+        {
+          "id": "full",
+          "studentAnswer": "Density equals mass divided by volume, so in base quantities it is mass per length cubed. Its SI unit is kg m⁻³.",
+          "expectedScore": 2
+        },
+        {
+          "id": "partial",
+          "studentAnswer": "Density = mass / volume.",
+          "expectedScore": 1
+        },
+        {
+          "id": "wrong",
+          "studentAnswer": "Density unit is g/cm³ only.",
+          "expectedScore": 0
+        }
+      ]
+    },
+    {
+      "id": "P4C1-12",
+      "topic": "acceleration_base",
+      "maxScore": 2,
+      "question": "Show that the SI unit of acceleration can be written as m s⁻² in terms of base units. (2 marks)",
+      "expectedMarkingPoints": [
+        "Acceleration = change in velocity / time (or displacement/time²)",
+        "Unit becomes m s⁻¹ / s = m s⁻²"
+      ],
+      "trials": [
+        {
+          "id": "full",
+          "studentAnswer": "Acceleration is change of velocity divided by time. Velocity unit is m s⁻¹, so acceleration unit is m s⁻¹ divided by s, which is m s⁻².",
+          "expectedScore": 2
+        },
+        {
+          "id": "partial",
+          "studentAnswer": "Acceleration unit is m/s².",
+          "expectedScore": 1
+        },
+        {
+          "id": "wrong",
+          "studentAnswer": "Acceleration unit is m/s.",
+          "expectedScore": 0
+        }
+      ]
+    },
+    {
+      "id": "P4C1-13",
+      "topic": "prefixes",
+      "maxScore": 2,
+      "question": "State the values of the prefixes milli and kilo in powers of ten. (2 marks)",
+      "expectedMarkingPoints": [
+        "milli = 10⁻³",
+        "kilo = 10³"
+      ],
+      "trials": [
+        {
+          "id": "full",
+          "studentAnswer": "Milli means 10⁻³ and kilo means 10³.",
+          "expectedScore": 2
+        },
+        {
+          "id": "partial",
+          "studentAnswer": "Kilo is 1000 or 10³.",
+          "expectedScore": 1
+        },
+        {
+          "id": "wrong",
+          "studentAnswer": "Milli is 10⁶ and kilo is 10⁻³.",
+          "expectedScore": 0
+        }
+      ]
+    },
+    {
+      "id": "P4C1-14",
+      "topic": "prefixes_convert",
+      "maxScore": 2,
+      "question": "Convert 5.0 km to metres and 250 ms to seconds. (2 marks)",
+      "expectedMarkingPoints": [
+        "5.0 km = 5000 m (or 5.0 × 10³ m)",
+        "250 ms = 0.25 s (or 2.5 × 10⁻¹ s)"
+      ],
+      "trials": [
+        {
+          "id": "full",
+          "studentAnswer": "5.0 km = 5000 m. 250 ms = 0.25 s.",
+          "expectedScore": 2
+        },
+        {
+          "id": "partial",
+          "studentAnswer": "5 km = 5000 m.",
+          "expectedScore": 1
+        },
+        {
+          "id": "wrong",
+          "studentAnswer": "5 km = 5 m and 250 ms = 250 s.",
+          "expectedScore": 0
+        }
+      ]
+    },
+    {
+      "id": "P4C1-15",
+      "topic": "scientific_notation",
+      "maxScore": 1,
+      "question": "Express 0.00045 in scientific notation. (1 mark)",
+      "expectedMarkingPoints": [
+        "4.5 × 10⁻⁴"
+      ],
+      "trials": [
+        {
+          "id": "full",
+          "studentAnswer": "4.5 × 10⁻⁴",
+          "expectedScore": 1
+        },
+        {
+          "id": "wrong",
+          "studentAnswer": "4.5 × 10⁴",
+          "expectedScore": 0
+        }
+      ]
+    },
+    {
+      "id": "P4C1-16",
+      "topic": "measurement_statement",
+      "maxScore": 2,
+      "question": "Explain why a physical quantity must be stated with a magnitude and a unit. (2 marks)",
+      "expectedMarkingPoints": [
+        "Magnitude gives the numerical value of the measurement",
+        "Unit tells the standard used so the value is meaningful / comparable"
+      ],
+      "trials": [
+        {
+          "id": "full",
+          "studentAnswer": "The magnitude gives the numerical value of the quantity. The unit shows the standard of measurement so that the value has clear meaning and can be compared.",
+          "expectedScore": 2
+        },
+        {
+          "id": "partial",
+          "studentAnswer": "Without a unit we do not know what the number means.",
+          "expectedScore": 1
+        },
+        {
+          "id": "junk",
+          "studentAnswer": "ok",
+          "expectedScore": 0
+        }
+      ]
+    },
+    {
+      "id": "P4C1-17",
+      "topic": "weight_vs_mass",
+      "maxScore": 2,
+      "question": "State one difference between mass and weight. (2 marks)",
+      "expectedMarkingPoints": [
+        "Mass is amount of matter / scalar / SI unit kg",
+        "Weight is gravitational force / vector / SI unit N (or depends on gravity)"
+      ],
+      "trials": [
+        {
+          "id": "full",
+          "studentAnswer": "Mass is the amount of matter in a body and is a scalar measured in kg. Weight is the gravitational force acting on the body and is a vector measured in newtons.",
+          "expectedScore": 2
+        },
+        {
+          "id": "partial",
+          "studentAnswer": "Weight is a force but mass is not.",
+          "expectedScore": 1
+        },
+        {
+          "id": "wrong",
+          "studentAnswer": "Mass and weight are the same and both use kg.",
+          "expectedScore": 0
+        }
+      ]
+    },
+    {
+      "id": "P4C1-18",
+      "topic": "force_base_units",
+      "maxScore": 2,
+      "question": "Force has SI unit newton (N). Express the newton in base SI units. (2 marks)",
+      "expectedMarkingPoints": [
+        "F = ma (or force related to mass × acceleration)",
+        "1 N = kg m s⁻²"
+      ],
+      "trials": [
+        {
+          "id": "full",
+          "studentAnswer": "From F = ma, newton is kilogram times metre per second squared, so 1 N = kg m s⁻².",
+          "expectedScore": 2
+        },
+        {
+          "id": "partial",
+          "studentAnswer": "Newton is kg m s⁻².",
+          "expectedScore": 1
+        },
+        {
+          "id": "wrong",
+          "studentAnswer": "Newton is the same as kg.",
+          "expectedScore": 0
+        }
+      ]
+    },
+    {
+      "id": "P4C1-19",
+      "topic": "variables",
+      "maxScore": 3,
+      "question": "In a scientific investigation, state the meaning of manipulated variable, responding variable and fixed variable. (3 marks)",
+      "expectedMarkingPoints": [
+        "Manipulated (independent) variable is changed by the investigator",
+        "Responding (dependent) variable is measured / changes due to manipulation",
+        "Fixed (controlled) variable is kept constant"
+      ],
+      "trials": [
+        {
+          "id": "full",
+          "studentAnswer": "Manipulated variable is the variable that is deliberately changed. Responding variable is the variable that is measured. Fixed variable is kept constant throughout the experiment.",
+          "expectedScore": 3
+        },
+        {
+          "id": "partial",
+          "studentAnswer": "Manipulated variable is changed by us. Responding variable is measured.",
+          "expectedScore": 2
+        },
+        {
+          "id": "wrong",
+          "studentAnswer": "All variables must change together.",
+          "expectedScore": 0
+        }
+      ]
+    },
+    {
+      "id": "P4C1-20",
+      "topic": "inference_hypothesis",
+      "maxScore": 2,
+      "question": "Differentiate between an inference and a hypothesis in a scientific investigation. (2 marks)",
+      "expectedMarkingPoints": [
+        "Inference is an early explanation based on observation",
+        "Hypothesis is a testable statement relating manipulated and responding variables"
+      ],
+      "trials": [
+        {
+          "id": "full",
+          "studentAnswer": "An inference is a preliminary explanation made from observations. A hypothesis is a testable statement that relates the manipulated variable to the responding variable.",
+          "expectedScore": 2
+        },
+        {
+          "id": "partial",
+          "studentAnswer": "A hypothesis can be tested in an experiment.",
+          "expectedScore": 1
+        },
+        {
+          "id": "junk",
+          "studentAnswer": "8",
+          "expectedScore": 0
+        }
+      ]
+    },
+    {
+      "id": "P4C1-21",
+      "topic": "graph_linear",
+      "maxScore": 2,
+      "question": "A graph of y against x is a straight line through the origin. State the relationship between y and x and write the equation relating them. (2 marks)",
+      "expectedMarkingPoints": [
+        "y is directly proportional to x (y ∝ x)",
+        "y = mx (or y = kx)"
+      ],
+      "trials": [
+        {
+          "id": "full",
+          "studentAnswer": "y is directly proportional to x. The equation is y = mx where m is the gradient.",
+          "expectedScore": 2
+        },
+        {
+          "id": "partial",
+          "studentAnswer": "y is directly proportional to x.",
+          "expectedScore": 1
+        },
+        {
+          "id": "wrong",
+          "studentAnswer": "y is inversely proportional to x so y = m/x.",
+          "expectedScore": 0
+        }
+      ]
+    },
+    {
+      "id": "P4C1-22",
+      "topic": "graph_inverse",
+      "maxScore": 2,
+      "question": "A graph of y against 1/x is a straight line through the origin. State the relationship between y and x. (2 marks)",
+      "expectedMarkingPoints": [
+        "y is directly proportional to 1/x (or y ∝ 1/x)",
+        "Therefore y is inversely proportional to x"
+      ],
+      "trials": [
+        {
+          "id": "full",
+          "studentAnswer": "y is directly proportional to 1/x, so y is inversely proportional to x.",
+          "expectedScore": 2
+        },
+        {
+          "id": "partial",
+          "studentAnswer": "y is inversely proportional to x.",
+          "expectedScore": 1
+        },
+        {
+          "id": "wrong",
+          "studentAnswer": "y does not depend on x.",
+          "expectedScore": 0
+        }
+      ]
+    },
+    {
+      "id": "P4C1-23",
+      "topic": "graph_gradient",
+      "maxScore": 2,
+      "question": "Explain how to determine the gradient of a straight-line graph from plotted points. (2 marks)",
+      "expectedMarkingPoints": [
+        "Choose two points on the line and find Δy and Δx (from a large triangle)",
+            "Gradient = Δy / Δx (rise over run)"
+      ],
+      "trials": [
+        {
+          "id": "full",
+          "studentAnswer": "Draw a large triangle on the straight line. Measure the change in y and the change in x. Gradient equals Δy divided by Δx.",
+          "expectedScore": 2
+        },
+        {
+          "id": "partial",
+          "studentAnswer": "Gradient is rise over run, Δy/Δx.",
+          "expectedScore": 1
+        },
+        {
+          "id": "wrong",
+          "studentAnswer": "Gradient is always the intercept on the y-axis.",
+          "expectedScore": 0
+        }
+      ]
+    },
+    {
+      "id": "P4C1-24",
+      "topic": "graph_intercept",
+      "maxScore": 1,
+      "question": "State what the y-intercept of a graph of y against x represents in the equation y = mx + c. (1 mark)",
+      "expectedMarkingPoints": [
+            "The value of y when x = 0 (constant c)"
+      ],
+      "trials": [
+        {
+          "id": "full",
+          "studentAnswer": "The y-intercept is the value of y when x is zero, which is constant c.",
+          "expectedScore": 1
+        },
+        {
+          "id": "wrong",
+          "studentAnswer": "It is the gradient of the graph.",
+          "expectedScore": 0
+        }
+      ]
+    },
+    {
+      "id": "P4C1-25",
+      "topic": "pendulum_variables",
+      "maxScore": 3,
+      "question": "In an experiment to investigate the period of a simple pendulum, identify one suitable manipulated variable, one responding variable and one fixed variable. (3 marks)",
+      "expectedMarkingPoints": [
+        "Manipulated: length of pendulum (or angle / mass if justified by design)",
+        "Responding: period / time for oscillations",
+        "Fixed: mass of bob / amplitude / length (whichever not manipulated)"
+      ],
+      "trials": [
+        {
+          "id": "full",
+          "studentAnswer": "Manipulated variable: length of the pendulum. Responding variable: period of oscillation. Fixed variable: mass of the bob.",
+          "expectedScore": 3
+        },
+        {
+          "id": "partial",
+          "studentAnswer": "Manipulated variable is length. Responding variable is period.",
+          "expectedScore": 2
+        },
+        {
+          "id": "wrong",
+          "studentAnswer": "Everything must be changed at once to get better results.",
+          "expectedScore": 0
+        }
+      ]
+    },
+    {
+      "id": "P4C1-26",
+      "topic": "accuracy_precision",
+      "maxScore": 3,
+      "question": "Explain the difference between accuracy and precision in measurements, and state why both are important in scientific investigations. (3 marks)",
+      "expectedMarkingPoints": [
+        "Accuracy: closeness of a measurement to the true/accepted value",
+        "Precision: closeness of repeated measurements to each other",
+        "Importance: accuracy gives correct results; precision gives reliable/consistent results"
+      ],
+      "trials": [
+        {
+          "id": "full",
+          "studentAnswer": "Accuracy is how close a measurement is to the true value. Precision is how close repeated measurements are to each other. Both are important because accuracy ensures correct results and precision ensures reliable consistent results.",
+          "expectedScore": 3
+        },
+        {
+          "id": "partial",
+          "studentAnswer": "Accuracy means getting the correct answer. Precision means repeating the same result.",
+          "expectedScore": 2
+        },
+        {
+          "id": "junk",
+          "studentAnswer": "8",
+          "expectedScore": 0
+        }
+      ]
+    },
+    {
+      "id": "P4C1-27",
+      "topic": "area_volume_base",
+      "maxScore": 2,
+      "question": "Express the SI units of area and volume in base units. (2 marks)",
+      "expectedMarkingPoints": [
+        "Area: m²",
+        "Volume: m³"
+      ],
+      "trials": [
+        {
+          "id": "full",
+          "studentAnswer": "Area is m² and volume is m³.",
+          "expectedScore": 2
+        },
+        {
+          "id": "partial",
+          "studentAnswer": "Area is metre squared.",
+          "expectedScore": 1
+        },
+        {
+          "id": "wrong",
+          "studentAnswer": "Area is m and volume is m².",
+          "expectedScore": 0
+        }
+      ]
+    },
+    {
+      "id": "P4C1-28",
+      "topic": "pressure_base",
+      "maxScore": 2,
+      "question": "Pressure is force per unit area. Express the SI unit of pressure (pascal) in base units. (2 marks)",
+      "expectedMarkingPoints": [
+        "P = F/A with F in N and A in m²",
+        "1 Pa = N m⁻² = kg m⁻¹ s⁻²"
+      ],
+      "trials": [
+        {
+          "id": "full",
+          "studentAnswer": "Pressure = force / area. Since 1 N = kg m s⁻², one pascal is N m⁻² which equals kg m⁻¹ s⁻².",
+          "expectedScore": 2
+        },
+        {
+          "id": "partial",
+          "studentAnswer": "Pascal is N/m².",
+          "expectedScore": 1
+        },
+        {
+          "id": "wrong",
+          "studentAnswer": "Pressure unit is only N.",
+          "expectedScore": 0
+        }
+      ]
+    },
+    {
+      "id": "P4C1-29",
+      "topic": "graph_t2_l",
+      "maxScore": 2,
+      "question": "In a simple pendulum experiment, a graph of T² against length l is a straight line through the origin. What conclusion can be made about the relationship between T² and l? (2 marks)",
+      "expectedMarkingPoints": [
+        "T² is directly proportional to l",
+        "T² = kl (or period squared increases linearly with length)"
+      ],
+      "trials": [
+        {
+          "id": "full",
+          "studentAnswer": "T² is directly proportional to the length l. The relationship can be written as T² = kl where k is the gradient.",
+          "expectedScore": 2
+        },
+        {
+          "id": "partial",
+          "studentAnswer": "T² is directly proportional to l.",
+          "expectedScore": 1
+        },
+        {
+          "id": "wrong",
+          "studentAnswer": "T does not depend on length.",
+          "expectedScore": 0
+        }
+      ]
+    },
+    {
+      "id": "P4C1-30",
+      "topic": "compound_define_and_why",
+      "maxScore": 3,
+      "question": "Define scalar quantity and vector quantity, and state why it is important to distinguish between them in measurements involving motion. (3 marks)",
+      "expectedMarkingPoints": [
+        "Scalar: magnitude only",
+        "Vector: magnitude and direction",
+        "Importance: direction affects displacement/velocity/acceleration analysis in motion"
+      ],
+      "trials": [
+        {
+          "id": "full",
+          "studentAnswer": "A scalar quantity has magnitude only. A vector quantity has magnitude and direction. Distinguishing them is important because direction is needed to describe displacement and velocity correctly in motion.",
+          "expectedScore": 3
+        },
+        {
+          "id": "partial",
+          "studentAnswer": "Scalar has magnitude only. Vector has magnitude and direction.",
+          "expectedScore": 2
+        },
+        {
+          "id": "junk",
+          "studentAnswer": "...",
+          "expectedScore": 0
+        }
+      ]
+    }
+  ]
+}

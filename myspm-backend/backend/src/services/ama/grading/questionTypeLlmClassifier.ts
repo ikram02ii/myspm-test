@@ -6,6 +6,7 @@
 import { createHash } from "node:crypto";
 import type { QuestionAnalysis, QuestionAnalysisQuestionType } from "../types";
 import { qwenGradingJson } from "./qwenGradingClient";
+import { RETURN_JSON_QUESTION_TYPE } from "./prompts/shared/jsonRules";
 
 const VALID_TYPES: readonly QuestionAnalysisQuestionType[] = [
   "fixed_answer",
@@ -69,7 +70,7 @@ export async function applyLlmQuestionTypeToAnalysis(
 
   const system = [
     "Classify this Malaysian SPM exam question by reading the FULL stem (not only the first word).",
-    "Return JSON only: { \"questionType\": string }.",
+    RETURN_JSON_QUESTION_TYPE,
     `questionType MUST be exactly one of: ${VALID_TYPES.join(" | ")}.`,
     "Rules:",
     "- compare_contrast: compare, differences/similarities between entities, bandingkan, perbezaan antara, bezakan.",

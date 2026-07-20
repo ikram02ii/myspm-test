@@ -256,10 +256,12 @@ async function computeCalculationAnswer(params: {
     .filter(Boolean)
     .join("\n\n");
 
-  const parsed = await qwenCalculationJson(system, user, { temperature: 0 });
-  const answer = typeof parsed?.answer === "string" ? parsed.answer.trim() : "";
-  if (!answer) throw new Error("Calculation verification LLM returned empty answer");
-  return answer;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const parsed = await qwenCalculationJson(system, user, { temperature: 0 });
+    const answer = typeof parsed?.answer === "string" ? parsed.answer.trim() : "";
+    if (answer) return answer;
+  }
+  throw new Error("Could not compute a reliable calculation answer");
 }
 
 /** Step 4: Solve a generated calculation question using method context (not chunk example numbers). */

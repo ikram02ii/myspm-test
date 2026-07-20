@@ -1,11 +1,12 @@
 /**
- * Full worked chemistry calculation model answers (formula → steps → final with unit).
- * Chemistry only — other subjects use generic reference answers until dedicated profiles exist.
+ * Full worked chemistry calculation model answers.
+ * Student-facing exemplar ALWAYS uses Formula + Working + Final answer.
  */
 
 import { qwenGradingJson } from "../qwenGradingClient";
 import {
-  CALCULATION_STAGE_LABELS,
+  CALCULATION_WORKED_EXEMPLAR_SECTIONS,
+  hasCompleteCalculationModelAnswerSections,
   inferCalculationPolicy,
   showWorkingStagePlan,
 } from "./calculationAcfPolicy";
@@ -15,6 +16,8 @@ import {
   parseEmpiricalCompositionQuestion,
 } from "./calculationAnswerVerification";
 import type { EvidenceUnit } from "./types";
+import { RETURN_JSON_MODEL_ANSWER } from "../prompts/shared/jsonRules";
+import { normalizeCalculationModelAnswer } from "./normalizeCalculationModelAnswer";
 
 export function extractVerificationCandidate(workedAnswer: string, question: string): string {
   const trimmed = workedAnswer.trim();
@@ -52,18 +55,79 @@ export function extractVerificationCandidate(workedAnswer: string, question: str
 
 function workedAnswerStructureHint(maxScore: number, question: string, subject: string): string {
   if (!isChemistryCalculationSubject(subject)) {
-    return "Show method, working, and final answer with units as appropriate.";
+    return "Show Formula, Working, and Final answer for the student exemplar.";
   }
   const policy = inferCalculationPolicy(question, maxScore, subject);
-  if (policy === "answer_only") {
-    return [
-      "Structure (brief — 1 mark):",
-      `1. ${CALCULATION_STAGE_LABELS.formula} (if applicable)`,
-      `2. ${CALCULATION_STAGE_LABELS.final}`,
-    ].join("\n");
-  }
-  return showWorkingStagePlan(maxScore, "chemistry")
-    .map((s, i) => `${i + 1}. ${s.label}`)
+  const stages = showWorkingStagePlan(maxScore, "chemistry");
+  return [
+    `Mark-bearing stages for scoring (${maxScore} mark${maxScore === 1 ? "" : "s"}) — for examiner info only:`,
+    ...stages.map((s, i) => `${i + 1}. ${s.label} (${s.weight} mark${s.weight === 1 ? "" : "s"})`),
+    policy === "answer_only"
+      ? "Scoring may be answer-only, but the MODEL ANSWER must still show Formula + Working + Final answer."
+      : "MODEL ANSWER must always show Formula + Working + Final answer regardless of mark stages.",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function fallbackModelAnswer(verifiedFinalAnswer: string): string {
+  return [
+    "Formula: (use the syllabus formula for this question)",
+    "Working: Substitute the given values from the question and calculate.",
+    `Final answer: ${verifiedFinalAnswer}`,
+  ].join("\n");
+}
+
+function buildWorkedModelAnswerSystem(params: {
+  maxScore: number;
+  question: string;
+  subject: string;
+  verifiedFinalAnswer: string;
+  strictRetry?: boolean;
+}): string {
+  return [
+    "Write an SPM calculation model answer with clear working shown.",
+    RETURN_JSON_MODEL_ANSWER,
+    `Max marks for this question: ${params.maxScore}.`,
+    "MANDATORY layout — you MUST include ALL three sections, every time, in this order:",
+    ...CALCULATION_WORKED_EXEMPLAR_SECTIONS.map((l) => `- ${l}`),
+    "NEVER omit Formula: or Working: — even for 1-mark or answer-only questions.",
+    "NEVER return Final answer alone.",
+    "",
+    "Section rules:",
+    "- Formula: general symbolic relationship OR conversion factor only (e.g. ρ = m/V or 1 km = 1000 m). No substituted question numbers in Formula.",
+    "- Working: clearly substitute EVERY given value and show each numeric step so a student can follow the method (not a bare Final answer).",
+    "- Final answer: verified value with correct unit — digits only, no thousand commas (write 2500000 not 2,500,000).",
+    "- PLAIN TEXT ONLY: never LaTeX, never \\frac, never \\text{}, never [ ] math mode.",
+    "- You MUST label sections exactly: Formula: / Working: / Final answer: — never number them as '1.' '2.' only.",
+    "- One line per given quantity in Working when listing given data.",
+    "- Use ÷ for division; do not use step numbers (1., 2.)",
+    "- Working MUST be long enough to show the calculation path; NEVER skip to a lone final number.",
+    "",
+    "PLAIN TEXT ONLY (binding):",
+    "- NEVER use LaTeX (no \\frac, \\V, \\times, \\\\, \\[1ex], $...$).",
+    "- NEVER write the characters backslash-n — use real line breaks between sections.",
+    "- NEVER put Formula text inside Working, or Working:/Final answer: labels inside another section.",
+    "- Example shape:",
+    "Formula: V = n × Vm",
+    "Working: n = 0.5 mol\nVm = 22.4 dm³/mol\nV = 0.5 × 22.4 = 11.2",
+    "Final answer: 11.2 dm³",
+    "",
+    params.strictRetry
+      ? "RETRY: Your previous answer was incomplete. You MUST output Formula, Working, AND Final answer with non-empty content under each label. Working MUST show substitutions."
+      : "",
+    "Required mark stages (scoring info):",
+    workedAnswerStructureHint(params.maxScore, params.question, params.subject),
+    "",
+    "Rules:",
+    "- Compute using ONLY the numbers given in the question.",
+    `- The final result MUST match this verified answer: ${params.verifiedFinalAnswer}`,
+    "- Include correct SI/syllabus units on the final answer (unit is part of the final mark — not a separate mark).",
+    "- Match the question language (if bilingual EN:/BM:, write the model answer in English unless the question is BM-only).",
+    "- Do NOT add meta-commentary or mark-scheme notes.",
+    "- Labels, values, units, and formulas must come from the question — do not copy fixed examples.",
+  ]
+    .filter(Boolean)
     .join("\n");
 }
 
@@ -87,34 +151,6 @@ export async function buildCalculationWorkedModelAnswer(params: {
     .map((u) => `- ${u.content}`)
     .join("\n");
 
-  const system = [
-    "Write an SPM calculation model answer with clear working shown.",
-    'Return JSON only: { "modelAnswer": string }',
-    "Use newline-separated sections with these labels only:",
-    "Formula:",
-    "Working:",
-    "Final answer:",
-    "",
-    "Working section rules:",
-    "- Formula: write the general symbolic relationship only (variables, RAM, syllabus symbols — no substituted numbers).",
-    "- Working: substitute values from the question and show numeric calculation steps.",
-    "- One line per given quantity: <descriptive label> = <value with unit>",
-    "- Use ÷ for division; do not use step numbers (1., 2.)",
-    "",
-    "Required structure:",
-    workedAnswerStructureHint(params.maxScore, params.question, params.subject),
-    "",
-    "Rules:",
-    "- Compute using ONLY the numbers given in the question.",
-    `- The final result MUST match this verified answer: ${params.verifiedFinalAnswer}`,
-    "- Include correct SI/syllabus units on the final answer.",
-    "- Match the question language (if bilingual EN:/BM:, write the model answer in English unless the question is BM-only).",
-    "- Do NOT add meta-commentary or mark-scheme notes.",
-    "- Do NOT prefix working lines with step numbers (1., 2.).",
-    "- Labels, values, units, and formulas must come from the question — do not copy fixed examples.",
-    "- Keep intermediate sums grouped naturally without over-expanding nested parentheses.",
-  ].join("\n");
-
   const user = [
     `Subject: ${params.subject}`,
     `Form: ${params.form}`,
@@ -123,22 +159,34 @@ export async function buildCalculationWorkedModelAnswer(params: {
     `Verified final result (must appear in Final answer): ${params.verifiedFinalAnswer}`,
     params.methodContext ? `Method context:\n${params.methodContext.slice(0, 3000)}` : "",
     params.excerpt ? `Textbook evidence (method/units only):\n${params.excerpt.slice(0, 4000)}` : "",
-    unitLines ? `Mark stages:\n${unitLines}` : "",
+    unitLines ? `Mark stages (scoring — still write full Formula/Working/Final):\n${unitLines}` : "",
   ]
     .filter(Boolean)
     .join("\n\n");
 
-  try {
-    const parsed = await qwenGradingJson(system, user, { temperature: 0 });
-    const ma = typeof parsed?.modelAnswer === "string" ? parsed.modelAnswer.trim() : "";
-    if (ma.length > 0) return ma;
-  } catch {
-    /* fallback below */
+  for (const strictRetry of [false, true]) {
+    try {
+      const parsed = await qwenGradingJson(
+        buildWorkedModelAnswerSystem({
+          maxScore: params.maxScore,
+          question: params.question,
+          subject: params.subject,
+          verifiedFinalAnswer: params.verifiedFinalAnswer,
+          strictRetry,
+        }),
+        user,
+        { temperature: 0 },
+      );
+      const ma = typeof parsed?.modelAnswer === "string" ? parsed.modelAnswer.trim() : "";
+      if (!ma) continue;
+      const normalized = normalizeCalculationModelAnswer(ma);
+      if (hasCompleteCalculationModelAnswerSections(normalized)) {
+        return normalized;
+      }
+    } catch {
+      /* try again / fallback */
+    }
   }
 
-  return [
-    `${CALCULATION_STAGE_LABELS.formula}: (see syllabus formula for this question type)`,
-    `${CALCULATION_STAGE_LABELS.substitution}: Substitute the given values from the question.`,
-    `${CALCULATION_STAGE_LABELS.final}: ${params.verifiedFinalAnswer}`,
-  ].join("\n");
+  return normalizeCalculationModelAnswer(fallbackModelAnswer(params.verifiedFinalAnswer));
 }

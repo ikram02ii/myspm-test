@@ -127,9 +127,6 @@ export async function getAssessmentCaseById(caseId: string): Promise<StoredAsses
   return parseAssessmentCaseFromDbRow(rows[0]);
 }
 
-/** @deprecated Use getAssessmentCaseById — rubricId is kept for API compatibility. */
-export const getRubricById = getAssessmentCaseById;
-
 async function saveAssessmentCase(params: {
   question: string;
   subject: string;
@@ -320,9 +317,6 @@ export async function getOrCreateAssessmentCase(params: {
     questionEmbedding: await embedText(question),
   });
 }
-
-/** @deprecated rubricId param name kept for API compatibility */
-export const getOrCreateRubric = getOrCreateAssessmentCase;
 
 export function displayMarkSchemeLabels(acf: AssessmentCaseFile): string[] {
   return acf.units.filter((u) => u.creditWeight > 0).map((u) => u.content);

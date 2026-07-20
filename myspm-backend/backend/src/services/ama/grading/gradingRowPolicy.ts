@@ -1,6 +1,16 @@
 /**
  * Single source of truth for per-row marking policy.
  * Concept recognition runs before structural penalties (causal, paired comparison).
+ *
+ * Live consumer today: gradingEvidencePolicy → comparisonStructureBlocksAward only.
+ *
+ * Reserved (unfinished product wiring — keep until reconcile/v1 post-match uses them):
+ * - rowRequiresCausalEnforcement
+ * - rowRequiresExplicitComparisonEntities
+ * - causalStructureBlocksAward
+ * - comparisonAmbiguityBlocksAward
+ * Do not delete these as "dead exports" without a product decision to drop
+ * causal/comparison revoke gates entirely.
  */
 
 import type { RubricIdea, StudentIdea } from "../types";
@@ -50,7 +60,10 @@ export function comparisonStructureBlocksAward(
   return false;
 }
 
-/** Post-matcher revoke: causal language missing on a mechanism row only. */
+/**
+ * Reserved: post-matcher revoke when causal language is missing on a mechanism row.
+ * Not yet wired into live v3 reconcile — unfinished product logic.
+ */
 export function causalStructureBlocksAward(
   rubric: RubricIdea,
   matchedIdea: StudentIdea | null,
@@ -60,7 +73,10 @@ export function causalStructureBlocksAward(
   return !matchedIdea.hasCausalLink;
 }
 
-/** Post-matcher revoke: comparison entity ambiguity on rows that need explicit pairing. */
+/**
+ * Reserved: post-matcher revoke for comparison entity ambiguity on paired rows.
+ * Not yet wired into live v3 reconcile — unfinished product logic.
+ */
 export function comparisonAmbiguityBlocksAward(
   rubric: RubricIdea,
   matchedIdea: StudentIdea | null,

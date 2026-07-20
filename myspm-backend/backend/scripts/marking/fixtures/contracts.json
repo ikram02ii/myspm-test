@@ -1,0 +1,166 @@
+{
+  "version": 1,
+  "description": "Phase 4 deterministic subject marking contracts (no LLM). Policy, ownership, routing, reconcile/score.",
+  "packs": [
+    {
+      "id": "chem-f4-calc-stages",
+      "subject": "Chemistry",
+      "form": "Form 4",
+      "kind": "stage_plan",
+      "cases": [
+        {
+          "id": "chem-1mark-final-only",
+          "maxScore": 1,
+          "domain": "chemistry",
+          "expectStageLabels": ["Correct final answer with unit"]
+        },
+        {
+          "id": "chem-2mark-formula-final",
+          "maxScore": 2,
+          "domain": "chemistry",
+          "expectStageLabels": [
+            "Correct formula/equation",
+            "Correct final answer with unit"
+          ],
+          "forbidStageSubstrings": ["substitution"]
+        },
+        {
+          "id": "chem-3mark-formula-working-final",
+          "maxScore": 3,
+          "domain": "chemistry",
+          "expectStageLabels": [
+            "Correct formula/equation",
+            "Correct substitution/working",
+            "Correct final answer with unit"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "physics-f4-calc-stages",
+      "subject": "Physics",
+      "form": "Form 4",
+      "kind": "stage_plan",
+      "cases": [
+        {
+          "id": "physics-3mark-formula-sub-final",
+          "maxScore": 3,
+          "domain": "physics",
+          "expectStageLabelSubstrings": ["formula", "substitution", "final"],
+          "forbidStageSubstrings": ["data"],
+          "expectFinalWeight": 1
+        },
+        {
+          "id": "physics-5mark-includes-data",
+          "maxScore": 5,
+          "domain": "physics",
+          "expectStageLabelSubstrings": ["data", "formula", "substitution", "calculation", "final"],
+          "expectFinalWeight": 1
+        }
+      ]
+    },
+    {
+      "id": "math-calc-stages",
+      "subject": "Mathematics",
+      "form": "Form 4",
+      "kind": "stage_plan",
+      "cases": [
+        {
+          "id": "math-2mark-formula-final",
+          "maxScore": 2,
+          "domain": "general",
+          "expectStageLabels": [
+            "Correct formula or equation",
+            "Correct final answer with appropriate units"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "agent-routing",
+      "kind": "agent_route",
+      "cases": [
+        {
+          "id": "route-calc",
+          "intentFamily": "calculation",
+          "intentCategory": "calculate",
+          "expectAgent": "calculation"
+        },
+        {
+          "id": "route-theory-state",
+          "intentFamily": "recall",
+          "intentCategory": "state",
+          "expectAgent": "theory"
+        },
+        {
+          "id": "route-theory-explain",
+          "intentFamily": "explanation",
+          "intentCategory": "explain",
+          "expectAgent": "theory"
+        }
+      ]
+    },
+    {
+      "id": "model-answer-ownership",
+      "kind": "ma_ownership",
+      "cases": [
+        {
+          "id": "chem-calc-case-beats-jawapan",
+          "isCalculation": true,
+          "question": "EN: Calculate moles.\nMarkah: 2\nJawapan: Prose draft that must not win.\nMarking points:\n- Mark 1: formula\n- Mark 2: final",
+          "caseReference": "Formula: n = m / M\nWorking: n = 58.5 / 58.5 = 1.0\nFinal answer: 2.0 mol",
+          "expectSource": "case_structured",
+          "expectIncludes": ["Formula:", "Working:", "Final answer:"]
+        },
+        {
+          "id": "bio-theory-case-beats-jawapan",
+          "isCalculation": false,
+          "question": "State the meaning of an acid.\nJawapan: Draft generation answer.\nMarking points:\n- Mark 1: ionises",
+          "caseReference": "An acid ionises in water to produce hydrogen ions.",
+          "expectSource": "case_reference",
+          "expectIncludes": ["ionises"]
+        }
+      ]
+    },
+    {
+      "id": "chem-calc-reconcile-score",
+      "subject": "Chemistry",
+      "kind": "calc_score",
+      "cases": [
+        {
+          "id": "chem-2mark-full-working-correct-final",
+          "maxScore": 2,
+          "question": "Calculate the number of moles in 58.5 g of NaCl. [Mr NaCl = 58.5]",
+          "referenceModelAnswer": "Formula: n = m / M\nFinal answer: 1.0 mol",
+          "studentAnswer": "n = m/M\nn = 58.5/58.5 = 1.0 mol",
+          "udm": {
+            "unitsDemonstrated": [
+              { "unitId": "calc_s1", "quote": "n = m/M", "valid": true },
+              { "unitId": "calc_s2", "quote": "1.0 mol", "valid": true }
+            ],
+            "unitsMissing": [],
+            "invalidClaims": []
+          },
+          "expectScore": 2
+        },
+        {
+          "id": "chem-2mark-wrong-final-revokes",
+          "maxScore": 2,
+          "question": "Calculate the number of moles in 58.5 g of NaCl. [Mr NaCl = 58.5]",
+          "referenceModelAnswer": "Formula: n = m / M\nFinal answer: 1.0 mol",
+          "studentAnswer": "n = m/M\nn = 2 mol",
+          "udm": {
+            "unitsDemonstrated": [
+              { "unitId": "calc_s1", "quote": "n = m/M", "valid": true },
+              { "unitId": "calc_s2", "quote": "2 mol", "valid": true }
+            ],
+            "unitsMissing": [],
+            "invalidClaims": []
+          },
+          "expectScoreMax": 1,
+          "expectFinalAwarded": false
+        }
+      ]
+    }
+  ]
+}

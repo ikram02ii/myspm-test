@@ -1,75 +1,40 @@
-import { chatCompletion } from "./llmProvider";
+import { chatCompletion, generateImage } from "./llmProvider";
 import {
-  buildGenerationReminders,
-  finalizeGeneratedAnswer,
-  formatGeneratorContextBlock,
-  type GenerateRagDiagram,
-  type StructuredQuestionDiagram,
-} from "./generateFromRagEnhancements";
-import { fetchConsecutiveTextbookChunks, retrieveChunks } from "../ama/retrieval/retrievalService";
-import { enrichMathAnswerWithSvg } from "./mathSvg";
-import { analyzeQuestion } from "../ama/grading/questionAnalysisService";
+  generateEducationalDiagramsForAnswer,
+  isScienceDiagramSubject,
+  shouldGenerateEducationalDiagrams,
+} from "./educationalDiagramService";
+import type { StructuredQuestionDiagram } from "./structuredDiagramPlanner";
+import {
+  buildPastPaperMarksGuidance,
+  isMcqGenerationQuery,
+  isSubjectiveGenerationQuery,
+} from "../ama/retrieval/pastPaperMarksHints";
+import { buildStrictMarkSchemeGenerationBlock } from "../ama/grading/markSchemeGenerationPolicy";
+import {
+  buildJawapanVerbFormatRulesForGeneration,
+  buildKssmTextbookModelAnswerWordingBlock,
+} from "../ama/grading/modelAnswerFeedbackFormatPolicy";
+import { withStrictGenerationLanguage } from "../ama/grading/gradingMandatoryLanguage";
+import { retrieveChunks } from "../ama/retrieval/retrievalService";
+import type { RetrievedChunk } from "../ama/types";
 import { buildEnglishSpeakingPdfContext } from "../ama/speaking/englishSpeakingPdfService";
 import { englishSpeakingPartFromQuery } from "../ama/speaking/englishSpeakingTypes";
-import {
-  buildAssessmentCasePackage,
-  evidenceUnitsToRubricIdeas,
-  saveGeneratedAssessmentCase,
-} from "../ama/grading/v3/assessmentCaseService";
-import {
-  buildCandidateChunkPool,
-  mergeChunksExcerpt,
-  questionDraftContextChunks,
-  resolveGroundingChunksForQuestion,
-} from "../ama/grading/v3/groundingChunks";
-import type { RetrievedChunk, RubricIdea, RubricIdeaKind } from "../ama/types";
-import { getRetrievalContext, storeRetrievalContext } from "./openEndedGenerationContext";
+import { enrichMathAnswerWithSvg } from "./mathSvg";
 
 export type GenerateRagInput = {
-  /** Natural language: topic + what to generate. Output is bilingual EN+BM for stems, options, and Penjelasan unless subject is in RAG_FORCE_BM_SUBJECTS (default: Sejarah). */
+  /** Natural language: topic + what to generate (BM/EN). */
   query: string;
   subject?: string | null;
-  /** Matches `rag_textbooks.form` (e.g. Form 4 / Form 5) so retrieval uses the correct textbook rows. */
-  form?: string | null;
   topK?: number;
   generateImage?: boolean;
   imagePrompt?: string | null;
-  /** Only textbook chunks whose `chapter` contains this substring (case-insensitive). */
-  chapterFilter?: string | null;
-  /** Boosts chunks whose `chapter` contains this substring; use for topic-specific generation. */
-  chapterHint?: string | null;
-  /** For AI Practice subjective mode: create saved rubrics and return structured question objects. */
-  createOpenEndedRubrics?: boolean;
-  /** How many subjective questions to generate sequentially (1–12). Parsed from query if omitted. */
-  questionCount?: number;
-  /** Skip Postgres/RAG retrieval — LLM only (English speaking practice). */
+  /** Skip textbook retrieval (English speaking practice). */
   skipRetrieval?: boolean;
   /** Use English oral-exam prompt instead of textbook MCQ template. */
   englishSpeaking?: boolean;
-  /** Override path to SPM Speaking Part 2 & 3 PDF (else ENGLISH_SPEAKING_SOURCE_PDF or Knowledge Base default). */
   englishSpeakingPdfPath?: string | null;
 };
-
-export type GeneratedOpenEndedQuestion = {
-  id: number;
-  sortOrder: number;
-  questionText: string;
-  questionType: "short_answer";
-  difficulty: "mixed";
-  options: [];
-  correctAnswer: "";
-  explanation: string | null;
-  maxMarks: number;
-  questionForGrade: string;
-  modelAnswer: string;
-  rubricId: string;
-  rubricIdeas: RubricIdea[];
-};
-
-export type {
-  GenerateRagDiagram,
-  StructuredQuestionDiagram,
-} from "./generateFromRagEnhancements";
 
 export type GenerateRagResult = {
   answer: string;
@@ -97,63 +62,30 @@ export type GenerateRagResult = {
     prompt: string;
     questionIndex?: number;
   }>;
-  openEndedQuestions?: GeneratedOpenEndedQuestion[];
 };
 
-async function packageGeneratedAnswer(
-  input: GenerateRagInput,
-  answerRaw: string,
-  extras: Omit<GenerateRagResult, "answer" | "diagram" | "diagrams" | "structuredDiagrams" | "generatedImages">,
-): Promise<GenerateRagResult> {
-  const finalized = await finalizeGeneratedAnswer(
-    {
-      query: input.query,
-      subject: input.subject,
-      generateImage: input.generateImage,
-      imagePrompt: input.imagePrompt,
-    },
-    answerRaw,
-  );
-  return {
-    ...extras,
-    answer: finalized.answer,
-    diagram: finalized.diagram,
-    diagrams: finalized.diagrams,
-    structuredDiagrams: finalized.structuredDiagrams,
-    generatedImages: finalized.generatedImages,
-  };
-}
+export type GenerateRagDiagram = {
+  type: "line-chart";
+  questionIndex?: number;
+  title?: string;
+  subtitle?: string;
+  equationLabel?: string;
+  xAxisLabel?: string;
+  yAxisLabel?: string;
+  points: Array<{ x: number; y: number; label?: string }>;
+};
 
-const PROMPT_INTRO = `You are an assistant for Malaysian SPM exam preparation.
-Use ONLY the provided context excerpts when stating specific facts. If context is insufficient, say so in one short sentence (follow the language rule below for those sentences).
+const SYSTEM_PROMPT_BASE = `You are a Malaysian SPM exam board item writer (Form 4/5). You MUST follow every rule below exactly — no exceptions.
+
+MANDATORY CONTEXT USE:
+- You MUST use ONLY the provided context excerpts when stating specific facts.
+- If context is insufficient, you MUST state so in one short sentence only — then still complete the requested template.
 {{LANGUAGE_RULE}}
-Use simple language Form 4/5 students can follow: short sentences, common school words, SPM textbook level only — not university or journal style.
-Do not copy long passages verbatim from the context; paraphrase into original question stems.
+- You MUST NOT copy long passages verbatim from the context; you MUST paraphrase into original question stems.
 
-When generating objective (A–D) questions, follow this EXACT layout for EVERY item (no extra sections, no preamble about "aras kognitif" unless the user explicitly asks):
+When generating objective (A–D) questions, you MUST use this EXACT layout for EVERY item (no extra sections, no preamble about "aras kognitif" unless the user explicitly asks):
 
-`;
-
-const LAYOUT_BILINGUAL = `Soalan 1
-EN: <question stem in English — one or two short sentences>
-BM: <same stem in Bahasa Melayu — same meaning, not a literal word-for-word translation if that sounds unnatural>
-
-A. EN: <option in English> — BM: <equivalent option in Bahasa Melayu>
-B. EN: <...> — BM: <...>
-C. EN: <...> — BM: <...>
-D. EN: <...> — BM: <...>
-
-Jawapan: <single letter A/B/C/D only; same letter for both languages>
-
-Penjelasan:
-EN: <one or two short sentences of explanation only; do not cite sources>
-BM: <same scientific meaning in Bahasa Melayu>
-
-Soalan 2
-... (same pattern)
-`;
-
-const LAYOUT_BM_ONLY = `Soalan 1
+Soalan 1
 <soalan dalam satu atau dua ayat>
 A. <pilihan>
 B. <pilihan>
@@ -161,24 +93,478 @@ C. <pilihan>
 D. <pilihan>
 
 Jawapan: <satu huruf A/B/C/D sahaja>
-Penjelasan: <satu atau dua ayat ringkas isi sahaja; jangan rujuk sumber>
+Penjelasan: <satu ayat ringkas isi sahaja; jangan rujuk sumber>
 
 Soalan 2
 ... (same pattern)
-`;
 
-const PROMPT_OUTRO = `
-Strict bans (violation = wrong answer):
-- No "Rujuk", "rujuk", "#1", "#2", "doc=", "chunk=", "[1]", "konteks", "bersumber", "eksplisit", "lihat #", "berdasarkan konteks di".
-- No emojis (no ✅ etc.), no italics used only for meta-commentary, no footnotes, no "Jawapan betul" — use the exact label "Jawapan:" only.
-- No invented exam paper numbers like "28." or "14." before the question unless the user pasted that number and asked you to keep it.
-- No horizontal rules made of many dashes unless the user asked for separators; use a single blank line between soalan only.
-- Do not explain your process or list command words you used; output questions and answers only.`;
+Strict bans (violation = invalid output):
+- NEVER use "Rujuk", "rujuk", "#1", "#2", "doc=", "chunk=", "[1]", "konteks", "bersumber", "eksplisit", "lihat #", "berdasarkan konteks di".
+- NEVER use emojis (no ✅ etc.), italics for meta-commentary, footnotes, or "Jawapan betul" — you MUST use the exact label "Jawapan:" only.
+- NEVER invent exam paper numbers like "28." or "14." before the question unless the user pasted that number and asked you to keep it.
+- NEVER use horizontal rules made of many dashes unless the user asked for separators; you MUST use a single blank line between soalan only.
+- You MUST NOT explain your process or list command words; output questions and answers ONLY.
 
-const LANGUAGE_RULE_BILINGUAL = `Write every question stem, every A–D option, the Jawapan line, and both Penjelasan lines in BOTH English and Bahasa Melayu using the EN: / BM: pattern shown in the template. Keep scientific terms consistent across languages. If the user's request is in only one language, still produce the full bilingual output unless they explicitly ask for one language only.`;
+For every soalan stem (except pure-BM-only subjects like Sejarah), you MUST use bilingual format on two separate lines:
+EN: <stem in English>
+BM: <same meaning in Bahasa Melayu>
+The BM line MUST start on a new line immediately after the EN line. Never place EN and BM on the same line.
+Then A–D (option text may stay in English only if clearer; you MUST NOT duplicate four long bilingual blocks).
+
+When generating subjective / structured (non-MCQ) SPM questions, you MUST use this EXACT layout for EVERY item:
+
+Soalan 1
+EN: <stem in English>
+BM: <same meaning in Bahasa Melayu — new line after EN>
+Markah: <positive integer total marks for this question>
+Jawapan: <concise model answer>
+Marking points:
+- Mark 1: [Core Idea 1] — <clear, specific credit criteria>
+- Mark 2: [Core Idea 2] — <entirely separate criteria>
+
+Soalan 2
+... (same pattern)
+
+Rules for Markah::
+- Markah: MUST equal the number of distinct marking points in Marking points: (one bullet = one mark; NEVER bundle two independent ideas in one bullet).
+- You MUST calibrate mark count from genuinely independent ideas required — use past-paper excerpts for depth, NEVER to inflate marks.
+- You MUST NOT copy whole questions from context; you MUST invent new stems with a tight, non-redundant scheme.
+- Marking points MUST be checkable and MUST sum logically to Markah: (SPM mark-scheme style).
+
+${buildStrictMarkSchemeGenerationBlock()}
+
+Rules for Jawapan, Penjelasan, and Marking points:
+- You MUST write at Malaysian SPM Form 4/5 level only — KSSM textbook vocabulary, NEVER A-Level/STPM/university.
+${buildKssmTextbookModelAnswerWordingBlock()}
+${buildJawapanVerbFormatRulesForGeneration()}
+- Penjelasan (MCQ): exactly one simple SPM-level sentence explaining why the correct option is right.`;
+
+const LANGUAGE_RULE_DEFAULT =
+  "You MUST respond in the same language as the user's request (Bahasa Melayu or English) unless asked otherwise.";
 
 const LANGUAGE_RULE_FORCE_BM =
-  "For this subject, respond entirely in Bahasa Melayu (standard SPM). If the user's request is in English or mixed, still write the whole answer in BM only.";
+  "For this subject, you MUST respond entirely in Bahasa Melayu (standard SPM). If the user's request is in English or mixed, you MUST still write the whole answer in BM only.";
+
+function parseForceBmSubjects(): Set<string> {
+  const raw = process.env.RAG_FORCE_BM_SUBJECTS?.trim();
+  const parts = raw
+    ? raw.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean)
+    : ["sejarah", "pendidikan islam", "pendidikan moral"];
+  return new Set(parts);
+}
+
+function isForceBmSubject(subject: string | null | undefined): boolean {
+  const s = subject?.trim().toLowerCase();
+  if (!s) return false;
+  return parseForceBmSubjects().has(s);
+}
+
+const BM_ONLY_SUBJECT_FORMAT_APPEND = `
+
+BM-only subject rules (override any bilingual instruction above):
+- Write every soalan stem, option, Jawapan, Penjelasan, Marking points, and model answer in Bahasa Melayu only.
+- Do NOT use EN: or BM: prefixes. Do not include any English question stem.
+- For MCQ: Soalan N → BM stem → A. B. C. D. → Jawapan: → Penjelasan:
+- For subjective: Soalan N → BM stem → Markah: → Jawapan: → Marking points:`;
+
+function systemPromptForSubject(subject: string | null | undefined): string {
+  const rule = isForceBmSubject(subject) ? LANGUAGE_RULE_FORCE_BM : LANGUAGE_RULE_DEFAULT;
+  const base = SYSTEM_PROMPT_BASE.replace("{{LANGUAGE_RULE}}", rule);
+  const full = isForceBmSubject(subject) ? `${base}${BM_ONLY_SUBJECT_FORMAT_APPEND}` : base;
+  return withStrictGenerationLanguage(full);
+}
+
+function systemPromptForNoRetrievalFallback(subject: string | null | undefined): string {
+  const base = systemPromptForSubject(subject).replace(
+    "Use ONLY the provided context excerpts when stating specific facts. If context is insufficient, say so in one short sentence.\n",
+    "No context excerpts are available for this request. Use general Malaysian SPM knowledge and still follow the exact requested output template.\n",
+  );
+  return `${base}
+
+Temporary fallback mode when no knowledge-base chunks are available:
+- Do NOT say that context is missing, insufficient, or unavailable.
+- Do NOT apologise or explain retrieval failure.
+- Still fulfill generation requests using general SPM knowledge.
+- Keep the exact output template requested by the user and the system prompt so the client parser can consume it.
+- Output only the requested question blocks, with no preamble, disclaimer, or notes before Soalan 1.`;
+}
+
+const NO_RETRIEVAL_GENERAL_PROMPT = `You MUST generate Malaysian SPM practice content from general subject knowledge only.
+You MUST return ONLY the final question blocks in the exact requested format.
+You MUST NEVER say you lack context, data, syllabus chunks, sources, or verification.
+You MUST NEVER apologise.
+You MUST NEVER add preambles, notes, warnings, or explanations before Soalan 1.`;
+
+function requestedQuestionCount(query: string): number {
+  const m = query.match(/\b(?:generate|buat|hasilkan)\s+(\d{1,2})\b/i);
+  const n = m ? Number(m[1]) : 5;
+  if (!Number.isFinite(n)) return 5;
+  return Math.max(1, Math.min(20, Math.floor(n)));
+}
+
+function fallbackTopicLabel(query: string): string {
+  const m = query.match(/focused on topic:\s*(.+?)(?:\.\s|$)/i);
+  return (m?.[1] ?? "the requested topic").trim();
+}
+
+function looksParseableMcqAnswer(answer: string): boolean {
+  const text = answer.trim();
+  return (
+    /(?:^|\n)\s*Soalan\s+1\b/i.test(text) &&
+    /(?:^|\n)\s*A\.\s+/m.test(text) &&
+    /(?:^|\n)\s*B\.\s+/m.test(text) &&
+    /(?:^|\n)\s*C\.\s+/m.test(text) &&
+    /(?:^|\n)\s*D\.\s+/m.test(text) &&
+    /(?:^|\n)\s*Jawapan\s*:\s*[A-D]\b/i.test(text) &&
+    /(?:^|\n)\s*Penjelasan\s*:/i.test(text)
+  );
+}
+
+function looksParseableSubjectiveAnswer(answer: string): boolean {
+  const text = answer.trim();
+  return (
+    /(?:^|\n)\s*Soalan\s+1\b/i.test(text) &&
+    /(?:^|\n)\s*Markah\s*:\s*\d+/i.test(text) &&
+    /(?:^|\n)\s*Jawapan\s*:/i.test(text)
+  );
+}
+
+function buildEmergencyMcqFallback(query: string, subject: string | null | undefined): string {
+  const count = requestedQuestionCount(query);
+  const topic = fallbackTopicLabel(query);
+  const subjectLabel = subject?.trim() || "the subject";
+  const bmOnly = isForceBmSubject(subject);
+  const items: string[] = [];
+
+  for (let i = 1; i <= count; i += 1) {
+    const stemBlock = bmOnly
+      ? `Item latihan sandaran sementara ${i} bagi ${subjectLabel} untuk topik ${topic}. Pilihan manakah ialah jawapan placeholder bagi set soalan sandaran ini?`
+      : [
+          `EN: Temporary fallback practice item ${i} for ${subjectLabel} on ${topic}. Which option is the placeholder answer for this backup question set?`,
+          `BM: Item latihan sandaran sementara ${i} bagi ${subjectLabel} untuk topik ${topic}. Pilihan manakah ialah jawapan placeholder bagi set soalan sandaran ini?`,
+        ].join("\n");
+    const options = bmOnly
+      ? ["A. Jawapan placeholder", "B. Pilihan alternatif", "C. Pilihan lain", "D. Pilihan terakhir"]
+      : ["A. Placeholder answer", "B. Alternative placeholder", "C. Another placeholder", "D. Last placeholder"];
+    const explanation = bmOnly
+      ? "Item sandaran sementara kerana tiada petikan pangkalan pengetahuan yang sepadan."
+      : "Temporary fallback item returned because no matching knowledge-base chunks were available.";
+    items.push(
+      [`Soalan ${i}`, stemBlock, ...options, "Jawapan: A", `Penjelasan: ${explanation}`].join("\n"),
+    );
+  }
+
+  return items.join("\n\n");
+}
+
+function buildEmergencySubjectiveFallback(query: string, subject: string | null | undefined): string {
+  const count = requestedQuestionCount(query);
+  const topic = fallbackTopicLabel(query);
+  const subjectLabel = subject?.trim() || "the subject";
+  const bmOnly = isForceBmSubject(subject);
+  const items: string[] = [];
+
+  for (let i = 1; i <= count; i += 1) {
+    const stemBlock = bmOnly
+      ? `Item berstruktur sandaran sementara ${i} bagi ${subjectLabel} untuk topik ${topic}. Nyatakan satu poin yang berkaitan untuk set soalan sandaran ini.`
+      : [
+          `EN: Temporary fallback structured item ${i} for ${subjectLabel} on ${topic}. State one relevant point for this backup question set.`,
+          `BM: Item berstruktur sandaran sementara ${i} bagi ${subjectLabel} untuk topik ${topic}. Nyatakan satu poin yang berkaitan untuk set soalan sandaran ini.`,
+        ].join("\n");
+    items.push(
+      [
+        `Soalan ${i}`,
+        stemBlock,
+        "Markah: 1",
+        bmOnly
+          ? "Jawapan: Mana-mana poin yang berkaitan dengan topik yang diminta."
+          : "Jawapan: Any simple relevant point for the requested topic.",
+        "Marking points:",
+        bmOnly
+          ? "- Terima satu poin yang berkaitan dengan topik yang diminta."
+          : "- Accept one relevant point linked to the requested topic.",
+      ].join("\n"),
+    );
+  }
+
+  return items.join("\n\n");
+}
+
+function ensureNoRetrievalParseableAnswer(
+  query: string,
+  subject: string | null | undefined,
+  answer: string,
+): string {
+  if (isMcqGenerationQuery(query)) {
+    return looksParseableMcqAnswer(answer) ? answer : buildEmergencyMcqFallback(query, subject);
+  }
+  if (isSubjectiveGenerationQuery(query)) {
+    return looksParseableSubjectiveAnswer(answer) ? answer : buildEmergencySubjectiveFallback(query, subject);
+  }
+  return answer;
+}
+
+function normalizeBilingualAnswer(answer: string): string {
+  return answer.replace(/(EN:\s*[^\n]+?)\s+(BM:)/gi, "$1\n$2");
+}
+
+function promoteBiologyDiagramFlags(
+  answer: string,
+  query: string,
+  subject: string | null | undefined,
+): string {
+  if (!shouldBiasBiologyDiagram(query, subject)) return answer;
+  const yaCount = (answer.match(/^\s*Perlu rajah\s*:\s*Ya\b/gim) ?? []).length;
+  if (yaCount > 0) return answer;
+
+  let promoted = 0;
+  return answer.replace(/(^\s*Perlu rajah\s*:\s*)Tidak\b/gim, (_m, prefix: string) => {
+    if (promoted >= 2) return `${prefix}Tidak`;
+    promoted += 1;
+    return `${prefix}Ya`;
+  });
+}
+
+function bilingualStemReminder(subject: string | null | undefined): string {
+  if (isForceBmSubject(subject)) return "";
+  return `
+
+Each soalan stem must be bilingual on two lines:
+EN: <English stem>
+BM: <Bahasa Melayu stem — new line, not same line as EN>
+Then A–D, Jawapan:, Penjelasan:.`;
+}
+
+function isPhysicsSubject(subject: string | null | undefined): boolean {
+  return /^physics$/i.test(subject?.trim() ?? "");
+}
+
+function isPhysicsGraphTopicQuery(query: string): boolean {
+  return /\b(motion|graph|graphs|graf|plot|chart|linear|velocity|speed|acceleration|displacement|distance[- ]time|speed[- ]time|velocity[- ]time|acceleration[- ]time)\b/i.test(
+    query,
+  );
+}
+
+function shouldUseGraphJsonFlow(subject: string | null | undefined, query: string): boolean {
+  return isPhysicsSubject(subject) && isPhysicsGraphTopicQuery(query);
+}
+
+function shouldBiasBiologyDiagram(query: string, subject?: string | null): boolean {
+  return (
+    /^biology$/i.test(subject?.trim() ?? "") &&
+    /\b(cell|cells|organelle|osmosis|plasma membrane|microscope|plant cell|animal cell|vacuole|chloroplast|mitochondr|golgi|endoplasmic|nucleus|ribosome|membrane|turgid|plasmolysis|compare|comparison)\b/i.test(
+      query,
+    )
+  );
+}
+
+function usesStructuredBiologyDiagramFlow(subject: string | null | undefined): boolean {
+  return /^biology$/i.test(subject?.trim() ?? "");
+}
+
+function biologyDiagramBiasRule(query: string, subject?: string | null): string {
+  if (!shouldBiasBiologyDiagram(query, subject)) return "";
+  return `
+
+Biology visual bias: for cell structure, organelle identification, microscope observation, osmosis, plasmolysis/turgidity, plasma-membrane transport, or plant-vs-animal-cell comparison questions, prefer "Perlu rajah: Ya" more often because a visual commonly helps students interpret the item. Use "Tidak" only when the stem is fully clear without any diagram.`;
+}
+
+function formatGeneratorContextBlock(chunk: RetrievedChunk, index: number): string {
+  const meta: string[] = [];
+  if (chunk.sourceType === "past_paper") {
+    if (chunk.questionRef) meta.push(`ref=${chunk.questionRef}`);
+    if (typeof chunk.maxMarks === "number") meta.push(`stored marks=${chunk.maxMarks}`);
+  }
+  const header = meta.length > 0 ? `[${index}] (${meta.join(", ")})\n` : `[${index}]\n`;
+  return `${header}${chunk.content}`;
+}
+
+function mcqFormatReminder(query: string, subject?: string | null): string {
+  if (!isMcqGenerationQuery(query)) return "";
+  const isScience = Boolean(subject && isScienceDiagramSubject(subject));
+  const scienceDiagramRule = isScience
+    ? `
+
+Science diagram rule: Do not add any "Perlu rajah" or diagram-needed line inside the MCQ blocks. The app will decide diagram rendering in a second pass after the questions are generated.`
+    : "";
+  const mcqLine = isForceBmSubject(subject)
+    ? "Soalan 1 → BM stem only (no EN:) → A. B. C. D. → Jawapan: <one letter> → Penjelasan:"
+    : "Soalan 1 → EN: / BM: (two lines) → A. B. C. D. → Jawapan: <one letter> → Penjelasan:";
+
+  return `
+
+The user wants objective MCQ (A–D) questions ONLY. Use the MCQ template from the system message:
+${mcqLine}
+Do NOT use Markah:, Marking points:, or essay-style model answers for MCQ.
+Output at least one full Soalan block before any other text.${scienceDiagramRule}`;
+}
+
+function subjectiveGenerationReminder(
+  query: string,
+  hits: RetrievedChunk[],
+  subject?: string | null,
+): string {
+  if (!isSubjectiveGenerationQuery(query)) return "";
+  const marksGuide = buildPastPaperMarksGuidance(hits);
+  const templateLine = isForceBmSubject(subject)
+    ? "The user wants subjective (structured) questions. Use Soalan / BM stem only / Markah / Jawapan / Marking points (Bahasa Melayu only, no EN: line)."
+    : "The user wants subjective (structured) questions. Use the subjective Soalan / EN / BM / Markah / Jawapan / Marking points template.";
+  return `
+
+${templateLine}
+You MUST assign Markah: from the number of distinct, non-redundant marking points ONLY (NEVER from question wording alone). Each mark = one independent scientific idea; you MUST merge semantic duplicates. Use past-paper mark patterns in the excerpts to decide depth, NEVER to inflate marks.
+${marksGuide ? `\n${marksGuide}\n` : "\n(No past-paper mark samples in context — you MUST use typical SPM weights: 2 marks for two-idea explain; 3–4 ONLY when three or four genuinely independent ideas are required.)\n"}`;
+}
+
+function graphJsonReminder(subject: string | null | undefined, query: string): string {
+  if (!shouldUseGraphJsonFlow(subject, query)) return bilingualStemReminder(subject);
+  const subjectLabel = isPhysicsSubject(subject) ? "Physics" : "Math";
+  return `
+
+Subject is **${subjectLabel}**: use bilingual stems for every soalan (EN: on one line, BM: on the next line), then options A–D, then Jawapan: and Penjelasan: as usual. Penjelasan should be in Bahasa Melayu when the rest is mixed EN/BM.
+For graph-based or motion-graph questions, prefer returning a JSON field "rajah_spec" (deterministic shape spec) and optionally "rajah_svg". Supported rajah_spec kinds are:
+- {"kind":"triangle","points":[{"x":0,"y":0,"label":"A"},{"x":4,"y":0,"label":"B"},{"x":1,"y":3,"label":"C"}],"title":"..."}
+- {"kind":"cartesian_line","xMin":0,"xMax":10,"yMin":0,"yMax":20,"points":[{"x":0,"y":0,"label":"P"},{"x":5,"y":10,"label":"Q"}],"title":"..."}
+For every generated question, decide whether a line graph, coordinate graph, or motion graph would help. If one or more generated questions need a graph, generate the questions FIRST using the normal Soalan/Jawapan/Penjelasan format. Then append this block AFTER all questions and explanations:
+DIAGRAM_JSON_START
+{"diagrams":[{"questionIndex":1,"type":"line-chart","title":"...","subtitle":"...","equationLabel":"...","xAxisLabel":"x","yAxisLabel":"y","points":[{"x":-2,"y":-3},{"x":-1,"y":-1},{"x":0,"y":1,"label":"y-intercept"},{"x":1,"y":3},{"x":2,"y":5}]},{"questionIndex":3,"type":"line-chart","title":"...","equationLabel":"...","points":[{"x":0,"y":0},{"x":1,"y":2},{"x":2,"y":4}]}]}
+DIAGRAM_JSON_END
+The DIAGRAM_JSON block must be valid JSON only, with no markdown fences and no comments. It is for the React chart renderer, not for students to read.
+Only include diagrams for questions that actually need graphs. Include one diagram object per graph-based question. Set questionIndex to the matching Soalan number, so Soalan 1 uses questionIndex 1 and Soalan 4 uses questionIndex 4. Graphs may be attached to any Soalan, not only the first one. Do not put A-D answer choices inside the diagram JSON. Do not put the diagram JSON inside any question, option, answer, or explanation.
+`;
+}
+
+function shouldPostProcessMathSvg(subject: string | null | undefined): boolean {
+  return subject?.trim() === "Math";
+}
+
+function shouldPostProcessGraphDiagrams(subject: string | null | undefined, query: string): boolean {
+  return shouldUseGraphJsonFlow(subject, query);
+}
+
+function isFinitePoint(point: unknown): point is { x: number; y: number; label?: string } {
+  if (!point || typeof point !== "object") return false;
+  const p = point as Record<string, unknown>;
+  return typeof p.x === "number" && Number.isFinite(p.x) && typeof p.y === "number" && Number.isFinite(p.y);
+}
+
+function normalizeDiagram(raw: unknown): GenerateRagDiagram | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const obj = raw as Record<string, unknown>;
+  const rawType = typeof obj.type === "string" ? obj.type : typeof obj.kind === "string" ? obj.kind : "";
+  const type = rawType.toLowerCase().replace(/_/g, "-");
+  if (type !== "line-chart" && type !== "cartesian-line") return undefined;
+
+  const points = Array.isArray(obj.points)
+    ? obj.points.filter(isFinitePoint).map((point) => ({
+        x: point.x,
+        y: point.y,
+        label: typeof point.label === "string" ? point.label : undefined,
+      }))
+    : [];
+
+  if (points.length < 2) return undefined;
+
+  return {
+    type: "line-chart",
+    questionIndex: typeof obj.questionIndex === "number" && Number.isInteger(obj.questionIndex) && obj.questionIndex > 0 ? obj.questionIndex : undefined,
+    title: typeof obj.title === "string" ? obj.title : undefined,
+    subtitle: typeof obj.subtitle === "string" ? obj.subtitle : undefined,
+    equationLabel: typeof obj.equationLabel === "string" ? obj.equationLabel : undefined,
+    xAxisLabel: typeof obj.xAxisLabel === "string" ? obj.xAxisLabel : "x",
+    yAxisLabel: typeof obj.yAxisLabel === "string" ? obj.yAxisLabel : "y",
+    points,
+  };
+}
+
+function normalizeDiagrams(raw: unknown): GenerateRagDiagram[] {
+  const value =
+    raw && typeof raw === "object" && Array.isArray((raw as Record<string, unknown>).diagrams)
+      ? (raw as Record<string, unknown>).diagrams
+      : raw;
+  const items = Array.isArray(value) ? value : [value];
+  return items
+    .map((item) => normalizeDiagram(item))
+    .filter((diagram): diagram is GenerateRagDiagram => Boolean(diagram));
+}
+
+function extractDiagramBlock(answer: string): { answer: string; diagrams: GenerateRagDiagram[] } {
+  const match = answer.match(/DIAGRAM_JSON_START\s*([\s\S]*?)\s*DIAGRAM_JSON_END/i);
+  if (!match) return { answer, diagrams: [] };
+
+  let diagrams: GenerateRagDiagram[] = [];
+  try {
+    diagrams = normalizeDiagrams(JSON.parse(match[1] ?? ""));
+  } catch {
+    diagrams = [];
+  }
+
+  return {
+    answer: answer.replace(match[0], "").trim(),
+    diagrams,
+  };
+}
+
+function diagramsFromRajahSpec(answer: string): GenerateRagDiagram[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(answer);
+  } catch {
+    return [];
+  }
+
+  const candidates = Array.isArray(parsed) ? parsed : [parsed];
+  const diagrams: GenerateRagDiagram[] = [];
+  for (const item of candidates) {
+    if (!item || typeof item !== "object") continue;
+    const spec = (item as Record<string, unknown>).rajah_spec;
+    const diagram = normalizeDiagram(spec);
+    if (diagram) diagrams.push(diagram);
+  }
+
+  return diagrams;
+}
+
+async function buildGeneratedImages(
+  input: GenerateRagInput,
+  answer: string,
+): Promise<GenerateRagResult["generatedImages"]> {
+  const subject = input.subject?.trim() ?? "";
+  if (shouldUseGraphJsonFlow(subject, input.query)) {
+    return [];
+  }
+  if (!shouldGenerateEducationalDiagrams(subject, input.query, input.generateImage)) {
+    if (input.generateImage && input.imagePrompt?.trim()) {
+      const urls = await generateImage(input.imagePrompt.trim());
+      return urls.map((url) => ({ url, prompt: input.imagePrompt!.trim() }));
+    }
+    return [];
+  }
+
+  const diagrams = await generateEducationalDiagramsForAnswer({
+    subject,
+    query: input.query,
+    answer,
+    imagePrompt: input.imagePrompt,
+  });
+  return diagrams.map((d) => ({
+    url: d.url,
+    prompt: d.prompt,
+    questionIndex: d.questionIndex,
+  }));
+}
+
+function buildGraphDiagrams(
+  input: GenerateRagInput,
+  answer: string,
+  diagramsFromBlock: GenerateRagDiagram[],
+): GenerateRagDiagram[] {
+  if (!shouldPostProcessGraphDiagrams(input.subject, input.query)) return [];
+  if (diagramsFromBlock.length > 0) return diagramsFromBlock;
+  const fromRajahSpec = diagramsFromRajahSpec(answer);
+  if (fromRajahSpec.length > 0) return fromRajahSpec;
+  return [];
+}
 
 const ENGLISH_SPEAKING_SYSTEM = `You are an expert SPM English oral exam question writer for Malaysian Form 4/5 students.
 Generate realistic speaking practice prompts only — no textbook citations, no MCQ format, no bilingual BM lines unless the user asks.
@@ -192,11 +578,6 @@ async function buildEnglishSpeakingUserContent(input: GenerateRagInput): Promise
     pdfContext = await buildEnglishSpeakingPdfContext({
       pdfPath: input.englishSpeakingPdfPath,
       part: part === "part1" ? "all" : part,
-    });
-    console.info("[rag][english-speaking] PDF context loaded", {
-      pdfPath: pdfContext.pdfPath,
-      excerptChars: pdfContext.excerpt.length,
-      part,
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -220,595 +601,116 @@ async function buildEnglishSpeakingUserContent(input: GenerateRagInput): Promise
   ].join("\n");
 }
 
-async function generateWithoutRetrieval(input: GenerateRagInput): Promise<GenerateRagResult> {
-  const useEnglishSpeakingPrompt =
-    input.englishSpeaking === true ||
-    (input.skipRetrieval === true && input.subject?.trim().toLowerCase() === "english");
-
-  const system = useEnglishSpeakingPrompt
-    ? ENGLISH_SPEAKING_SYSTEM
-    : systemPromptForSubject(input.subject);
-
-  const userContent = useEnglishSpeakingPrompt
-    ? await buildEnglishSpeakingUserContent(input)
-    : `${input.query}\n\n(Note: No knowledge-base chunks were retrieved. Answer from general knowledge and clearly label uncertainty.)\n\n${userTemplateHint(input.subject)}${bilingualGenerationReminder(input.subject)}`;
-
+async function generateEnglishSpeaking(input: GenerateRagInput): Promise<GenerateRagResult> {
   const answerRaw = await chatCompletion(
     [
-      { role: "system", content: system },
-      { role: "user", content: userContent },
+      { role: "system", content: ENGLISH_SPEAKING_SYSTEM },
+      { role: "user", content: await buildEnglishSpeakingUserContent(input) },
     ],
     {
       subject: input.subject,
       query: input.query,
-      preferGradingModel: useEnglishSpeakingPrompt,
     },
   );
 
-  return packageGeneratedAnswer(input, answerRaw, {
+  const generatedImages = await buildGeneratedImages(input, answerRaw);
+  return {
+    answer: answerRaw.trim(),
+    structuredDiagrams: [],
     sources: [],
     sourcePageImages: [],
-  });
-}
-
-function parseForceBmSubjects(): Set<string> {
-  const raw = process.env.RAG_FORCE_BM_SUBJECTS?.trim();
-  const parts = raw
-    ? raw.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean)
-    : ["sejarah"];
-  return new Set(parts);
-}
-
-function isForceBmSubject(subject: string | null | undefined): boolean {
-  const s = subject?.trim().toLowerCase();
-  if (!s) return false;
-  return parseForceBmSubjects().has(s);
-}
-
-function systemPromptForSubject(subject: string | null | undefined): string {
-  const force = isForceBmSubject(subject);
-  const rule = force ? LANGUAGE_RULE_FORCE_BM : LANGUAGE_RULE_BILINGUAL;
-  const layout = force ? LAYOUT_BM_ONLY : LAYOUT_BILINGUAL;
-  return `${PROMPT_INTRO.replace("{{LANGUAGE_RULE}}", rule)}${layout}${PROMPT_OUTRO}`;
-}
-
-function userTemplateHint(subject: string | null | undefined): string {
-  return isForceBmSubject(subject)
-    ? "Follow the Bahasa Melayu Soalan / A–D / Jawapan: / Penjelasan: template from the system message."
-    : "Follow the Soalan / EN: and BM: stems / bilingual A–D / Jawapan: / Penjelasan EN+BM template from the system message.";
-}
-
-/** Extra user nudge: bilingual for all non–force-BM subjects; Math adds diagram JSON hints. */
-function bilingualGenerationReminder(subject: string | null | undefined): string {
-  if (isForceBmSubject(subject)) return "";
-  const base = `
-
-Bilingual output (required): every Soalan must have EN: and BM: stems; every option A–D must include both EN: and BM: on one line each; Penjelasan must have both EN: and BM: lines. Jawapan stays a single letter.`;
-  if (subject?.trim() !== "Math") return base;
-  return `${base}
-
-Subject is **Math**: same bilingual pattern. If the user requests a diagram, prefer returning a JSON field "rajah_spec" (deterministic shape spec) and optionally "rajah_svg". Supported rajah_spec kinds are:
-- {"kind":"triangle","points":[{"x":0,"y":0,"label":"A"},{"x":4,"y":0,"label":"B"},{"x":1,"y":3,"label":"C"}],"title":"..."}
-- {"kind":"cartesian_line","xMin":0,"xMax":10,"yMin":0,"yMax":20,"points":[{"x":0,"y":0,"label":"P"},{"x":5,"y":10,"label":"Q"}],"title":"..."}
-`;
-}
-
-function shouldPostProcessMathSvg(subject: string | null | undefined): boolean {
-  return subject?.trim() === "Math";
-}
-
-function extractJsonObject(text: string): string {
-  const trimmed = text.trim();
-  if (trimmed.startsWith("{") && trimmed.endsWith("}")) return trimmed;
-  const start = trimmed.indexOf("{");
-  const end = trimmed.lastIndexOf("}");
-  if (start >= 0 && end > start) return trimmed.slice(start, end + 1);
-  return trimmed;
-}
-
-function isRubricKind(value: string): value is RubricIdeaKind {
-  return [
-    "feature",
-    "function",
-    "point",
-    "step",
-    "comparison",
-    "knowledge",
-    "explanation",
-    "example",
-    "use",
-    "calculation",
-    "definition",
-  ].includes(value);
-}
-
-function normalizeGeneratedRubricIdeas(raw: unknown, maxMarks: number): RubricIdea[] {
-  if (!Array.isArray(raw)) {
-    return [{ id: "i1", idea: "Gives a correct SPM-level answer to the question", marks: maxMarks, kind: "point" }];
-  }
-
-  const ideas = raw
-    .map((item, idx): RubricIdea | null => {
-      if (!item || typeof item !== "object") return null;
-      const row = item as Record<string, unknown>;
-      const idea = typeof row["idea"] === "string" ? row["idea"].trim() : "";
-      if (!idea) return null;
-      const rawMarks = typeof row["marks"] === "number" ? row["marks"] : Number(row["marks"]);
-      const marks = Number.isFinite(rawMarks) ? Math.max(1, Math.floor(rawMarks)) : 1;
-      const kindRaw = typeof row["kind"] === "string" ? row["kind"].trim().toLowerCase() : "point";
-      const keywords = Array.isArray(row["keywords"])
-        ? row["keywords"].filter((v): v is string => typeof v === "string").map((v) => v.trim()).filter(Boolean)
-        : [];
-      const acceptedConcepts = Array.isArray(row["acceptedConcepts"])
-        ? row["acceptedConcepts"].filter((v): v is string => typeof v === "string").map((v) => v.trim()).filter(Boolean)
-        : [];
-      const out: RubricIdea = {
-        id: typeof row["id"] === "string" && row["id"].trim() ? row["id"].trim() : `i${idx + 1}`,
-        idea,
-        marks,
-        kind: isRubricKind(kindRaw) ? kindRaw : "point",
-      };
-      if (keywords.length > 0) out.keywords = [...new Set(keywords)];
-      if (acceptedConcepts.length > 0) out.acceptedConcepts = [...new Set(acceptedConcepts)];
-      if (row["openEnded"] === true) out.openEnded = true;
-      return out;
-    })
-    .filter((v): v is RubricIdea => v != null);
-
-  return ideas.length > 0
-    ? ideas
-    : [{ id: "i1", idea: "Gives a correct SPM-level answer to the question", marks: maxMarks, kind: "point" }];
-}
-
-function textbookHits(hits: RetrievedChunk[]): RetrievedChunk[] {
-  return hits.filter((h) => h.sourceType === "textbook");
-}
-
-function textbookChunkRef(chunk: RetrievedChunk): string {
-  return `textbook:${chunk.textbookId}:chunk:${chunk.chunkId}`;
-}
-
-/** Primary textbook chunk for this step — rubric may expand to neighbors after the question is drafted. */
-function pickPrimaryTextbookChunk(hits: RetrievedChunk[], questionIndex: number): RetrievedChunk | null {
-  const textbooks = textbookHits(hits);
-  if (textbooks.length === 0) return null;
-  const idx = (Math.max(1, questionIndex) - 1) % textbooks.length;
-  return textbooks[idx] ?? null;
-}
-
-function sourcesFromHits(hits: RetrievedChunk[]): GenerateRagResult["sources"] {
-  return hits.map((h) => ({
-    documentId: Number(h.textbookId) || 0,
-    chunkIndex: h.chunkIndex,
-    title: h.title ?? null,
-    subject: h.subject ?? null,
-    sourceType: h.sourceType,
-    excerpt: h.content.slice(0, 400) + (h.content.length > 400 ? "…" : ""),
-    distance: h.score ?? 0,
-  }));
-}
-
-function formatOpenEndedAnswer(questions: GeneratedOpenEndedQuestion[]): string {
-  return questions
-    .map((q) => {
-      const rubricLines = q.rubricIdeas.map((idea) => `- (${idea.marks}m) ${idea.idea}`).join("\n");
-      return [
-        `Soalan ${q.sortOrder}`,
-        q.questionText,
-        `Model answer: ${q.modelAnswer}`,
-        "Marking points:",
-        rubricLines,
-      ].join("\n");
-    })
-    .join("\n\n");
-}
-
-const OPEN_ENDED_QUESTION_COUNT_MAX = 12;
-
-function parseOpenEndedQuestionCount(query: string, explicit?: number): number {
-  if (typeof explicit === "number" && Number.isFinite(explicit)) {
-    return Math.max(1, Math.min(OPEN_ENDED_QUESTION_COUNT_MAX, Math.floor(explicit)));
-  }
-  const m = query.match(/\bgenerate\s+(\d+)\b/i);
-  if (m?.[1]) {
-    const n = Number(m[1]);
-    if (Number.isFinite(n)) {
-      return Math.max(1, Math.min(OPEN_ENDED_QUESTION_COUNT_MAX, Math.floor(n)));
-    }
-  }
-  return 1;
-}
-
-function normalizeOpenEndedQuestionText(questionTextRaw: string, maxMarks: number): string | null {
-  const trimmed = questionTextRaw.trim();
-  if (!trimmed) return null;
-  return /\bmarks?\)|\bmarkah\)/i.test(trimmed) ? trimmed : `${trimmed} (${maxMarks} marks)`;
-}
-
-async function generateOneOpenEndedQuestionDraft(params: {
-  input: GenerateRagInput;
-  form?: string;
-  contextBlocks: string[];
-  questionIndex: number;
-  totalQuestions: number;
-  priorStems: string[];
-  chunkGroundingMode?: "none" | "single" | "multi";
-}): Promise<{ questionText: string; maxMarks: number } | null> {
-  const hasContext = params.contextBlocks.length > 0;
-  const system = [
-    "You generate ONE short Malaysian SPM subjective practice question.",
-    "Return JSON only, no prose, no code fences.",
-    'Schema: { "questionText": string, "maxMarks": number }',
-    "Generate exactly one question per response.",
-    "questionText must include mark allocation at the end, e.g. '(2 marks)'.",
-    "maxMarks must be an integer from 1 to 3 only.",
-    "The question must be short and answerable in a few sentences.",
-    "Use SPM Form 4/5 depth only.",
-    "Do not repeat or closely paraphrase any prior question stem listed in the user message.",
-    params.chunkGroundingMode === "single"
-      ? "Ground the question ONLY in the single textbook excerpt provided — the model answer must be findable in that same excerpt."
-      : params.chunkGroundingMode === "multi"
-        ? "Ground the question in the consecutive textbook excerpts provided (they are adjacent sections from the book). You may combine facts across them. Do not require knowledge outside these excerpts."
-        : null,
-  ]
-    .filter(Boolean)
-    .join("\n");
-
-  const priorBlock =
-    params.priorStems.length > 0
-      ? `Already generated (do not repeat):\n${params.priorStems.map((s, i) => `${i + 1}. ${s}`).join("\n")}\n\n`
-      : "";
-
-  const user = [
-    hasContext
-      ? `Use these syllabus/material excerpts as factual grounding:\n\n${params.contextBlocks.join("\n\n---\n\n")}`
-      : "No knowledge-base excerpts were retrieved; use only safe general SPM-level knowledge.",
-    priorBlock,
-    `User request:\n${params.input.query}`,
-    `Subject: ${params.input.subject ?? "General"}`,
-    `Form: ${params.form ?? "General"}`,
-    `Generate question ${params.questionIndex} of ${params.totalQuestions} only.`,
-  ].join("\n\n");
-
-  const raw = await chatCompletion(
-    [
-      { role: "system", content: system },
-      { role: "user", content: user },
-    ],
-    {
-      subject: params.input.subject,
-      query: `${params.input.query} [open-ended ${params.questionIndex}/${params.totalQuestions}]`,
-    },
-  );
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(extractJsonObject(raw));
-  } catch {
-    console.warn("[rag] open-ended question JSON parse failed", {
-      index: params.questionIndex,
-      preview: raw.slice(0, 300),
-    });
-    return null;
-  }
-
-  const row =
-    parsed && typeof parsed === "object" && !Array.isArray(parsed)
-      ? (parsed as Record<string, unknown>)
-      : null;
-  const questionTextRaw = typeof row?.["questionText"] === "string" ? row["questionText"].trim() : "";
-  if (!questionTextRaw) return null;
-  const marksRaw = typeof row?.["maxMarks"] === "number" ? row["maxMarks"] : Number(row?.["maxMarks"]);
-  const maxMarks = Number.isFinite(marksRaw) ? Math.max(1, Math.min(3, Math.floor(marksRaw))) : 2;
-  const questionText = normalizeOpenEndedQuestionText(questionTextRaw, maxMarks);
-  if (!questionText) return null;
-  return { questionText, maxMarks };
-}
-
-async function finalizeOpenEndedQuestion(params: {
-  input: GenerateRagInput;
-  form?: string;
-  questionText: string;
-  maxMarks: number;
-  sortOrder: number;
-  groundingChunks: RetrievedChunk[];
-}): Promise<GeneratedOpenEndedQuestion> {
-  const questionAnalysis = analyzeQuestion(params.questionText, params.input.subject);
-  const seedContent = mergeChunksExcerpt(params.groundingChunks);
-  const { acf, sourceRef } = await buildAssessmentCasePackage({
-    question: params.questionText,
-    subject: params.input.subject ?? "General",
-    form: params.form ?? "General",
-    maxScore: params.maxMarks,
-    questionAnalysis,
-    seedChunkContent: seedContent || undefined,
-    seedChunkRefs: params.groundingChunks.map(textbookChunkRef),
-    skipRetrieval: params.groundingChunks.length > 0 && seedContent.length > 0,
-    chapterFilter: params.input.chapterFilter?.trim() || undefined,
-    chapterHint: params.input.chapterHint?.trim() || undefined,
-  });
-  const modelAnswer = acf.referenceModelAnswer || "A concise correct answer based on the expected understanding.";
-  const stored = await saveGeneratedAssessmentCase({
-    question: params.questionText,
-    subject: params.input.subject,
-    form: params.form,
-    maxScore: params.maxMarks,
-    acf,
-    sourceRef,
-  });
-  const displayIdeas = evidenceUnitsToRubricIdeas(acf);
-  return {
-    id: params.sortOrder,
-    sortOrder: params.sortOrder,
-    questionText: params.questionText,
-    questionType: "short_answer",
-    difficulty: "mixed",
-    options: [],
-    correctAnswer: "",
-    explanation: `Model answer: ${modelAnswer}\n\nMarking points:\n${displayIdeas.map((idea) => `- (${idea.marks}m) ${idea.idea}`).join("\n")}`,
-    maxMarks: params.maxMarks,
-    questionForGrade: params.questionText,
-    modelAnswer,
-    rubricId: stored.caseId,
-    rubricIdeas: displayIdeas,
-  };
-}
-
-export type GenerateOpenEndedStepInput = GenerateRagInput & {
-  questionIndex: number;
-  totalQuestions: number;
-  priorStems?: string[];
-  generationContextId?: string | null;
-};
-
-export type GenerateOpenEndedStepResult = {
-  question: GeneratedOpenEndedQuestion | null;
-  generationContextId: string;
-  questionIndex: number;
-  totalQuestions: number;
-  sources: GenerateRagResult["sources"];
-};
-
-async function retrieveHitsForOpenEnded(input: GenerateRagInput): Promise<RetrievedChunk[]> {
-  const topK = input.topK ?? 8;
-  const chapterFilter = input.chapterFilter?.trim() || undefined;
-  const chapterHint = input.chapterHint?.trim() || undefined;
-  const form = input.form?.trim() || undefined;
-
-  let retrieval = await retrieveChunks({
-    query: input.query,
-    subject: input.subject ?? undefined,
-    form,
-    topK,
-    chapterFilter,
-    chapterHint,
-  });
-
-  if (chapterFilter && retrieval.chunks.length === 0) {
-    retrieval = await retrieveChunks({
-      query: input.query,
-      subject: input.subject ?? undefined,
-      form,
-      topK,
-      chapterHint,
-    });
-  }
-
-  return retrieval.chunks;
-}
-
-async function resolveOpenEndedRetrievalContext(
-  input: GenerateRagInput,
-  generationContextId?: string | null,
-): Promise<{ hits: RetrievedChunk[]; generationContextId: string }> {
-  const cached = getRetrievalContext(generationContextId);
-  if (cached) {
-    return { hits: cached, generationContextId: generationContextId!.trim() };
-  }
-  const hits = await retrieveHitsForOpenEnded(input);
-  return { hits, generationContextId: storeRetrievalContext(hits) };
-}
-
-/** Generate one subjective question + saved rubric (for progressive client loading). */
-export async function generateOpenEndedQuestionStep(
-  input: GenerateOpenEndedStepInput,
-): Promise<GenerateOpenEndedStepResult> {
-  const form = input.form?.trim() || undefined;
-  const totalQuestions = Math.max(
-    1,
-    Math.min(OPEN_ENDED_QUESTION_COUNT_MAX, Math.floor(input.totalQuestions)),
-  );
-  const questionIndex = Math.max(1, Math.min(totalQuestions, Math.floor(input.questionIndex)));
-  const priorStems = Array.isArray(input.priorStems)
-    ? input.priorStems.filter((s): s is string => typeof s === "string" && s.trim().length > 0)
-    : [];
-
-  const { hits, generationContextId } = await resolveOpenEndedRetrievalContext(
-    input,
-    input.generationContextId,
-  );
-  const primaryChunk = pickPrimaryTextbookChunk(hits, questionIndex);
-  const consecutiveChunks = primaryChunk
-    ? await fetchConsecutiveTextbookChunks(primaryChunk, 2)
-    : [];
-  const candidatePool = buildCandidateChunkPool(hits, primaryChunk, 8, consecutiveChunks);
-  const draftContextChunks = questionDraftContextChunks(candidatePool, primaryChunk);
-  const contextBlocks = draftContextChunks.map((h, i) => formatGeneratorContextBlock(h, i + 1));
-  const chunkGroundingMode: "none" | "single" | "multi" =
-    draftContextChunks.length === 0
-      ? "none"
-      : draftContextChunks.length === 1
-        ? "single"
-        : "multi";
-
-  console.info("[rag] open-ended step", {
-    questionIndex,
-    totalQuestions,
-    primaryChunkId: primaryChunk?.chunkId ?? null,
-    primaryChunkIndex: primaryChunk?.chunkIndex ?? null,
-    consecutiveChunkIndices: consecutiveChunks.map((c) => c.chunkIndex),
-    draftChunkCount: draftContextChunks.length,
-  });
-
-  const draft = await generateOneOpenEndedQuestionDraft({
-    input,
-    form,
-    contextBlocks,
-    questionIndex,
-    totalQuestions,
-    priorStems,
-    chunkGroundingMode,
-  });
-
-  if (!draft) {
-    return {
-      question: null,
-      generationContextId,
-      questionIndex,
-      totalQuestions,
-      sources: sourcesFromHits(hits),
-    };
-  }
-
-  const groundingChunks = await resolveGroundingChunksForQuestion({
-    question: draft.questionText,
-    subject: input.subject ?? "General",
-    maxScore: draft.maxMarks,
-    hits,
-    primaryChunk,
-    candidatePool,
-  });
-
-  console.info("[rag] open-ended grounding", {
-    questionIndex,
-    rubricChunkCount: groundingChunks.length,
-    rubricChunkIds: groundingChunks.map((c) => c.chunkId),
-  });
-
-  const question = await finalizeOpenEndedQuestion({
-    input,
-    form,
-    questionText: draft.questionText,
-    maxMarks: draft.maxMarks,
-    sortOrder: questionIndex,
-    groundingChunks,
-  });
-
-  return {
-    question,
-    generationContextId,
-    questionIndex,
-    totalQuestions,
-    sources: sourcesFromHits(hits),
-  };
-}
-
-async function generateOpenEndedWithSavedRubrics(params: {
-  input: GenerateRagInput;
-  hits: RetrievedChunk[];
-  form?: string;
-}): Promise<GenerateRagResult> {
-  const totalQuestions = parseOpenEndedQuestionCount(params.input.query, params.input.questionCount);
-  const contextId = storeRetrievalContext(params.hits);
-  const openEndedQuestions: GeneratedOpenEndedQuestion[] = [];
-  const priorStems: string[] = [];
-
-  console.info("[rag] open-ended generation: sequential mode", { totalQuestions });
-
-  for (let i = 0; i < totalQuestions; i += 1) {
-    const questionIndex = i + 1;
-    const step = await generateOpenEndedQuestionStep({
-      ...params.input,
-      form: params.form ?? params.input.form,
-      questionIndex,
-      totalQuestions,
-      priorStems,
-      generationContextId: contextId,
-    });
-    if (!step.question) {
-      console.warn("[rag] open-ended generation: skipped empty step", { questionIndex });
-      continue;
-    }
-    priorStems.push(step.question.questionText);
-    openEndedQuestions.push(step.question);
-  }
-
-  if (openEndedQuestions.length === 0) {
-    throw new Error("Structured subjective generation returned no usable questions.");
-  }
-
-  return {
-    answer: formatOpenEndedAnswer(openEndedQuestions),
-    sources: sourcesFromHits(params.hits),
-    sourcePageImages: [],
-    generatedImages: [],
-    openEndedQuestions,
+    generatedImages,
   };
 }
 
 export async function generateWithRag(
   input: GenerateRagInput,
 ): Promise<GenerateRagResult> {
-  if (input.skipRetrieval) {
-    return generateWithoutRetrieval(input);
+  if (
+    input.englishSpeaking === true ||
+    (input.skipRetrieval === true && input.subject?.trim().toLowerCase() === "english")
+  ) {
+    return generateEnglishSpeaking(input);
   }
 
   const topK = input.topK ?? 8;
-  const chapterFilter = input.chapterFilter?.trim() || undefined;
-  const chapterHint = input.chapterHint?.trim() || undefined;
-
-  const form = input.form?.trim() || undefined;
-
-  let retrieval = await retrieveChunks({
+  const retrieval = await retrieveChunks({
     query: input.query,
     subject: input.subject ?? undefined,
-    form,
     topK,
-    chapterFilter,
-    chapterHint,
   });
-
-  if (chapterFilter && retrieval.chunks.length === 0) {
-    retrieval = await retrieveChunks({
-      query: input.query,
-      subject: input.subject ?? undefined,
-      form,
-      topK,
-      chapterHint,
-    });
-  }
-
   const hits = retrieval.chunks;
 
-  if (input.createOpenEndedRubrics) {
-    return generateOpenEndedWithSavedRubrics({ input, hits, form });
-  }
-
   if (hits.length === 0) {
-    const answerRaw = await chatCompletion([
-      { role: "system", content: systemPromptForSubject(input.subject) },
+    let answerRaw = await chatCompletion([
+      { role: "system", content: `${systemPromptForNoRetrievalFallback(input.subject)}\n\n${NO_RETRIEVAL_GENERAL_PROMPT}` },
       {
         role: "user",
-        content: `${input.query}\n\n(Note: No knowledge-base chunks were retrieved. Answer from general knowledge and clearly label uncertainty.)\n\n${userTemplateHint(input.subject)}${bilingualGenerationReminder(input.subject)}${buildGenerationReminders(input.query, input.subject, hits)}`,
+        content: `User request:
+${input.query}
+
+Follow the appropriate template from the system message (MCQ vs subjective). Use general SPM knowledge only, and output the final question blocks directly with no preamble.${graphJsonReminder(input.subject, input.query)}${mcqFormatReminder(input.query, input.subject)}${subjectiveGenerationReminder(input.query, [], input.subject)}`,
       },
     ], { subject: input.subject, query: input.query });
-    return packageGeneratedAnswer(input, answerRaw, {
-      sources: [],
-      sourcePageImages: [],
-    });
+    answerRaw = ensureNoRetrievalParseableAnswer(input.query, input.subject, answerRaw);
+    const answerWithSvg = shouldPostProcessMathSvg(input.subject)
+      ? enrichMathAnswerWithSvg(answerRaw)
+      : answerRaw;
+    const { answer: answerRaw2, diagrams: diagramsFromBlock } = extractDiagramBlock(answerWithSvg);
+    const answer = promoteBiologyDiagramFlags(
+      normalizeBilingualAnswer(answerRaw2),
+      input.query,
+      input.subject,
+    );
+    const structuredDiagrams: StructuredQuestionDiagram[] = [];
+    const diagrams = buildGraphDiagrams(input, answer, diagramsFromBlock);
+    const diagram = diagrams[0];
+    const generatedImages = await buildGeneratedImages(input, answer);
+    return { answer, diagram, diagrams, structuredDiagrams, sources: [], sourcePageImages: [], generatedImages };
   }
 
   const contextBlocks = hits.map((h, i) => formatGeneratorContextBlock(h, i + 1));
 
-  const userContent = `Below are short excerpts from the syllabus/material (numbered for your use only; never show these numbers or any reference to them in your reply):\n\n${contextBlocks.join("\n\n---\n\n")}\n\nUser request:\n${input.query}\n\n${userTemplateHint(input.subject)}${bilingualGenerationReminder(input.subject)}${buildGenerationReminders(input.query, input.subject, hits)}`;
+  const userContent = `Below are short excerpts from the syllabus/material (numbered for your use only; never show these numbers or any reference to them in your reply):\n\n${contextBlocks.join("\n\n---\n\n")}\n\nUser request:\n${input.query}\n\nFollow the appropriate template from the system message (MCQ vs subjective).${graphJsonReminder(input.subject, input.query)}${mcqFormatReminder(input.query, input.subject)}${subjectiveGenerationReminder(input.query, hits, input.subject)}`;
 
-  const answerRaw = await chatCompletion([
+  let answerRaw = await chatCompletion([
     { role: "system", content: systemPromptForSubject(input.subject) },
     { role: "user", content: userContent },
   ], { subject: input.subject, query: input.query });
+  if (isMcqGenerationQuery(input.query) || isForceBmSubject(input.subject)) {
+    answerRaw = ensureNoRetrievalParseableAnswer(input.query, input.subject, answerRaw);
+  }
+  const answerWithSvg = shouldPostProcessMathSvg(input.subject)
+    ? enrichMathAnswerWithSvg(answerRaw)
+    : answerRaw;
+  const { answer: answerRaw2, diagrams: diagramsFromBlock } = extractDiagramBlock(answerWithSvg);
+  const answer = promoteBiologyDiagramFlags(
+    normalizeBilingualAnswer(answerRaw2),
+    input.query,
+    input.subject,
+  );
+  const structuredDiagrams: StructuredQuestionDiagram[] = [];
+  const diagrams = buildGraphDiagrams(input, answer, diagramsFromBlock);
+  const diagram = diagrams[0];
 
-  return packageGeneratedAnswer(input, answerRaw, {
-    sources: sourcesFromHits(hits),
-    sourcePageImages: [],
-  });
+  const sourcePageImages: GenerateRagResult["sourcePageImages"] = [];
+  const generatedImages = await buildGeneratedImages(input, answer);
+
+  return {
+    answer,
+    diagram,
+    diagrams,
+    structuredDiagrams,
+    sources: hits.map((h) => ({
+      documentId: Number(h.textbookId) || 0,
+      chunkIndex: h.chunkIndex,
+      title: h.title ?? null,
+      subject: h.subject ?? null,
+      sourceType: h.sourceType,
+      excerpt: h.content.slice(0, 400) + (h.content.length > 400 ? "…" : ""),
+      distance: h.score ?? 0,
+    })),
+    sourcePageImages,
+    generatedImages,
+  };
 }

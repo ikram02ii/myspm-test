@@ -3,9 +3,9 @@ import { Image, Platform } from "react-native";
 import * as ImageManipulator from "expo-image-manipulator";
 
 import { AUTH_USER_STORAGE_KEY } from "../constants/storageKeys";
+import { DEFAULT_MOBILE_API_BASE_URL_PREFIX, getMobileApiBaseUrlPrefix } from "./mobileApiBaseUrl";
 import { mobileApiPostFormData } from "./mobileApi";
 import { mobileApiGet } from "./mobileApi";
-import { DEFAULT_MOBILE_API_BASE_URL_PREFIX, getMobileApiBaseUrlPrefix } from "./mobileApiBaseUrl";
 import type { MobileAuthUser } from "./mobileAuth";
 
 const UPLOAD_MAX_WIDTH = 1280;
@@ -79,7 +79,7 @@ export type AiScanOcrOptions = {
   subject?: string;
   /**
    * `extract` — read text from the image only (AI Practice answer box).
-   * Default — full cleanup/validation pipeline (other flows).
+   * `full` — full cleanup/validation pipeline (other flows).
    */
   mode?: "extract" | "full";
   /** Current question stem — used to strip EN:/BM: lines accidentally OCR'd from the screen. */

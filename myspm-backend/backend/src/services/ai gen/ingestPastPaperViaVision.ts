@@ -41,8 +41,6 @@ export async function ingestPastPaperPdfViaVisionToRagDb(
     throw new Error("subject, form, and title are required");
   }
 
-  if (!ragDb) throw new Error("RAG database is not configured");
-
   const pages = await extractAllPagesFromPdfWithVision({
     pdfPath: input.pdfPath,
     originalName: sourceName,
@@ -78,6 +76,11 @@ export async function ingestPastPaperPdfViaVisionToRagDb(
       conceptSummary: `Vision extraction (text + diagram descriptions) for SPM past paper page ${page.pageNumber}.`,
       keywords: subject,
       maxMarks: null,
+      pageStart: page.pageNumber,
+      pageEnd: page.pageNumber,
+      sourceImageUrl: page.ossUrl,
+      embedding: null,
+      chunkKind: "vision_page",
       content: buildVisionPageChunkContent(page, { subject, title }),
     })),
   );

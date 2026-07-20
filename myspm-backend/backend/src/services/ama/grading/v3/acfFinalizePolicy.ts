@@ -24,6 +24,33 @@ const ELECTRON_ARRANGEMENT_ALIASES = [
   "2 in first shell, 8 in second, 1 in third",
 ];
 
+/** Near-synonym / BM–EN aliases for common SPM wording mismatches. */
+const NEAR_SYNONYM_ALIAS_GROUPS: Array<{ match: RegExp; aliases: string[] }> = [
+  {
+    match: /\b(defined|derived|ditakrif|diperoleh)\b/i,
+    aliases: ["defined", "derived", "ditakrifkan", "diperoleh", "in terms of", "from other"],
+  },
+  {
+    match: /\b(electrostatic|elektrostatik)\b/i,
+    aliases: ["electrostatic", "elektrostatik", "ionic forces", "daya ion", "attraction between ions"],
+  },
+  {
+    match: /\b(intermolecular|daya antarmolekul|antara\s*molekul)\b/i,
+    aliases: ["intermolecular", "antara molekul", "daya antarmolekul", "between molecules"],
+  },
+  {
+    match: /\b(lattice|jejaringan|rangkaian)\b/i,
+    aliases: ["lattice", "giant lattice", "jejaringan", "rangkaian ion"],
+  },
+  {
+    match: /\b(melting\s*point|takat\s*lebur)\b/i,
+    aliases: ["melting point", "takat lebur", "high melting", "takat lebur tinggi"],
+  },
+];
+
+const DUAL_SIDE_SPLIT_RE =
+  /\b(?:while|whereas|whilst|but|however|compared\s+with|compared\s+to|in\s+contrast|on\s+the\s+other\s+hand|sebaliknya|manakala|sedangkan)\b/i;
+
 function normalizeStem(question: string): string {
   return (question || "").toLowerCase().replace(/\s+/g, " ").trim();
 }
@@ -57,19 +84,47 @@ export function parseStemRequiredItemCount(question: string): number | null {
   return null;
 }
 
+/**
+ * Command words that mark a stem as a COMPARISON / difference question. These
+ * are independent-unit scored (each side earns its own mark), so an invalid
+ * claim about one side must never wipe the other — hence they are excluded from
+ * the fixed-set treatment. Purely structural (command words), no topic strings.
+ */
+const COMPARE_DIFFERENCE_STEM_RE =
+  /\b(differ|different|difference|distinguish|bezakan|beza|bandingkan|banding|compare|contrast|versus|vs)\b/i;
+
+/**
+ * A "fixed set" stem names a specific, closed number of required items equal to
+ * the total marks (e.g. "state the two ...", "name three ..."). Fully generic:
+ * driven only by the stem's item-count structure and command word, never by any
+ * subject or topic string.
+ */
 export function isFixedSetRecallStem(question: string, maxScore: number): boolean {
-  const q = normalizeStem(question);
+  if (COMPARE_DIFFERENCE_STEM_RE.test(question)) return false;
   const required = parseStemRequiredItemCount(question);
-  if (required != null && required === maxScore) return true;
-  if (/\bstate\s+two\b|\bnyatakan\s+dua\b|\btwo\s+subatomic\b|\bdua\s+.*\b(zarah|partikel)\b/i.test(q)) {
-    return maxScore === 2;
+  return required != null && maxScore >= 1 && required === maxScore;
+}
+
+/**
+ * Enumeration-type stem: the student earns credit by naming/stating/listing
+ * discrete items or examples, rather than constructing a reasoned explanation.
+ * Detected structurally from intent family/category, question type, example
+ * demand, and closed item counts — never from specific question text. For such
+ * stems a single correct core-concept match per unit is sufficient for credit.
+ */
+export function isEnumerationStem(acf: AssessmentCaseFile): boolean {
+  const { family, category, analysis } = acf.intent;
+  if (family === "comparison" || family === "explanation" || family === "process" || family === "humanities") {
+    return false;
   }
-  if (/\b(difference|bezakan|bandingkan|compare|differentiate)\b.*\b(between|antara|dan)\b/i.test(q)) {
+  if (acf.markRule.kind === "coverage_chain" || acf.markRule.kind === "ordered_stages") return false;
+
+  if (family === "recall" && (category === "state" || category === "name" || category === "list" || category === "identify")) {
     return true;
   }
-  if (/\b(charge|cas)\b.*\b(proton|neutron|electron|proton|neutron|elektron)\b/i.test(q)) {
-    return true;
-  }
+  if (analysis?.questionType === "open_ended_example") return true;
+  if (analysis?.requiresExamples === true) return true;
+  if (parseStemRequiredItemCount(acf.question) != null && acf.markRule.kind === "count_distinct_units") return true;
   return false;
 }
 
@@ -160,10 +215,62 @@ function padCreditUnitsToMaxScore(
 }
 
 function enrichDefinitionAliases(_question: string, units: EvidenceUnit[]): EvidenceUnit[] {
-  return units.map((unit) => ({
-    ...unit,
-    aliases: [...new Set([...unit.aliases, unit.content])],
-  }));
+  return units.map((unit) => {
+    const extra: string[] = [unit.content];
+    for (const group of NEAR_SYNONYM_ALIAS_GROUPS) {
+      if (group.match.test(unit.content) || unit.aliases.some((a) => group.match.test(a))) {
+        extra.push(...group.aliases);
+      }
+    }
+    return {
+      ...unit,
+      aliases: [...new Set([...unit.aliases, ...extra].map((a) => a.trim()).filter(Boolean))],
+    };
+  });
+}
+
+/**
+ * Split credit units that encode both sides of a comparison into two atomic units.
+ * E.g. "Ionic … while covalent …" → two 1-mark units (weights rebalanced later).
+ */
+export function splitDualSideComparisonUnits(units: EvidenceUnit[]): EvidenceUnit[] {
+  const out: EvidenceUnit[] = [];
+  for (const unit of units) {
+    if (unit.creditWeight <= 0) {
+      out.push(unit);
+      continue;
+    }
+    if (!DUAL_SIDE_SPLIT_RE.test(unit.content)) {
+      out.push(unit);
+      continue;
+    }
+    const parts = unit.content
+      .split(DUAL_SIDE_SPLIT_RE)
+      .map((p) => p.replace(/^[\s,;:.-]+|[\s,;:.-]+$/g, "").trim())
+      .filter((p) => p.split(/\s+/).length >= 4);
+    if (parts.length < 2) {
+      out.push(unit);
+      continue;
+    }
+    const [left, right] = parts;
+    const weightLeft = Math.max(1, Math.floor(unit.creditWeight / 2));
+    const weightRight = Math.max(1, unit.creditWeight - weightLeft);
+    out.push({
+      ...unit,
+      id: `${unit.id}_a`,
+      content: left!,
+      creditWeight: weightLeft,
+      aliases: [...unit.aliases],
+    });
+    out.push({
+      ...unit,
+      id: `${unit.id}_b`,
+      content: right!,
+      creditWeight: weightRight,
+      aliases: [...unit.aliases],
+    });
+  }
+  return out;
 }
 
 function applyMarkRuleDefaults(
@@ -253,6 +360,8 @@ export function finalizeAssessmentCase(acf: AssessmentCaseFile): AssessmentCaseF
     relations = stripLoadBearingRelations(relations);
   }
 
+  units = normalizeCreditUnitWeights(units, acf.maxScore);
+  units = splitDualSideComparisonUnits(units);
   units = normalizeCreditUnitWeights(units, acf.maxScore);
   units = padCreditUnitsToMaxScore(units, acf.maxScore, acf.assessedUnderstanding);
   units = enrichElectronArrangementAliases(units);

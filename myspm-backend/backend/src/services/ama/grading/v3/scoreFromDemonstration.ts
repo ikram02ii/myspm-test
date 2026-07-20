@@ -128,27 +128,12 @@ export function scoreFromDemonstration(acf: AssessmentCaseFile, udm: Understandi
     }
 
     case "claim_plus_reason": {
-      const claims = creditUnits(acf).filter((u) => u.type === "claim");
-      const justifications = creditUnits(acf).filter((u) => u.type === "justification");
-      const claimHit = claims.filter((u) => unitAwarded(udm, u.id)).length;
-      const justHit = justifications.filter((u) => unitAwarded(udm, u.id)).length;
-      const justRelations = acf.relations.filter((r) => r.type === "justifies" && r.requiredForMarks);
-      const relHit = justRelations.some((r) => relationAwarded(udm, r.id));
-
-      if (claims.length === 0 && justifications.length === 0) {
-        score = Math.min(max, udm.unitsDemonstrated.filter((d) => d.valid).length);
-        awardedUnitIds = new Set(udm.unitsDemonstrated.filter((d) => d.valid).map((d) => d.unitId));
-      } else if (claimHit >= 1 && (justHit >= 1 || relHit)) {
-        score = max;
-        for (const u of creditUnits(acf)) {
-          if (unitAwarded(udm, u.id)) awardedUnitIds.add(u.id);
-        }
-      } else if (claimHit >= 1) {
-        score = Math.min(max, Math.max(1, Math.floor(max / 2)));
-        for (const u of claims) {
-          if (unitAwarded(udm, u.id)) awardedUnitIds.add(u.id);
-        }
-      }
+      const demonstratedCredit = creditUnits(acf).filter((u) => unitAwarded(udm, u.id));
+      score = Math.min(
+        max,
+        demonstratedCredit.reduce((sum, u) => sum + u.creditWeight, 0),
+      );
+      awardedUnitIds = new Set(demonstratedCredit.map((u) => u.id));
       break;
     }
 
@@ -159,13 +144,31 @@ export function scoreFromDemonstration(acf: AssessmentCaseFile, udm: Understandi
 
   validateZeroWeightNeverCredited(acf, awardedUnitIds);
 
-  if (
-    !isCalculationIntent(acf) &&
-    isFixedSetRecallStem(acf.question, acf.maxScore) &&
-    udm.invalidClaims.length > 0
-  ) {
-    score = 0;
-    awardedUnitIds.clear();
+  // Fixed-set wipe: only revoke units contradicted by an invalidClaim text overlap —
+  // never wipe unrelated correct points for an error elsewhere in the answer.
+  if (!isCalculationIntent(acf) && isFixedSetRecallStem(acf.question, acf.maxScore) && udm.invalidClaims.length > 0) {
+    const credit = creditUnits(acf);
+    for (const claim of udm.invalidClaims) {
+      const claimNorm = (claim.text || "").toLowerCase();
+      if (!claimNorm) continue;
+      for (const unit of credit) {
+        if (!awardedUnitIds.has(unit.id)) continue;
+        const demo = udm.unitsDemonstrated.find((d) => d.unitId === unit.id && d.valid);
+        const hay = `${demo?.quote || ""} ${unit.content}`.toLowerCase();
+        // Strip credit only when the invalid claim clearly attaches to this unit's quote/content.
+        const claimTokens = claimNorm.split(/\W+/).filter((t) => t.length >= 4);
+        const overlaps =
+          claimTokens.length > 0 &&
+          claimTokens.filter((t) => hay.includes(t)).length / claimTokens.length >= 0.5;
+        if (overlaps || hay.includes(claimNorm)) {
+          awardedUnitIds.delete(unit.id);
+        }
+      }
+    }
+    score = Math.min(
+      max,
+      credit.filter((u) => awardedUnitIds.has(u.id)).reduce((sum, u) => sum + u.creditWeight, 0),
+    );
   }
 
   score = Math.max(0, Math.min(max, score));

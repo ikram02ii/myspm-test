@@ -2,6 +2,7 @@
  * SPM grading policy: student language, diagram rules, examiner prompts, question category heuristics.
  */
 
+import { buildStrictMarkSchemeGenerationBlock } from "./markSchemeGenerationPolicy";
 import type { DiagramContext } from "../types";
 import { formatEvidenceOnlyMarkingBlock, type EvidenceOnlyMarkingOptions } from "./gradingEvidencePolicy";
 /**
@@ -19,15 +20,42 @@ export const SPM_STUDENT_FRIENDLY_RULES_LINES = [
   "- Bahasa Melayu: standard classroom BM (e.g. kerana, supaya, iaitu). Avoid archaic or overly formal legal-style BM.",
   "- English: simple school English (because, so, helps, wrong, correct). Do not sound like an academic paper.",
   "- Tone: calm and helpful, like a supportive teacher. No condescension, no showing off vocabulary.",
+  "- FEEDBACK: plain SPM marking comments a Form 4/5 student understands on first read. No A-Level/STPM/university phrasing, no academic hedging ('it could be argued', 'scientifically speaking', 'as per the literature'). Feedback is NOT the model answer — never paste the full correct answer in feedback.",
+  "- MODEL ANSWER: KSSM SPM textbook wording — write like a good Form 4/5 student's notes, not examiner or A-Level prose. Depth MUST follow the command word: State/Identify/List/Name → exactly N complete short bullets (~8–18 words each); Explain/Describe/Discuss/Why/How → exactly N full reasoning sentences (~25–45 words, because/so/therefore); Compare/Differentiate → exactly N clear both-sided contrasts (~20–40 words). The model answer MUST directly answer the stem. Calculations: Formula → Working → Final answer with unit.",
+  "- Never use advanced jargon unless it is standard in KSSM SPM textbooks for this topic (e.g. avoid 'homeostatic dysregulation' if 'maintains body temperature' is the SPM-level idea).",
   "- In JSON, every learner-facing string (feedback, modelAnswer, strengths, improvements, markBreakdown[].reason) must follow these rules.",
   "- LANGUAGE FAIRNESS: BM/English mix, chemical formulae, common names, and trade names count when they clearly express the same SPM mark point â€” never penalize notation or language choice alone.",
   "- EXAM STANDARD (marking only): Award by marking-scheme CONCEPTS â€” not model-answer wording. State/Name: a correct keyword is enough. Explain/Describe: each correct idea counts; paraphrases OK. Reject vague/generic answers even if loosely related.",
   "- CRITICAL EVIDENCE: Credit only concepts explicitly written in the student's answer. Quote their exact phrase before each mark. Never infer unstated ideas or copy from the model answer into feedback.",
+  "- FEEDBACK BOUNDARY: Never penalize in feedback for a missing idea unless that idea is an explicit individual marking point that was not awarded.",
   "- DIAGRAMS/FIGURES: Use attached or referenced figures only to understand the question and rubric. Never treat the figure as proof the student knows a label, structure, value, or process unless they wrote it.",
 ] as const;
 
 export function formatSpmStudentFriendlyRulesBlock(): string {
   return [SPM_STUDENT_FRIENDLY_RULES_HEADER, ...SPM_STUDENT_FRIENDLY_RULES_LINES].join("\n");
+}
+
+/**
+ * Presentation-only SPM style subset (additive — B1).
+ * Character-identical lines from SPM_STUDENT_FRIENDLY_RULES_LINES; excludes scoring /
+ * evidence / feedback-boundary / diagram echoes. No callers migrated yet (B1b deferred).
+ */
+export const SPM_PRESENTATION_STYLE_HEADER =
+  "PRESENTATION STYLE (Malaysian SPM Form 4/5 — learner-facing text):";
+
+export const SPM_PRESENTATION_STYLE_LINES = [
+  SPM_STUDENT_FRIENDLY_RULES_LINES[0],
+  SPM_STUDENT_FRIENDLY_RULES_LINES[1],
+  SPM_STUDENT_FRIENDLY_RULES_LINES[2],
+  SPM_STUDENT_FRIENDLY_RULES_LINES[3],
+  SPM_STUDENT_FRIENDLY_RULES_LINES[4],
+  SPM_STUDENT_FRIENDLY_RULES_LINES[5],
+  SPM_STUDENT_FRIENDLY_RULES_LINES[6],
+  SPM_STUDENT_FRIENDLY_RULES_LINES[9],
+] as const;
+
+export function formatSpmPresentationStyleBlock(): string {
+  return [SPM_PRESENTATION_STYLE_HEADER, ...SPM_PRESENTATION_STYLE_LINES].join("\n");
 }
 
 
@@ -203,7 +231,7 @@ export function isExplainWhyCauseEffectQuestion(
   return questionType === "cause_effect" || demandType === "explanation";
 }
 
-/** Rubric LLM: how to populate acceptedConcepts per row. */
+/** @deprecated Tranche A audit: no live consumers. Rubric-gen path unused. */
 export function buildAcceptedConceptsRubricInstructions(): string {
   return [
     "ACCEPTED CONCEPTS (mandatory for every row):",
@@ -219,7 +247,7 @@ export function buildAcceptedConceptsRubricInstructions(): string {
   ].join("\n");
 }
 
-/** Rubric LLM: cached colloquial and short-form targets for Stage 4 semantic matching. */
+/** @deprecated Tranche A audit: no live consumers. Rubric-gen path unused. */
 export function buildAcceptedSynonymsRubricInstructions(): string {
   return [
     "ACCEPTED SYNONYMS (mandatory for every row — separate from acceptedConcepts):",
@@ -235,7 +263,7 @@ export function buildAcceptedSynonymsRubricInstructions(): string {
   ].join("\n");
 }
 
-/** Rubric LLM: open topic pool ("state any N from domain"). */
+/** @deprecated Tranche A audit: no live consumers. Rubric-gen path unused. */
 export function buildOpenTopicPoolRubricInstructions(): string {
   return [
     "OPEN-POOL QUESTION RULES",
@@ -279,6 +307,7 @@ export function isOpenPoolGradingMode(mode: string | undefined): boolean {
   return mode === "open_pool" || mode === "open_set";
 }
 
+/** @deprecated Tranche A audit: no live consumers. Rubric-gen path unused. */
 export function buildCausalChainRubricInstructions(): string {
   return [
     "CAUSAL / EXPLANATION STEMS (explain / terangkan / explain why / cause-effect):",
@@ -292,8 +321,11 @@ export function buildCausalChainRubricInstructions(): string {
 }
 
 /** Rubric LLM: examiner-awardable marking points (not atomic facts from model answer). */
+/** @deprecated Tranche A audit: no live consumers. Rubric-gen path unused. */
 export function buildExaminerMarkingPointPolicy(): string {
   return [
+    buildStrictMarkSchemeGenerationBlock(),
+    "",
     "### MARKING POINT GENERATION POLICY",
     "",
     "Generate rubric rows as EXAMINER-AWARDABLE MARKING POINTS, not as individual facts extracted from the reference answer.",
@@ -314,17 +346,17 @@ export function buildExaminerMarkingPointPolicy(): string {
     "",
     "### STUDENT EXPRESSION TEST",
     "For every pair of proposed rows: 'Could a competent student express both in one sentence while demonstrating the required understanding?'",
-    "If YES → prefer ONE merged marking point.",
-    "If NO → keep separate rows.",
+    "If YES → you MUST use ONE merged marking point.",
+    "If NO → you MUST keep separate rows.",
     "",
     "### SUPPORTING FACT FILTER",
-    "Do NOT award separate marks for information that merely supports another marking point.",
-    "Incorporate supporting facts into the main row unless the fact is independently demonstrable and independently creditable.",
+    "You MUST NOT award separate marks for information that merely supports another marking point.",
+    "You MUST incorporate supporting facts into the main row unless the fact is independently demonstrable and independently creditable.",
     "",
     "### MARK ALLOCATION PRINCIPLE",
-    "Marks reflect distinct understanding, not the number of facts in the reference answer.",
-    "Prefer fewer high-quality marking points over many fragmented rows.",
-    "Students must NOT lose marks for expressing a complete idea in one concise sentence instead of listing every intermediate fact.",
+    "Marks MUST reflect distinct understanding, NEVER the number of facts in the reference answer.",
+    "You MUST use fewer high-quality marking points over many fragmented rows.",
+    "Students MUST NOT lose marks for expressing a complete idea in one concise sentence instead of listing every intermediate fact.",
     "",
     "### FINAL VALIDATION (mandatory before returning JSON)",
     "Review all rows. MERGE rows that represent one coherent explanatory understanding.",
@@ -334,6 +366,7 @@ export function buildExaminerMarkingPointPolicy(): string {
 }
 
 /** Rubric LLM: specific rules for "define / what is / takrifkan" questions. */
+/** @deprecated Tranche A audit: no live consumers. Rubric-gen path unused. */
 export function buildDefinitionRubricInstructions(): string {
   return [
     "DEFINITION QUESTIONS (define / what is / takrifkan / apakah / maksud / definisi):",
@@ -364,6 +397,7 @@ export function isDefinitionQuestion(question: string): boolean {
 }
 
 /** Extra system/user lines for qwenBuildRubric (category vs context-bound stems). */
+/** @deprecated Tranche A audit: no live consumers. Rubric-gen path unused. */
 export function buildCategoryRubricPromptInstructions(question: string): string[] {
   const strict = isStrictContextBindingQuestion(question);
   const open = isOpenCategoryMarkingQuestion(question);
@@ -556,10 +590,5 @@ export function formatSpmExamStandardMarkingBlock(options?: EvidenceOnlyMarkingO
     "",
     formatEvidenceOnlyMarkingBlock(options),
   ].join("\n");
-}
-
-/** @deprecated Use formatSpmExamStandardMarkingBlock â€” kept for imports that still reference examiner priority naming. */
-export function formatExaminerMarkingPriorityBlock(): string {
-  return formatSpmExamStandardMarkingBlock();
 }
 

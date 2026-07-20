@@ -5,6 +5,7 @@
 
 import { qwenGradingJson } from "../qwenGradingClient";
 import { formatSpmStudentFriendlyRulesBlock } from "../gradingPolicy";
+import { RETURN_JSON_QUESTION_TEXT } from "../prompts/shared/jsonRules";
 import {
   applyVerificationToAcf,
   computeEmpiricalFormulaFromComposition,
@@ -128,7 +129,7 @@ export async function generateCalculationQuestionFromMethod(params: {
   const system = [
     "You write one short Malaysian SPM Form 4/5 calculation question.",
     formatSpmStudentFriendlyRulesBlock(),
-    'Return JSON only: { "questionText": string }',
+    RETURN_JSON_QUESTION_TEXT,
     "questionText must be a CALCULATION question (Calculate / Hitung / Kirakan).",
     `questionText must end with mark allocation, e.g. '(${maxMarks} marks)' or '(${maxMarks} markah)'.`,
     `maxMarks for the question must be ${maxMarks}.`,

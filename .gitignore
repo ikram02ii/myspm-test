@@ -28,6 +28,9 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
+# Standalone STT clone (merged into myspm-backend/backend)
+/stt-api/
+
 # Build artifacts
 *.ipa
 *.apk

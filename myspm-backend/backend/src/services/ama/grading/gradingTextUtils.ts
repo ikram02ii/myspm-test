@@ -126,6 +126,26 @@ export function resolveFeedbackLanguage(
   return "english";
 }
 
+/**
+ * Language for model answers — derived from the question stem only.
+ * Student answer MUST NOT change model-answer language or wording.
+ */
+export function resolveModelAnswerLanguage(question?: string): AnswerLanguage {
+  const q = (question || "").trim();
+  if (!q) return "english";
+
+  const hasEn = /(?:^|\n)\s*EN:\s*/i.test(q);
+  const hasBm = /(?:^|\n)\s*BM:\s*/i.test(q);
+  if (hasBm && !hasEn) return "malay";
+  if (hasEn) return "english";
+
+  if (textContainsMalayProse(q) && detectAnswerLanguage(q) === "malay") {
+    return "malay";
+  }
+
+  return "english";
+}
+
 // ---------------------------------------------------------------------------
 // Question-type detection helpers
 // ---------------------------------------------------------------------------

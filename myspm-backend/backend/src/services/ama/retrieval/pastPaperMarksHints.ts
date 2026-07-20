@@ -64,13 +64,16 @@ export function buildPastPaperMarksGuidance(chunks: RetrievedChunk[]): string {
   return summarizePastPaperMarkDistribution(samples) ?? "";
 }
 
+const MCQ_GENERATION_QUERY_PATTERN =
+  /\bMCQ\b|objektif|multiple[- ]choice|A[-–]D\b|A-D options/i;
+
+export function isMcqGenerationQuery(query: string): boolean {
+  return MCQ_GENERATION_QUERY_PATTERN.test(query);
+}
+
 export function isSubjectiveGenerationQuery(query: string): boolean {
+  if (isMcqGenerationQuery(query)) return false;
   return /\bsubjective\b|essay|karangan|open[- ]?ended|structured\s+question|marking\s+points?|short\s+answer(?!\s+[A-D])/i.test(
     query,
   );
-}
-
-export function isMcqGenerationQuery(query: string): boolean {
-  if (isSubjectiveGenerationQuery(query)) return false;
-  return /\bMCQ\b|objektif|multiple[- ]choice|A[-–]D\b|A-D options/i.test(query);
 }

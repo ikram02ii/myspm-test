@@ -192,6 +192,11 @@ export type GradeSubmissionInput = {
   maxScore?: number;
   /** Optional saved rubric from AI Practice generation; marking should reuse this exact rubric. */
   rubricId?: string;
+  /**
+   * Client/generation question type hint (e.g. calculation, theory).
+   * Diagnostics only for open-ended — assessment-case intent remains authoritative.
+   */
+  questionType?: string;
   rubricVersion?: string;
   diagramImageUrl?: string;
   diagramImageBase64?: string;
@@ -480,6 +485,10 @@ export type GradeSubmissionResult = {
   feedback: string;
   model: string;
   modelAnswer?: string;
+  /** Preferred: one exemplar string per marking point (avoids client re-split bugs). */
+  modelAnswerPoints?: string[];
+  /** Preferred: exemplar + marks per credit unit for UI cards. */
+  modelAnswerPointCards?: Array<{ text: string; marks: number }>;
   matchedIdeas?: string[];
   missingIdeas?: string[];
   markBreakdown?: MarkBreakdownItem[];
@@ -513,4 +522,20 @@ export type GradeSubmissionResult = {
   questionAnalysis?: QuestionAnalysis;
   /** Qualitative retrieval confidence for clients (e.g. high | medium | low). */
   retrievalConfidence?: "high" | "medium" | "low";
+  /**
+   * Phase 1 decision trace: which artifact sources owned this grade
+   * (model answer source, stage plan id, saved case reuse).
+   */
+  decisionLog?: {
+    caseId: string;
+    intentFamily: string;
+    intentCategory: string;
+    isCalculation: boolean;
+    markingAgent?: string;
+    maSource: string;
+    stagePlanId: string | null;
+    markingPointCount: number;
+    usedSavedCase: boolean;
+    clientQuestionTypeHint?: string | null;
+  };
 };

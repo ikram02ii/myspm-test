@@ -1,5 +1,12 @@
-import { qwenGradingJson } from "../qwenGradingClient";
+import { formatSpmStudentFriendlyRulesBlock } from "../gradingPolicy";
+import {
+  buildModelAnswerQualityRulesBlock,
+  buildModelAnswerVerbFormatRulesBlock,
+  buildKssmTextbookModelAnswerWordingBlock,
+} from "../modelAnswerFeedbackFormatPolicy";
+import { withMandatoryMarkingLanguage } from "../gradingMandatoryLanguage";
 import { questionInvitesOpenTopicRecall } from "../gradingPolicy";
+import { qwenGradingJson } from "../qwenGradingClient";
 import {
   classifyAssessmentIntent,
   defaultMarkRuleKind,
@@ -10,6 +17,7 @@ import {
   validateAcfTopology,
 } from "./calculationAcfPolicy";
 import { finalizeAssessmentCase } from "./acfFinalizePolicy";
+import { joinPerPointExemplarsForStorage } from "./perPointModelAnswer";
 import {
   applyVerificationToAcf,
   computeEmpiricalFormulaFromComposition,
@@ -37,6 +45,7 @@ function parseUnits(raw: unknown[]): EvidenceUnit[] {
     const row = item as Record<string, unknown>;
     const content = typeof row["content"] === "string" ? row["content"].trim() : "";
     if (!content) return;
+    const coreConcept = typeof row["coreConcept"] === "string" ? row["coreConcept"].trim() : "";
     const creditWeightRaw = row["creditWeight"];
     const creditWeight =
       typeof creditWeightRaw === "number" && Number.isFinite(creditWeightRaw)
@@ -60,6 +69,7 @@ function parseUnits(raw: unknown[]): EvidenceUnit[] {
       creditWeight,
       required: row["required"] === true,
     };
+    if (coreConcept) unit.coreConcept = coreConcept;
     if (supports && supports.length > 0) unit.supports = supports;
     out.push(unit);
   });
@@ -98,17 +108,25 @@ async function buildReferenceModelAnswer(params: {
   assessedUnderstanding: string;
   units: EvidenceUnit[];
 }): Promise<string> {
-  const unitLines = params.units
-    .filter((u) => u.creditWeight > 0)
-    .map((u) => `- ${u.content}`)
-    .join("\n");
+  const creditUnits = params.units.filter((u) => u.creditWeight > 0);
+  const unitLines = creditUnits.map((u) => `- [${u.id}] ${u.content}`).join("\n");
 
-  const system = [
-    "Write a short SPM reference model answer.",
-    'Return JSON only: { "modelAnswer": string }',
-    "Match question language. Rephrase textbook content as a student would write.",
-    "A concise answer demonstrating full understanding earns full marks.",
-  ].join("\n");
+  const system = withMandatoryMarkingLanguage(
+    [
+      "You MUST write an SPM Form 4/5 reference model answer — one full exemplar sentence per marking point.",
+      formatSpmStudentFriendlyRulesBlock(),
+      buildModelAnswerQualityRulesBlock(params.maxScore, params.question),
+      buildKssmTextbookModelAnswerWordingBlock(),
+      buildModelAnswerVerbFormatRulesBlock(params.maxScore, params.question),
+      'You MUST return JSON only: { "pointExemplars": string[] }',
+      `pointExemplars MUST have exactly ${creditUnits.length} entries — one per marking point below, in the same order.`,
+      "Each entry MUST be a complete student-facing exemplar for THAT marking point only (not rubric shorthand).",
+      "Do NOT collapse multiple marking points into one paragraph — students must see how each mark is earned.",
+      "Depth may follow each unit's demand (short fact for State/Define; reasoning for Explain/Why) — still keep one block per unit.",
+      "The combined exemplars MUST fully answer the question stem.",
+      "You MUST match question language. If evidence excerpt uses formal wording, you MUST simplify to KSSM textbook student phrasing.",
+    ].join("\n"),
+  );
 
   const user = [
     `Subject: ${params.subject}`,
@@ -117,24 +135,31 @@ async function buildReferenceModelAnswer(params: {
     `Max marks: ${params.maxScore}`,
     `Assessed understanding: ${params.assessedUnderstanding}`,
     params.excerpt ? `Evidence:\n${params.excerpt.slice(0, 6000)}` : "",
-    `Expected evidence units:\n${unitLines}`,
+    `Marking points (write one exemplar per row, same order):\n${unitLines}`,
   ]
     .filter(Boolean)
     .join("\n\n");
 
   try {
     const parsed = await qwenGradingJson(system, user);
+    const rows = Array.isArray(parsed?.pointExemplars)
+      ? (parsed.pointExemplars as unknown[])
+          .map((r) => (typeof r === "string" ? r.trim() : ""))
+          .filter(Boolean)
+      : [];
+    if (rows.length === creditUnits.length) {
+      return joinPerPointExemplarsForStorage(rows, params.question);
+    }
     const ma = typeof parsed?.modelAnswer === "string" ? parsed.modelAnswer.trim() : "";
     if (ma.length > 0) return ma;
   } catch {
     /* fallback */
   }
 
-  return params.units
-    .filter((u) => u.creditWeight > 0)
-    .slice(0, params.maxScore + 2)
-    .map((u) => u.content)
-    .join("; ");
+  return joinPerPointExemplarsForStorage(
+    creditUnits.map((u) => u.content),
+    params.question,
+  );
 }
 
 export async function extractEvidenceForAssessment(params: {
@@ -164,26 +189,29 @@ export async function extractEvidenceForAssessment(params: {
   const defaultKind = defaultMarkRuleKind(params.intent.family, openPool);
   const guidance = intentGuidanceForLlm(params.intent, params.maxScore, params.question, params.subject);
 
-  const system = [
-    "You extract syllabus-grounded evidence for SPM assessment — NOT a rubric row list.",
-    "Build evidence units and relationships that represent what an examiner would credit.",
-    params.intent.family === "calculation"
-      ? "CALCULATION questions: follow calculation guidance exactly. Never use coverage_chain."
-      : null,
-    params.intent.family === "calculation"
-      ? "Relation convention: relation.from = prerequisite, relation.to = dependent; dependent.supports lists prerequisite unit ids."
-      : null,
-    "Supporting facts: creditWeight=0, required=false — never load-bearing in requiredForMarks relations.",
-    "",
-    'Return JSON: {',
-    '  "assessedUnderstanding": string,',
-    '  "markRule": { "kind": "count_distinct_units|coverage_chain|ordered_stages|paired_entities|claim_plus_reason", "openPool": boolean },',
-    '  "units": [{ "id", "type", "content", "aliases", "creditWeight", "required", "supports" }],',
-    '  "relations": [{ "id", "type", "from", "to", "requiredForMarks" }]',
-    "}",
-  ]
-    .filter((line): line is string => Boolean(line))
-    .join("\n");
+  const system = withMandatoryMarkingLanguage(
+    [
+      "You MUST extract syllabus-grounded evidence for SPM assessment — NOT a rubric row list.",
+      "You MUST build evidence units and relationships that represent what an examiner would credit.",
+      params.intent.family === "calculation"
+        ? "CALCULATION questions: you MUST follow calculation guidance exactly. NEVER use coverage_chain."
+        : null,
+      params.intent.family === "calculation"
+        ? "Relation convention: relation.from = prerequisite, relation.to = dependent; dependent.supports lists prerequisite unit ids."
+        : null,
+      "Supporting facts: creditWeight=0, required=false — MUST NEVER be load-bearing in requiredForMarks relations.",
+      'For EVERY unit you MUST also output "coreConcept": the shortest phrase (1–5 words) a student must express to earn this mark — the minimal creditable essence of "content", with no filler, examples, or explanation. Same rule for every subject and question.',
+      "",
+      'You MUST return JSON only: {',
+      '  "assessedUnderstanding": string,',
+      '  "markRule": { "kind": "count_distinct_units|coverage_chain|ordered_stages|paired_entities|claim_plus_reason", "openPool": boolean },',
+      '  "units": [{ "id", "type", "content", "coreConcept", "aliases", "creditWeight", "required", "supports" }],',
+      '  "relations": [{ "id", "type", "from", "to", "requiredForMarks" }]',
+      "}",
+    ]
+      .filter((line): line is string => Boolean(line))
+      .join("\n"),
+  );
 
   const user = [
     `Subject: ${params.subject}`,

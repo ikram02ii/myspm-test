@@ -1,15 +1,27 @@
 import type { PracticeSetQuestion } from "../services/mobilePracticeSets";
+import {
+  buildQuestionPayloadForGrade,
+  inferMaxScoreFromMarkScheme,
+} from "./markSchemeInference";
 
 function normalizeNewlines(s: string): string {
   return (s ?? "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
 }
 
-function normalizeAiText(s: string): string {
+/** MCQ blocks only — do not strip list bullets (needed for subjective marking points). */
+function normalizeMcqAiText(s: string): string {
   return normalizeNewlines(s)
     .replace(/```(?:json|text)?/gi, "")
     .replace(/```/g, "")
     .replace(/\*\*/g, "")
     .replace(/^\s*[-*]\s+/gm, "");
+}
+
+function normalizeOpenEndedAiText(s: string): string {
+  return normalizeNewlines(s)
+    .replace(/```(?:json|text)?/gi, "")
+    .replace(/```/g, "")
+    .replace(/\*\*/g, "");
 }
 
 /** Keep EN and BM on separate lines; collapse spaces only within each line. */
@@ -22,6 +34,98 @@ function parseMarkahFromBlock(lines: string[]): number | undefined {
     }
   }
   return undefined;
+}
+
+function parseMarkingPointsFromLines(lines: string[]): string[] {
+  const headerIndex = lines.findIndex((line) =>
+    /^(?:Marking points?|Mark\s+scheme|Skema(?:\s+penilaian)?)\s*:/i.test(line),
+  );
+  if (headerIndex < 0) return [];
+
+  const points: string[] = [];
+  for (let i = headerIndex + 1; i < lines.length; i += 1) {
+    const line = lines[i];
+    if (/^(?:Jawapan|Answer|Markah|Marks?|Soalan|Question)\s*:/i.test(line)) break;
+    const bullet = line.match(/^(?:[-•*]|\d+[.)])\s+(.+)$/);
+    const text = (bullet?.[1] ?? line.trim()).trim();
+    if (text.length >= 2) points.push(text);
+  }
+  return points.filter((point) => point.length >= 2);
+}
+
+function extractJawapanFromLines(lines: string[]): string {
+  const jawapanIndex = lines.findIndex((line) => /^(?:Jawapan|Answer|Model answer)\s*:/i.test(line));
+  if (jawapanIndex < 0) return "";
+
+  const markingIndex = lines.findIndex(
+    (line, idx) =>
+      idx > jawapanIndex &&
+      /^(?:Marking points?|Mark\s+scheme|Skema(?:\s+penilaian)?|Markah|Marks?)\s*:/i.test(line),
+  );
+  const end = markingIndex >= 0 ? markingIndex : lines.length;
+  const first = lines[jawapanIndex].replace(/^(?:Jawapan|Answer|Model answer)\s*[:：]\s*/i, "").trim();
+  const rest = lines
+    .slice(jawapanIndex + 1, end)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  return [first, ...rest].join("\n").trim();
+}
+
+function countDistinctModelAnswerPoints(text: string): number {
+  const raw = text.trim();
+  if (!raw) return 0;
+
+  if (raw.includes(";")) {
+    const parts = raw
+      .split(";")
+      .map((part) => part.trim())
+      .filter((part) => part.length >= 2);
+    if (parts.length >= 1) return parts.length;
+  }
+
+  const bulletLines = raw
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => /^(?:[-•*]|\d+[.)])\s+\S/.test(line));
+  if (bulletLines.length >= 1) return bulletLines.length;
+
+  if (!raw.includes("\n") && raw.length <= 120) return 1;
+
+  const sentences = raw
+    .split(/(?<=[.!?])\s+/)
+    .map((sentence) => sentence.trim())
+    .filter((sentence) => sentence.length >= 12);
+  if (sentences.length >= 2) return sentences.length;
+
+  return 1;
+}
+
+function resolveGeneratedMaxMarks(lines: string[], jawapan: string, markingPoints: string[]): number | undefined {
+  if (markingPoints.length >= 1) return markingPoints.length;
+
+  const fromJawapan = countDistinctModelAnswerPoints(jawapan);
+  if (fromJawapan >= 1) return fromJawapan;
+
+  return parseMarkahFromBlock(lines);
+}
+
+function buildQuestionForGradePayload(
+  questionText: string,
+  maxMarks: number | undefined,
+  jawapan: string,
+  markingPoints: string[],
+): string {
+  const parts = [questionText.trim()];
+  if (typeof maxMarks === "number" && maxMarks >= 1) {
+    parts.push(`Markah: ${maxMarks}`);
+  }
+  if (jawapan.trim()) {
+    parts.push(`Jawapan: ${jawapan.trim()}`);
+  }
+  if (markingPoints.length > 0) {
+    parts.push("Marking points:", ...markingPoints.map((point) => `- ${point}`));
+  }
+  return parts.join("\n").trim();
 }
 
 export function formatBilingualQuestionStem(raw: string): string {
@@ -68,7 +172,7 @@ function buildQuestionForGrade(questionStem: string, options: string[]): string 
  * Penjelasan: <text>
  */
 export function parseAiGeneratedMcqAnswer(answer: string): PracticeSetQuestion[] {
-  const text = normalizeAiText(answer);
+  const text = normalizeMcqAiText(answer);
   if (!text.trim()) return [];
 
   const blocks: Array<{ index: number; body: string }> = [];
@@ -137,6 +241,7 @@ export function parseAiGeneratedMcqAnswer(answer: string): PracticeSetQuestion[]
       questionForGrade: gradeQuestion,
     });
 
+    // If correctIndex is null it won't be used by UI, but parser already guarded correctLetter.
     void correctIndex;
   }
 
@@ -147,7 +252,7 @@ export function parseAiGeneratedOpenEnded(
   answer: string,
   type: "short" | "essay",
 ): PracticeSetQuestion[] {
-  const text = normalizeAiText(answer);
+  const text = normalizeOpenEndedAiText(answer);
   if (!text.trim()) return [];
 
   const blocks: Array<{ index: number; body: string }> = [];
@@ -197,15 +302,19 @@ export function parseAiGeneratedOpenEnded(
             ? stemEnd
             : 1;
     const explanationLines = lines.slice(explanationStart);
-    const maxMarks = parseMarkahFromBlock(lines);
-    const rawStem = questionLines.join("\n");
-    const questionText = formatBilingualQuestionStem(stripDiagramFlagFromStem(rawStem));
+    const jawapan = extractJawapanFromLines(lines);
+    const markingPoints = parseMarkingPointsFromLines(lines);
+    const maxMarks = resolveGeneratedMaxMarks(lines, jawapan, markingPoints);
+    const questionText = formatBilingualQuestionStem(questionLines.join("\n"));
     const explanation = explanationLines.join("\n").trim() || null;
     if (!questionText) continue;
 
-    const markLine = maxMarks != null ? `Markah: ${maxMarks}\n` : "";
-    // Keep diagram flag in grade payload so backend applies figure-only marking rules.
-    const questionForGrade = `${rawStem}\n${markLine}`.trim();
+    const questionForGrade = buildQuestionForGradePayload(questionText, maxMarks, jawapan, markingPoints);
+    const rubricIdeas = markingPoints.map((idea, index) => ({
+      id: `mp-${index + 1}`,
+      idea,
+      marks: 1,
+    }));
 
     out.push({
       id: out.length + 1,
@@ -218,8 +327,11 @@ export function parseAiGeneratedOpenEnded(
       explanation,
       questionForGrade,
       maxMarks,
+      modelAnswer: jawapan || undefined,
+      rubricIdeas: rubricIdeas.length > 0 ? rubricIdeas : undefined,
     });
   }
 
   return out;
 }
+

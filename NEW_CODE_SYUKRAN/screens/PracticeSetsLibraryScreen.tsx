@@ -10,19 +10,18 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
+  useWindowDimensions,
   View,
 } from "react-native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { useFocusEffect } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { BookOpen, ChevronRight, Sparkles, Plus } from "lucide-react-native";
+import { BookOpen, ChevronDown, ChevronRight, Sparkles, Plus } from "lucide-react-native";
 import * as Notifications from "expo-notifications";
 import { LinearGradient } from "expo-linear-gradient";
 
 import { ToastMessage } from "../components/ui/ToastMessage";
 import {
-  backendSubjectFromPracticeCode,
   practiceSetSubjectMatchesFavourite,
   subjectTileShortLabel,
 } from "../constants/practiceSubjectFilter";
@@ -41,11 +40,13 @@ import {
 } from "../services/mobileOnboarding";
 import {
   fetchPracticeSetList,
-  type MathLineDiagram,
   type StructuredQuestionDiagram,
+  type MathLineDiagram,
   type PracticeSetQuestion,
   type PracticeSetSummary,
 } from "../services/mobilePracticeSets";
+import { ragApiPost } from "../services/ragApi";
+import type { SttLanguage } from "../services/oralApi";
 import {
   defaultTopicForPart,
   ENGLISH_SPEAKING_PART_OPTIONS,
@@ -53,21 +54,351 @@ import {
   topicCategoriesForPart,
   type EnglishSpeakingPart,
 } from "../constants/englishSpeaking";
-import {
-  fetchOpenEndedQuestionStep,
-  mapOpenEndedStepToPracticeQuestion,
-  type OpenEndedGenerationRequest,
-} from "../services/aiOpenEndedGeneration";
-import { ragApiGet, ragApiPost } from "../services/ragApi";
+import { JAWAPAN_VERB_FORMAT_PROMPT_HINT, STRICT_MARK_SCHEME_PROMPT_HINT } from "../constants/markSchemeRules";
 import { buildEnglishSpeakingQuery, parseEnglishSpeakingAnswer } from "../utils/englishSpeakingGenerate";
 import { parseAiGeneratedMcqAnswer, parseAiGeneratedOpenEnded } from "../utils/parseAiMcq";
-import AsyncStorage from "@react-native-async-storage/async-storage";
-
-const PRACTICE_LAST_SUBJECT_KEY = "practice_last_subject_code";
+import { parseAiOralPrompt } from "../utils/parseAiOral";
 
 const BRAND = theme.brand;
 const BRAND_SOFT = theme.brandSoftSage;
 const AnimatedLinearGradient = Animated.createAnimatedComponent(LinearGradient);
+
+type Props = NativeStackScreenProps<PracticeStackParamList, "PracticeLibrary">;
+
+type AiFormLevel = 4 | 5;
+
+type AiGenerateMode = "general" | "topic" | "oral";
+
+function isOralPracticeSubjectKey(practiceCode: string | null): boolean {
+  const c = practiceCode?.trim().toLowerCase();
+  return c === "english" || c === "bm";
+}
+
+function sttLanguageForOralSubject(practiceCode: string | null): SttLanguage {
+  return practiceCode?.trim().toLowerCase() === "english" ? "en-MY" : "ms-MY";
+}
+
+type AiTopicsByForm = {
+  form4: string[];
+  form5: string[];
+};
+
+const AI_TOPIC_OPTIONS_BY_SUBJECT_AND_FORM: Record<string, AiTopicsByForm> = {
+  math: {
+    form4: [
+      "Chapter 1: Quadratic Functions and Equations in One Variable",
+      "Chapter 2: Number Bases",
+      "Chapter 3: Logical Reasoning",
+      "Chapter 4: Operations on Sets",
+      "Chapter 5: Network in Graph Theory",
+      "Chapter 6: Linear Inequalities in Two Variables",
+      "Chapter 7: Graphs of Motion",
+      "Chapter 8: Measures of Dispersion for Ungrouped Data",
+      "Chapter 9: Probability of Combined Events",
+      "Chapter 10: Consumer Mathematics: Financial Management",
+    ],
+    form5: [
+      "Chapter 1: Variation",
+      "Chapter 2: Matrices",
+      "Chapter 3: Consumer Mathematics: Insurance",
+      "Chapter 4: Consumer Mathematics: Taxation",
+      "Chapter 5: Congruency, Enlargement and Combined Transformations",
+      "Chapter 6: Ratios and Graphs of Trigonometric Functions",
+      "Chapter 7: Measures of Dispersion for Grouped Data",
+      "Chapter 8: Mathematical Modeling",
+    ],
+  },
+  addmath: {
+    form4: [
+      "Chapter 1: Functions",
+      "Chapter 2: Quadratic Functions",
+      "Chapter 3: Systems of Equations",
+      "Chapter 4: Indices, Surds and Logarithms",
+      "Chapter 5: Progressions",
+      "Chapter 6: Linear Law",
+      "Chapter 7: Coordinate Geometry",
+      "Chapter 8: Vectors",
+      "Chapter 9: Solution of Triangles",
+      "Chapter 10: Index Numbers",
+    ],
+    form5: [
+      "Chapter 1: Circular Measure",
+      "Chapter 2: Differentiation",
+      "Chapter 3: Integration",
+      "Chapter 4: Permutation and Combination",
+      "Chapter 5: Probability Distribution",
+      "Chapter 6: Trigonometric Functions",
+      "Chapter 7: Linear Programming",
+      "Chapter 8: Kinematics of Linear Motion",
+    ],
+  },
+  biology: {
+    form4: [
+      "Chapter 1: Introduction to Biology and Laboratory Rules",
+      "Chapter 2: Cell Biology and Organization",
+      "Chapter 3: Movement of Substances Across a Plasma Membrane",
+      "Chapter 4: Chemical Composition in a Cell",
+      "Chapter 5: Metabolism and Enzymes",
+      "Chapter 6: Cell Division",
+      "Chapter 7: Cellular Respiration",
+      "Chapter 8: Respiratory Systems in Humans and Animals",
+    ],
+    form5: [
+      "Chapter 1: Organisation of Plant Tissues and Growth",
+      "Chapter 2: Leaf Structure and Function",
+      "Chapter 3: Nutrition in Plants",
+      "Chapter 4: Transport in Plants",
+      "Chapter 5: Response in Plants",
+      "Chapter 6: Sexual Reproduction in Flowering Plants",
+      "Chapter 7: Adaptations of Plants in Different Habitats",
+      "Chapter 8: Biodiversity",
+      "Chapter 9: Ecosystems",
+      "Chapter 10: Environmental Sustainability",
+      "Chapter 11: Inheritance",
+      "Chapter 12: Variation",
+      "Chapter 13: Genetic Technology",
+    ],
+  },
+  physics: {
+    form4: [
+      "Chapter 1: Measurement",
+      "Chapter 2: Force and Motion I",
+      "Chapter 3: Gravitation",
+      "Chapter 4: Heat",
+    ],
+    form5: [
+      "Chapter 1: Force and Motion II",
+      "Chapter 2: Pressure",
+      "Chapter 3: Electricity",
+      "Chapter 4: Electromagnetism",
+      "Chapter 5: Electronics",
+      "Chapter 6: Nuclear Physics",
+      "Chapter 7: Quantum Physics",
+    ],
+  },
+  chemistry: {
+    form4: [
+      "Chapter 1: Introduction to Chemistry",
+      "Chapter 2: Matter and the Atomic Structure",
+      "Chapter 3: The Mole Concept, Chemical Formula and Equations",
+      "Chapter 4: The Periodic Table of Elements",
+      "Chapter 5: Chemical Bond",
+      "Chapter 6: Acid, Base and Salt",
+      "Chapter 7: Rate of Reaction",
+      "Chapter 8: Manufactured Substances in Industry",
+    ],
+    form5: [
+      "Chapter 1: Redox Equilibrium",
+      "Chapter 2: Carbon Compound",
+      "Chapter 3: Thermochemistry",
+      "Chapter 4: Polymer",
+      "Chapter 5: Consumer and Industrial Chemistry",
+    ],
+  },
+  science: {
+    form4: [
+      "Chapter 1: Safety Measures in Laboratory",
+      "Chapter 2: Emergency Help",
+      "Chapter 3: Techniques of Measuring the Parameters of Body Health",
+      "Chapter 4: Green Technology for Environmental Sustainability",
+      "Chapter 5: Genetics",
+      "Chapter 6: Support, Movement and Growth",
+    ],
+    form5: [
+      "Chapter 1: Microorganisms",
+      "Chapter 2: Nutrition and Food Technology",
+      "Chapter 3: Sustainability of the Environment",
+      "Chapter 4: Rate of Reaction",
+      "Chapter 5: Carbon Compounds",
+      "Chapter 6: Electrochemistry",
+      "Chapter 7: Light and Optics",
+      "Chapter 8: Force and Pressure",
+      "Chapter 9: Space Technology",
+    ],
+  },
+  history: {
+    form4: [
+      "Bab 1: Warisan Negara Bangsa",
+      "Bab 2: Kebangkitan Nasionalisme",
+      "Bab 3: Konflik Dunia dan Pendudukan Jepun di Negara Kita",
+      "Bab 4: Era Peralihan Kuasa British di Negara Kita",
+      "Bab 5: Persekutuan Tanah Melayu 1948",
+    ],
+    form5: [
+      "Bab 1: Kedaulatan Negara",
+      "Bab 2: Perlembagaan Persekutuan",
+      "Bab 3: Raja Berperlembagaan dan Demokrasi Berparlimen",
+      "Bab 4: Sistem Persekutuan",
+      "Bab 5: Pembentukan Malaysia",
+      "Bab 6: Cabaran Selepas Pembentukan Malaysia",
+      "Bab 7: Membina Kesejahteraan Negara",
+      "Bab 8: Membina Kemakmuran Negara",
+      "Bab 9: Dasar Luar Malaysia",
+      "Bab 10: Kecemerlangan Malaysia di Persada Dunia",
+    ],
+  },
+  bm: {
+    form4: ["Karangan", "Rumusan", "Pemahaman", "Tatabahasa", "Novel"],
+    form5: ["Karangan", "Rumusan", "Pemahaman", "Tatabahasa", "Novel"],
+  },
+  english: {
+    form4: ["Reading comprehension", "Essay writing", "Grammar", "Summary writing", "Literature"],
+    form5: ["Reading comprehension", "Essay writing", "Grammar", "Summary writing", "Literature"],
+  },
+  pisislam: {
+    form4: [
+      "Bab 1: Pengenalan ilmu dan amalan Islam",
+      "Akidah: Rukun Iman",
+      "Akidah: Sifat-sifat Allah",
+      "Ibadah: Solat fardhu",
+      "Ibadah: Puasa",
+      "Ibadah: Zakat",
+      "Sirah: Nabi Muhammad SAW di Mekah",
+      "Sirah: Nabi Muhammad SAW di Madinah",
+      "Adab dan akhlak Islam",
+    ],
+    form5: [
+      "Akidah: Konsep ketuhanan",
+      "Ibadah: Solat sunat dan amalan berkaitan",
+      "Ibadah: Haji dan umrah",
+      "Sirah: Khulafa al-Rasyidin",
+      "Isu semasa dan Islam",
+      "Adab berdasarkan al-Quran dan Hadis",
+    ],
+  },
+  pismoral: {
+    form4: [
+      "Nilai murni dalam kehidupan",
+      "Kemasyarakatan dan keharmonian",
+      "Keprihatinan sosial",
+      "Patriotisme",
+      "Kasih sayang",
+      "Kebebasan bertanggungjawab",
+    ],
+    form5: [
+      "Kesederhanaan",
+      "Kerajinan",
+      "Keberanian bersifat moral",
+      "Kesopanan dan budi bahasa",
+      "Nilai dalam membuat keputusan",
+      "Keprihatinan terhadap alam sekitar",
+    ],
+  },
+  perniagaan: {
+    form4: [
+      "Pengenalan kepada perniagaan",
+      "Bentuk pemilikan perniagaan",
+      "Dokumentasi perniagaan",
+      "Sumber kewangan perniagaan",
+      "Pemasaran asas",
+      "Pengurusan asas",
+    ],
+    form5: [
+      "Pengurusan perniagaan",
+      "Pemasaran",
+      "Kewangan perniagaan",
+      "Perniagaan antarabangsa",
+      "Etika dan tanggungjawab sosial",
+      "Teknologi maklumat dalam perniagaan",
+    ],
+  },
+  akaun: {
+    form4: [
+      "Asas perakaunan",
+      "Jurnal dan lejar",
+      "Imbangan duga",
+      "Penyata kewangan asas",
+      "Akaun belum terima dan belum bayar",
+      "Aset tetap",
+    ],
+    form5: [
+      "Perakaunan syarikat",
+      "Penyata kewangan syarikat",
+      "Analisis kewangan",
+      "Perakaunan kos",
+      "Perakaunan untuk entiti bukan untung",
+      "Prinsip dan amalan perakaunan",
+    ],
+  },
+  ekonomi: {
+    form4: [
+      "Bab 1: Pengenalan kepada Ekonomi",
+      "Bab 2: Pasaran",
+      "Bab 3: Wang, Bank dan Pendapatan Individu",
+      "Bab 4: Pengeluaran",
+    ],
+    form5: [
+      "Bab 1: Ekonomi dan Kerajaan",
+      "Bab 2: Malaysia dan Ekonomi Global",
+    ],
+  },
+  geografi: {
+    form4: [
+      "Bentuk muka bumi",
+      "Cuaca dan iklim",
+      "Hidrologi",
+      "Vegetasi",
+      "Penduduk",
+      "Pertanian",
+    ],
+    form5: [
+      "Pelesapan bandar",
+      "Perindustrian",
+      "Pengangkutan",
+      "Sumber dan pembangunan",
+      "Pembangunan lestari",
+      "Teknologi geografi (GIS)",
+    ],
+  },
+};
+
+function aiTopicsForSubjectAndForm(subjectKey: string, form: AiFormLevel): string[] {
+  const entry = AI_TOPIC_OPTIONS_BY_SUBJECT_AND_FORM[subjectKey];
+  if (!entry) return [];
+  return form === 4 ? entry.form4 : entry.form5;
+}
+
+function subjectHasAiTopicCatalog(subjectKey: string): boolean {
+  const entry = AI_TOPIC_OPTIONS_BY_SUBJECT_AND_FORM[subjectKey];
+  return Boolean(entry && (entry.form4.length > 0 || entry.form5.length > 0));
+}
+
+function normalizeAiTopicSubjectKey(input: string | null | undefined): string | null {
+  const raw = input?.trim().toLowerCase();
+  if (!raw) return null;
+  const compact = raw.replace(/[\s_-]+/g, "");
+
+  if (compact === "math" || compact === "mathematics") return "math";
+  if (compact === "addmath" || compact === "addmaths" || compact === "additionalmath" || compact === "additionalmathematics") {
+    return "addmath";
+  }
+  if (compact === "bio" || compact === "biology") return "biology";
+  if (compact === "science") return "science";
+  if (compact === "phy" || compact === "physics") return "physics";
+  if (compact === "chem" || compact === "chemistry") return "chemistry";
+  if (compact === "history" || compact === "sejarah") return "history";
+  if (compact === "bm" || compact === "bahasamelayu" || compact === "malay") return "bm";
+  if (compact === "english" || compact === "eng") return "english";
+  if (compact === "pisislam" || compact === "pendidikanislam") return "pisislam";
+  if (compact === "pismoral" || compact === "pendidikanmoral") return "pismoral";
+  if (compact === "perniagaan" || compact === "business") return "perniagaan";
+  if (
+    compact === "akaun" ||
+    compact === "account" ||
+    compact === "accounting" ||
+    compact === "prinsipperakaunan"
+  ) {
+    return "akaun";
+  }
+  if (compact === "ekonomi" || compact === "economics") return "ekonomi";
+  if (compact === "geografi" || compact === "geography") return "geografi";
+
+  return subjectHasAiTopicCatalog(compact) ? compact : null;
+}
+
+function isBmOnlyGenerationSubject(subject: string): boolean {
+  return /^(sejarah|bm|pendidikan islam|pendidikan moral)$/i.test(subject.trim());
+}
 
 type RagGeneratedImage = {
   url: string;
@@ -78,7 +409,6 @@ type RagGeneratedImage = {
 type RagGenerateResponse = {
   answer: string;
   sources?: unknown;
-  openEndedQuestions?: PracticeSetQuestion[];
   diagram?: MathLineDiagram;
   diagrams?: MathLineDiagram[];
   structuredDiagrams?: StructuredQuestionDiagram[];
@@ -154,110 +484,59 @@ function attachDiagramsToQuestions(
   });
 
   return questions.map((question, index) => {
-    const diagram = diagramsByQuestion.get(question.sortOrder) ?? diagramsByQuestion.get(index + 1);
+    const diagram = diagramsByQuestion.get(index + 1);
     return diagram ? { ...question, diagram } : question;
   });
 }
 
-type Props = NativeStackScreenProps<PracticeStackParamList, "PracticeLibrary">;
+function questionHistoryKey(subject: string, topic: string, questionType: string): string {
+  return [subject, topic || "general", questionType]
+    .map((part) => part.trim().toLowerCase().replace(/\s+/g, " "))
+    .join("|");
+}
+
+function summarizeQuestionStems(questions: PracticeSetQuestion[]): string[] {
+  return questions
+    .map((question) => question.questionText.replace(/\s+/g, " ").trim())
+    .filter(Boolean)
+    .slice(0, 12);
+}
 
 function favouriteKey(f: MobileSubjectFavourite): string {
   return f.code.trim().toUpperCase();
 }
 
-function withEnglishTile(items: MobileSubjectFavourite[]): MobileSubjectFavourite[] {
-  const hasEnglish = items.some((item) => {
-    const k = favouriteKey(item);
-    return k === "ENGLISH" || k === "ENG" || k === "EN";
-  });
-  if (hasEnglish) return items;
-  return [...items, { code: "english", name: "English" }];
+type SubjectTile = MobileSubjectFavourite & {
+  topicKey?: keyof typeof AI_TOPIC_OPTIONS_BY_SUBJECT_AND_FORM;
+};
+
+const CHAPTER_SUBJECT_TILES: SubjectTile[] = [
+  { code: "addmath", name: "Additional Math", topicKey: "addmath" },
+  { code: "math", name: "Mathematics", topicKey: "math" },
+  { code: "chemistry", name: "Chemistry", topicKey: "chemistry" },
+  { code: "physics", name: "Physics", topicKey: "physics" },
+  { code: "biology", name: "Biology", topicKey: "biology" },
+  { code: "bm", name: "Bahasa Melayu", topicKey: "bm" },
+  { code: "english", name: "English", topicKey: "english" },
+];
+
+function getSubjectTileTopicKey(
+  tile: SubjectTile | undefined,
+): keyof typeof AI_TOPIC_OPTIONS_BY_SUBJECT_AND_FORM | null {
+  if (!tile) return null;
+  if (tile.topicKey) return tile.topicKey;
+  const key = normalizeAiTopicSubjectKey(tile.code) ?? normalizeAiTopicSubjectKey(tile.name);
+  return key && subjectHasAiTopicCatalog(key) ? key : null;
 }
 
-function withBiologyTile(items: MobileSubjectFavourite[]): MobileSubjectFavourite[] {
-  const hasBiology = items.some((item) => favouriteKey(item) === "BIOLOGY");
-  if (hasBiology) return items;
-  return [...items, { code: "biology", name: "Biology" }];
-}
-
-function withChemistryTile(items: MobileSubjectFavourite[]): MobileSubjectFavourite[] {
-  const hasChemistry = items.some((item) => favouriteKey(item) === "CHEMISTRY");
-  if (hasChemistry) return items;
-  return [...items, { code: "chemistry", name: "Chemistry" }];
-}
-
-function withPhysicsTile(items: MobileSubjectFavourite[]): MobileSubjectFavourite[] {
-  const hasPhysics = items.some((item) => favouriteKey(item) === "PHYSICS");
-  if (hasPhysics) return items;
-  return [...items, { code: "physics", name: "Physics" }];
-}
-
-function withMathTile(items: MobileSubjectFavourite[]): MobileSubjectFavourite[] {
-  const hasMath = items.some((item) => {
-    const k = favouriteKey(item);
-    return k === "MATH" || k === "MATHEMATICS" || item.name.trim().toLowerCase() === "mathematics";
-  });
-  if (hasMath) return items;
-  return [...items, { code: "math", name: "Mathematics" }];
-}
-
-function buildFavouriteTiles(favourites: MobileSubjectFavourite[]): MobileSubjectFavourite[] {
-  return withAdditionalMathTile(
-    withMathTile(
-      withPhysicsTile(
-        withChemistryTile(withBiologyTile(withEnglishTile(stripScienceAndHistory(favourites)))),
-      ),
-    ),
-  );
-}
-
-function pickInitialSubjectCode(
-  tiles: MobileSubjectFavourite[],
-  preferred: string | null,
-): string | null {
-  if (tiles.length === 0) return null;
-  const keys = new Set(tiles.map((f) => favouriteKey(f)));
-  if (preferred && keys.has(preferred)) return preferred;
-  return favouriteKey(tiles[0]);
-}
-
-function withAdditionalMathTile(items: MobileSubjectFavourite[]): MobileSubjectFavourite[] {
-  const hasAddMath = items.some((item) => {
-    const k = favouriteKey(item);
-    if (k === "ADDMATH" || k === "ADDMATHS") return true;
-    const n = item.name.trim().toLowerCase();
-    return (
-      n.includes("additional mathematics") ||
-      n.includes("additional math") ||
-      n.includes("add maths") ||
-      n === "add math"
-    );
-  });
-  if (hasAddMath) return items;
-  return [...items, { code: "addmath", name: "Additional Math" }];
-}
-
-/** Practice screen: do not surface Science or Sejarah/History tiles or filters. */
-function stripScienceAndHistory(items: MobileSubjectFavourite[]): MobileSubjectFavourite[] {
-  return items.filter((f) => {
-    const k = favouriteKey(f);
-    const n = f.name.trim().toLowerCase();
-    if (k === "SCIENCE" || n === "science") return false;
-    if (k === "SEJARAH" || k === "HISTORY" || n === "sejarah" || n === "history") return false;
-    return true;
-  });
-}
-
-function isExcludedOnboardingSubject(s: OnboardingSubject): boolean {
-  const k = s.code.trim().toUpperCase();
-  const n = s.name.trim().toLowerCase();
-  if (k === "SCIENCE" || n === "science") return true;
-  if (k === "SEJARAH" || k === "HISTORY" || n === "sejarah" || n === "history") return true;
-  return false;
+function withChapterSubjectTiles(_items: MobileSubjectFavourite[]): SubjectTile[] {
+  return CHAPTER_SUBJECT_TILES;
 }
 
 export default function PracticeSetsLibraryScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
+  const { height: windowHeight } = useWindowDimensions();
+  const aiModalScrollMaxHeight = Math.max(220, windowHeight * 0.52);
   const webTopPadding = Platform.OS === "web" ? 67 : 0;
   const [sets, setSets] = useState<PracticeSetSummary[]>([]);
   const [favourites, setFavourites] = useState<MobileSubjectFavourite[]>([]);
@@ -273,19 +552,53 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
   const borderGlow = useRef(new Animated.Value(0)).current;
   const borderPulse = useRef(new Animated.Value(0)).current;
   const borderShine = useRef(new Animated.Value(0)).current;
+  const aiQuestionHistoryRef = useRef<Map<string, string[]>>(new Map());
   const [aiGenerating, setAiGenerating] = useState(false);
   const [metaFormLevel, setMetaFormLevel] = useState<string>("Form 4");
   const [aiModalOpen, setAiModalOpen] = useState(false);
-  const [aiMode, setAiMode] = useState<"general" | "topic">("general");
-  /** Exact `rag_textbook_chunks.chapter` string from DB when user picks topic-specific mode. */
-  const [aiSelectedChapter, setAiSelectedChapter] = useState("");
-  const [ragChapters, setRagChapters] = useState<string[]>([]);
-  const [ragChaptersLoading, setRagChaptersLoading] = useState(false);
+  const [aiFormLevel, setAiFormLevel] = useState<AiFormLevel>(4);
+  const [aiMode, setAiMode] = useState<AiGenerateMode>("general");
+  const [aiTopic, setAiTopic] = useState("");
+  const [aiTopicDropdownOpen, setAiTopicDropdownOpen] = useState(false);
   const [aiQuestionType, setAiQuestionType] = useState<"mcq" | "subjective">("mcq");
   const [aiQuestionCount, setAiQuestionCount] = useState<number>(5);
   const [englishSpeakingPart, setEnglishSpeakingPart] = useState<EnglishSpeakingPart>("part1");
   const [englishTopicCategory, setEnglishTopicCategory] = useState(() => defaultTopicForPart("part1"));
   const [englishQuestionCount, setEnglishQuestionCount] = useState<number>(5);
+
+  function backendSubjectFromPracticeCode(code: string | null): string | null {
+    if (!code) return null;
+    const c = normalizeAiTopicSubjectKey(code) ?? code.trim().toLowerCase();
+    const map: Record<string, string> = {
+      biology: "Biology",
+      science: "Science",
+      physics: "Physics",
+      chemistry: "Chemistry",
+      english: "English",
+      bm: "BM",
+      history: "Sejarah",
+      sejarah: "Sejarah",
+      math: "Math",
+      addmath: "Additional Math",
+      addmaths: "Additional Math",
+      additionalmath: "Additional Math",
+      additionalmathematics: "Additional Math",
+      pisislam: "Pendidikan Islam",
+      pendidikanislam: "Pendidikan Islam",
+      pismoral: "Pendidikan Moral",
+      pendidikanmoral: "Pendidikan Moral",
+      perniagaan: "Perniagaan",
+      akaun: "Prinsip Perakaunan",
+      prinsipperakaunan: "Prinsip Perakaunan",
+      account: "Prinsip Perakaunan",
+      accounting: "Prinsip Perakaunan",
+      ekonomi: "Ekonomi",
+      economics: "Ekonomi",
+      geografi: "Geografi",
+      geography: "Geografi",
+    };
+    return map[c] ?? null;
+  }
 
   const showToast = (message: string) => {
     setToastMessage(message);
@@ -300,6 +613,8 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
   const showComingSoonWithSound = () => {
     const msg = "Stay tuned for this feature";
     showToast(msg);
+    if (Platform.OS === "web") return;
+
     void Notifications.scheduleNotificationAsync({
       content: {
         title: "MySPM",
@@ -368,30 +683,19 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
     };
   }, [borderGlow, borderPulse, borderShine]);
 
-  const load = useCallback(async (opts?: { showSpinner?: boolean }) => {
+  const load = useCallback(async () => {
     setError(null);
-    if (opts?.showSpinner !== false) {
-      setLoading(true);
-    }
     try {
-      const [profileData, list, storedSubject] = await Promise.all([
+      const [profileData, list] = await Promise.all([
         fetchMobileProfile(),
         fetchPracticeSetList(),
-        AsyncStorage.getItem(PRACTICE_LAST_SUBJECT_KEY),
       ]);
-      const nextFavourites = profileData.subjectFavourites;
-      const tiles = buildFavouriteTiles(nextFavourites);
-      const storedCode = storedSubject?.trim().toUpperCase() || null;
-
-      setFavourites(nextFavourites);
+      setFavourites(profileData.subjectFavourites);
       setSets(list);
       setMetaFormLevel(
         typeof profileData.formLevel === "number" && Number.isFinite(profileData.formLevel)
           ? `Form ${profileData.formLevel}`
           : "Form 4",
-      );
-      setActiveSubjectCode((prev) =>
-        pickInitialSubjectCode(tiles, prev ?? storedCode),
       );
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load");
@@ -404,13 +708,14 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
 
   useFocusEffect(
     useCallback(() => {
-      void load({ showSpinner: false });
+      void load();
     }, [load])
   );
 
   const onRefresh = () => {
     setRefreshing(true);
-    void load({ showSpinner: false }).finally(() => setRefreshing(false));
+    setLoading(true);
+    void load().finally(() => setRefreshing(false));
   };
 
   const openAddModal = useCallback(async () => {
@@ -423,43 +728,91 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
     }
   }, []);
 
-  const favouriteTiles = useMemo(() => buildFavouriteTiles(favourites), [favourites]);
-
   const subjectsToAdd = useMemo(() => {
     const have = new Set(favourites.map((f) => favouriteKey(f)));
-    return onboardingSubjects.filter(
-      (s) => !isExcludedOnboardingSubject(s) && !have.has(favouriteKey({ code: s.code, name: s.name })),
-    );
+    return onboardingSubjects.filter((s) => !have.has(favouriteKey({ code: s.code, name: s.name })));
   }, [favourites, onboardingSubjects]);
 
   const setsInFavourites = useMemo(() => {
-    if (favouriteTiles.length === 0) {
+    if (favourites.length === 0) {
       return sets;
     }
-    return sets.filter((item) =>
-      favouriteTiles.some((f) => practiceSetSubjectMatchesFavourite(item.subject, f)),
-    );
-  }, [sets, favouriteTiles]);
+    return sets.filter((item) => favourites.some((f) => practiceSetSubjectMatchesFavourite(item.subject, f)));
+  }, [sets, favourites]);
 
-  /** Selected subject for filtering — only use activeSubjectCode (restored in load), never jump to tiles[0] mid-render. */
+  const favouriteTiles = useMemo(() => withChapterSubjectTiles(favourites), [favourites]);
+
+  /** Selected subject for filtering: tap a tile to show only that subject; default first favourite when any exist. */
   const selectedSubjectKey = useMemo(() => {
-    if (favouriteTiles.length === 0 || activeSubjectCode == null) {
+    if (favouriteTiles.length === 0) {
       return null;
     }
-    return favouriteTiles.some((f) => favouriteKey(f) === activeSubjectCode)
-      ? activeSubjectCode
-      : null;
+    if (
+      activeSubjectCode != null &&
+      favouriteTiles.some((f) => favouriteKey(f) === activeSubjectCode)
+    ) {
+      return activeSubjectCode;
+    }
+    return favouriteKey(favouriteTiles[0]);
   }, [favouriteTiles, activeSubjectCode]);
 
-  const isEnglishGenerator = useMemo(
-    () => isEnglishPracticeCode(selectedSubjectKey),
-    [selectedSubjectKey],
-  );
+  const aiTopicSubjectKey = useMemo(() => {
+    const activeFavourite = favouriteTiles.find((f) => favouriteKey(f) === selectedSubjectKey);
+    const explicitTopicKey = getSubjectTileTopicKey(activeFavourite);
+    if (explicitTopicKey) return explicitTopicKey;
 
+    const candidates = [
+      selectedSubjectKey,
+      activeFavourite?.code,
+      activeFavourite?.name,
+      backendSubjectFromPracticeCode(selectedSubjectKey),
+    ];
+
+    for (const candidate of candidates) {
+      const key = normalizeAiTopicSubjectKey(candidate);
+      if (key && subjectHasAiTopicCatalog(key)) return key;
+    }
+
+    return null;
+  }, [favouriteTiles, selectedSubjectKey]);
+
+  const aiTopicOptions = useMemo(() => {
+    if (!aiTopicSubjectKey) return [];
+    return aiTopicsForSubjectAndForm(aiTopicSubjectKey, aiFormLevel);
+  }, [aiTopicSubjectKey, aiFormLevel]);
+
+  const aiFormLevelLabel = `Form ${aiFormLevel}`;
+  const isEnglishGenerator = isEnglishPracticeCode(selectedSubjectKey);
+  const oralModeAvailable = isOralPracticeSubjectKey(selectedSubjectKey) && !isEnglishGenerator;
   const englishTopicOptions = useMemo(
     () => topicCategoriesForPart(englishSpeakingPart),
     [englishSpeakingPart],
   );
+
+  useEffect(() => {
+    setEnglishTopicCategory(defaultTopicForPart(englishSpeakingPart));
+  }, [englishSpeakingPart]);
+
+  useEffect(() => {
+    if (!oralModeAvailable && aiMode === "oral") {
+      setAiMode("general");
+    }
+  }, [oralModeAvailable, aiMode]);
+
+  useEffect(() => {
+    if (aiMode !== "topic") return;
+
+    const firstTopic = aiTopicOptions[0];
+    if (!firstTopic) {
+      setAiTopic("");
+      return;
+    }
+
+    if (!aiTopicOptions.includes(aiTopic)) {
+      setAiTopic(firstTopic);
+      setAiTopicDropdownOpen(false);
+    }
+  }, [aiMode, aiTopic, aiTopicOptions, aiFormLevel]);
 
   const visibleSets = useMemo(() => {
     if (favouriteTiles.length === 0) {
@@ -473,9 +826,7 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
   }, [setsInFavourites, favouriteTiles, selectedSubjectKey]);
 
   const onTilePress = (f: MobileSubjectFavourite) => {
-    const code = favouriteKey(f);
-    setActiveSubjectCode(code);
-    void AsyncStorage.setItem(PRACTICE_LAST_SUBJECT_KEY, code);
+    setActiveSubjectCode(favouriteKey(f));
   };
 
   const onPickNewSubject = async (code: string) => {
@@ -493,196 +844,89 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
   };
 
   const openAiGenerateModal = () => {
+    setAiTopicDropdownOpen(false);
+    setAiFormLevel(metaFormLevel === "Form 5" ? 5 : 4);
     setAiModalOpen(true);
   };
 
-  const backendSubjectForModal = useMemo(
-    () => backendSubjectFromPracticeCode(selectedSubjectKey),
-    [selectedSubjectKey],
-  );
-
-  useEffect(() => {
-    if (!aiModalOpen || isEnglishGenerator) return;
-    const subject = backendSubjectForModal;
-    if (!subject) {
-      setRagChapters([]);
-      return;
-    }
-    let cancelled = false;
-    setRagChaptersLoading(true);
-    void ragApiGet<{ chapters?: string[] }>("/rag/textbook-chapters", {
-      subject,
-      form: metaFormLevel,
-    })
-      .then((res) => {
-        if (cancelled) return;
-        const list = Array.isArray(res.chapters) ? res.chapters : [];
-        setRagChapters(list);
-        setAiSelectedChapter((prev) => (prev && list.includes(prev) ? prev : list[0] ?? ""));
-      })
-      .catch(() => {
-        if (!cancelled) setRagChapters([]);
-      })
-      .finally(() => {
-        if (!cancelled) setRagChaptersLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [aiModalOpen, backendSubjectForModal, metaFormLevel, isEnglishGenerator]);
-
-  useEffect(() => {
-    setEnglishTopicCategory(defaultTopicForPart(englishSpeakingPart));
-  }, [englishSpeakingPart]);
-
   const questionTypeLabel = aiQuestionType === "mcq" ? "MCQ (A-D)" : "subjective";
 
-  const buildAiQuery = (subject: string, chapterDbLabel: string): string => {
+  const buildAiQuery = (subject: string): string => {
+    const selectedTopic = aiMode === "topic" ? aiTopic.trim() : "";
     const topicPart =
-      aiMode === "topic" && chapterDbLabel.length > 0
-        ? ` aligned to this syllabus chapter heading (stay within its scope): ${chapterDbLabel}`
+      selectedTopic.length > 0
+        ? ` focused on topic: ${selectedTopic} (${aiFormLevelLabel})`
+        : ` for ${aiFormLevelLabel}`;
+    const historyKey = questionHistoryKey(subject, selectedTopic, aiQuestionType);
+    const recentQuestions = aiQuestionHistoryRef.current.get(historyKey) ?? [];
+    const avoidInstructions =
+      recentQuestions.length > 0
+        ? `Do not repeat or closely paraphrase these recently generated question stems: ${recentQuestions.map((q, i) => `${i + 1}. ${q}`).join(" ")} `
         : "";
-
+    const variationSeed = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const variationInstructions =
+      `Use a different set of question angles each time. ` +
+      `Cover varied subtopics or skills within the selected chapter. ` +
+      `Mix recall, understanding, application, and KBAT/HOTS where suitable. ` +
+      `Avoid repeating common wording or previously generated question patterns. ` +
+      avoidInstructions +
+      `Variation seed: ${variationSeed}.`;
     const isPhysicsGraphTopic =
       /^physics$/i.test(subject.trim()) &&
       /\b(motion|graph|graphs|graf|plot|chart|velocity|speed|acceleration|displacement|distance[- ]time|speed[- ]time|velocity[- ]time|acceleration[- ]time)\b/i.test(
-        chapterDbLabel,
+        selectedTopic,
       );
     const graphInstructions = isPhysicsGraphTopic
-      ? `For every generated question, if a line graph or motion graph would help, append DIAGRAM_JSON after all questions with a diagrams array. Set questionIndex to the matching Soalan number. `
-      : /^(mathematics|math|additional mathematics|additional math)$/i.test(subject.trim())
-        ? `For graph-based questions, append DIAGRAM_JSON after all questions with a diagrams array; set questionIndex to the matching Soalan number. `
-        : "";
-    const bilingualStemRule =
-      /^(sejarah|bm)$/i.test(subject.trim())
-        ? ""
-        : `Each stem: first line "EN: ...", second line "BM: ..." (BM on a new line). `;
+      ? `For every generated question, decide whether a line graph, coordinate graph, function graph, or motion graph would help. If yes, append DIAGRAM_JSON after all questions. Use a diagrams array and include one diagram object per graph-based question. Set questionIndex to the matching Soalan number, for example questionIndex 1 for Soalan 1 and questionIndex 4 for Soalan 4. Graph-related chapters may include diagrams for multiple Soalan, not only the first one. `
+      : "";
+
+    const isBmOnlySubject = isBmOnlyGenerationSubject(subject);
+    const stemLanguageRule = isBmOnlySubject
+      ? `Write every soalan stem, all options A–D, Jawapan, and Penjelasan in Bahasa Melayu only (no EN: line, no English). `
+      : `Each question stem must be bilingual on two separate lines: first line "EN: ...", second line "BM: ..." (BM must start on a new line, not the same line as EN). `;
+
     const diagramHint = isScienceDiagramSubject(subject)
-      ? "Do not output any Perlu rajah line inside the questions; diagrams are planned in a second pass. "
-      : "";
-    const matrixFormatHint = /^(mathematics|math|additional mathematics|additional math)$/i.test(subject.trim())
-      ? "Matrix MCQ options: semicolon row form e.g. [3 2; 1 4]. "
-      : "";
+      ? " Do not output any Perlu rajah or diagram-needed line inside the questions. Diagram decisions will be made in a second pass after the questions are generated. "
+      : " ";
+
+    const matrixFormatHint = /^(math|additional math)$/i.test(subject.trim())
+      ? " For matrix MCQ options, write each matrix as one token in semicolon row form, e.g. [3 2; 1 4] (rows separated by ;, entries by spaces). "
+      : " ";
 
     if (aiQuestionType === "mcq") {
-      return `Generate ${aiQuestionCount} SPM ${subject} MCQ (A-D) questions${topicPart}. ${graphInstructions}${bilingualStemRule}${diagramHint}${matrixFormatHint}Format: Soalan 1, EN/BM stems, A.–D., Jawapan: (one letter), Penjelasan:. Repeat for Soalan 2, 3, etc.`;
+      const mcqFormatRule = isBmOnlySubject
+        ? "Use exact format: Soalan 1, then the BM soalan stem (one or two sentences), then A. B. C. D. options, then Jawapan: (one letter A-D only), then Penjelasan:."
+        : "Use exact format: Soalan 1, then EN: and BM: stems on separate lines, then A. B. C. D. options, then Jawapan: (one letter A-D only), then Penjelasan:.";
+      return `Generate ${aiQuestionCount} SPM ${subject} MCQ (A-D) objective questions${topicPart}. ${variationInstructions} ${graphInstructions}${stemLanguageRule}${diagramHint}${matrixFormatHint}${mcqFormatRule} You MUST NOT use Markah or Marking points. Repeat for Soalan 2, 3, etc.`;
     }
 
-    return `Generate ${aiQuestionCount} short SPM ${subject} subjective questions${topicPart}. ${bilingualStemRule}Each item: Soalan N, bilingual stem, Markah: <integer 1–3>, Jawapan:, Marking points:. Keep stems concise.`;
+    const subjectiveFormatRule = isBmOnlySubject
+      ? "You MUST use for each item: Soalan N, BM soalan stem only, Markah: <integer equal to distinct-idea count>, Jawapan:, then Marking points: with one bullet per mark formatted as 'Mark N: [Core Idea] — criteria'."
+      : "You MUST use for each item: Soalan N, bilingual stem (EN: then BM: on new line), Markah: <integer equal to distinct-idea count>, Jawapan:, then Marking points: with one bullet per mark formatted as 'Mark N: [Core Idea] — criteria'.";
+    return `Generate ${aiQuestionCount} SPM ${subject} subjective questions${topicPart}. ${variationInstructions} ${graphInstructions}${stemLanguageRule}${STRICT_MARK_SCHEME_PROMPT_HINT} ${JAWAPAN_VERB_FORMAT_PROMPT_HINT} You MUST use past-paper excerpts to calibrate depth ONLY — NEVER to inflate marks. ${subjectiveFormatRule} Repeat for Soalan 2, 3, etc.`;
   };
 
-  const runAiGenerate = async () => {
-    if (aiGenerating) return;
-    const practiceCode = selectedSubjectKey;
-    const backendSubject = backendSubjectFromPracticeCode(practiceCode);
-    if (!backendSubject) {
-      showComingSoonWithSound();
-      return;
-    }
-    const chapterDb = aiMode === "topic" ? aiSelectedChapter.trim() : "";
-    if (aiMode === "topic" && chapterDb.length === 0) {
-      showToast(
-        ragChapters.length > 0
-          ? "Please select a chapter from the list."
-          : "No textbook chapters loaded for this subject and form. Ingest a textbook first.",
-      );
-      return;
-    }
+  const buildAiOralQuery = (subject: string, practiceCode: string | null): string => {
+    const selectedTopic = aiMode === "topic" ? aiTopic.trim() : "";
+    const topicPart =
+      selectedTopic.length > 0 ? ` focused on: ${selectedTopic}` : "";
+    const isEnglish = practiceCode?.trim().toLowerCase() === "english";
+    const languageRule = isEnglish
+      ? "Write the student prompt in clear Malaysian SPM English. "
+      : "Write the student prompt in standard Bahasa Melayu (SPM). ";
+    const variationSeed = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
-    setAiGenerating(true);
-    try {
-      const topicTrim = chapterDb;
-      const query = buildAiQuery(backendSubject, topicTrim);
-      const chapterTopic =
-        aiMode === "topic" && topicTrim.length > 0
-          ? {
-              chapterHint: topicTrim,
-              ...( /^(chapter|bab|unit)\s*\d+/i.test(topicTrim) ? { chapterFilter: topicTrim } : {} ),
-            }
-          : {};
-
-      if (aiQuestionType === "subjective") {
-        const genRequest: OpenEndedGenerationRequest = {
-          query,
-          subject: backendSubject,
-          form: metaFormLevel,
-          topK: 8,
-          ...chapterTopic,
-        };
-        const step1 = await fetchOpenEndedQuestionStep({
-          request: genRequest,
-          questionIndex: 1,
-          totalQuestions: aiQuestionCount,
-          priorStems: [],
-        });
-        if (!step1.question?.questionText?.trim()) {
-          showToast("AI did not return the first question. Try again.");
-          return;
-        }
-        const firstQuestion = mapOpenEndedStepToPracticeQuestion(step1.question, 1);
-        setAiModalOpen(false);
-        (navigation as any).navigate("PracticeSession", {
-          title: "AI Practice",
-          questions: [firstQuestion],
-          subject: backendSubject,
-          formLevel: metaFormLevel,
-          ...(aiQuestionCount > 1
-            ? {
-                openEndedBackground: {
-                  ...genRequest,
-                  generationContextId: step1.generationContextId,
-                  totalQuestions: aiQuestionCount,
-                  nextQuestionIndex: 2,
-                  priorStems: [firstQuestion.questionText],
-                },
-              }
-            : {}),
-        });
-        return;
-      }
-
-      const result = await ragApiPost<RagGenerateResponse>(
-        "/rag/generate",
-        {
-          query,
-          subject: backendSubject,
-          form: metaFormLevel,
-          topK: 8,
-          generateImage: aiQuestionType === "mcq" && isScienceDiagramSubject(backendSubject),
-          createOpenEndedRubrics: false,
-          ...chapterTopic,
-        },
-      );
-
-      if (aiQuestionType === "mcq") {
-        const parsed = attachGeneratedImagesToQuestions(
-          attachStructuredDiagramsToQuestions(
-            attachDiagramsToQuestions(
-              parseAiGeneratedMcqAnswer(result.answer),
-              result.diagrams ?? (result.diagram ? [result.diagram] : []),
-            ),
-            result.structuredDiagrams,
-          ),
-          result.generatedImages,
-        );
-        if (parsed.length === 0) {
-          showToast("AI did not return parseable MCQ questions. Try again.");
-          return;
-        }
-        setAiModalOpen(false);
-        (navigation as any).navigate("PracticeSession", {
-          title: "AI Practice",
-          questions: parsed,
-          subject: backendSubject,
-          formLevel: metaFormLevel,
-        });
-        return;
-      }
-    } catch (e) {
-      showToast(e instanceof Error ? e.message : "Failed to generate questions.");
-    } finally {
-      setAiGenerating(false);
-    }
+    return (
+      `Generate exactly 1 SPM oral/speaking practice task for ${subject} (${aiFormLevelLabel})${topicPart}. ` +
+      `${languageRule}` +
+      `Pick one realistic SPM-style oral type (e.g. picture description, role play, opinion, reading aloud, or stimulus response). ` +
+      `Do NOT output MCQ, A/B/C/D options, or multiple choice. The student must speak freely, not pick a letter. ` +
+      `Use retrieved past-paper or textbook context when available. ` +
+      `Output format only:\n` +
+      `Prompt:\n<what the student should say or do, 2-5 sentences>\n` +
+      `Sample answer:\n<brief bullet points for marking reference only>\n` +
+      `Do not output MCQ, Soalan numbering blocks, or Markah lines. Variation seed: ${variationSeed}.`
+    );
   };
 
   const runEnglishSpeakingGenerate = async () => {
@@ -703,7 +947,7 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
             ? Math.min(6, Math.max(2, englishQuestionCount))
             : 1;
       const query = buildEnglishSpeakingQuery({
-        form: metaFormLevel,
+        form: aiFormLevelLabel,
         part: englishSpeakingPart,
         topicCategory: topic,
         questionCount: count,
@@ -711,7 +955,7 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
       const result = await ragApiPost<RagGenerateResponse>("/rag/generate", {
         query,
         subject: backendSubject,
-        form: metaFormLevel,
+        form: aiFormLevelLabel,
         skipRetrieval: true,
         englishSpeaking: true,
       });
@@ -730,11 +974,124 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
               : "English Speaking Part 2",
         questions: parsed,
         subject: backendSubject,
-        formLevel: metaFormLevel,
+        formLevel: aiFormLevelLabel,
         practiceMode: "speaking",
       });
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Failed to generate speaking practice.");
+    } finally {
+      setAiGenerating(false);
+    }
+  };
+
+  const runAiGenerate = async () => {
+    if (aiGenerating) return;
+    const practiceCode = selectedSubjectKey;
+    const backendSubject = backendSubjectFromPracticeCode(practiceCode);
+    if (!backendSubject) {
+      showComingSoonWithSound();
+      return;
+    }
+    if (aiMode === "topic" && aiTopic.trim().length === 0) {
+      showToast("Please select a topic.");
+      return;
+    }
+
+    if (aiMode === "oral") {
+      setAiGenerating(true);
+      try {
+        const result = await ragApiPost<RagGenerateResponse>("/rag/generate", {
+          query: buildAiOralQuery(backendSubject, practiceCode),
+          subject: backendSubject,
+          topK: 8,
+          generateImage: false,
+        });
+        const prompt = parseAiOralPrompt(result.answer);
+        if (!prompt) {
+          showToast("AI did not return a parseable oral prompt. Try again.");
+          return;
+        }
+        setAiModalOpen(false);
+        (navigation as any).navigate("OralPractice", {
+          prompt,
+          subject: backendSubject,
+          formLevel: aiFormLevelLabel,
+          sttLanguage: sttLanguageForOralSubject(practiceCode),
+        });
+      } catch (e) {
+        showToast(e instanceof Error ? e.message : "Failed to generate oral question.");
+      } finally {
+        setAiGenerating(false);
+      }
+      return;
+    }
+
+    const selectedTopic = aiMode === "topic" ? aiTopic.trim() : "";
+    const historyKey = questionHistoryKey(backendSubject, selectedTopic, aiQuestionType);
+
+    setAiGenerating(true);
+    try {
+      const result = await ragApiPost<RagGenerateResponse>(
+        "/rag/generate",
+        {
+          query: buildAiQuery(backendSubject),
+          subject: backendSubject,
+          topK: 8,
+          generateImage: isScienceDiagramSubject(backendSubject),
+        },
+      );
+
+      if (aiQuestionType === "mcq") {
+        const parsed = attachGeneratedImagesToQuestions(
+          attachStructuredDiagramsToQuestions(
+            attachDiagramsToQuestions(
+              parseAiGeneratedMcqAnswer(result.answer),
+              result.diagrams ?? (result.diagram ? [result.diagram] : []),
+            ),
+            result.structuredDiagrams,
+          ),
+          result.generatedImages,
+        );
+        if (parsed.length === 0) {
+          showToast("AI did not return parseable MCQ questions. Try again.");
+          return;
+        }
+        aiQuestionHistoryRef.current.set(historyKey, summarizeQuestionStems(parsed));
+        setAiModalOpen(false);
+        (navigation as any).navigate("PracticeSession", {
+          title: "AI Practice",
+          questions: parsed,
+          subject: backendSubject,
+          formLevel: aiFormLevelLabel,
+        });
+        return;
+      }
+
+      const parsedOpen = attachGeneratedImagesToQuestions(
+        attachStructuredDiagramsToQuestions(
+          attachDiagramsToQuestions(
+            parseAiGeneratedOpenEnded(result.answer, "short"),
+            result.diagrams ?? (result.diagram ? [result.diagram] : []),
+          ),
+          result.structuredDiagrams,
+        ),
+        result.generatedImages,
+      );
+      if (parsedOpen.length === 0) {
+        showToast("AI did not return parseable questions. Try again.");
+        return;
+      }
+      aiQuestionHistoryRef.current.set(historyKey, summarizeQuestionStems(parsedOpen));
+
+      setAiModalOpen(false);
+      (navigation as any).navigate("PracticeSession", {
+        title: "AI Practice",
+        questions: parsedOpen,
+        subject: backendSubject,
+        formLevel: aiFormLevelLabel,
+      });
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Failed to generate questions.");
     } finally {
       setAiGenerating(false);
     }
@@ -766,7 +1123,7 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
           </Text>
         </View>
 
-        {!loading && favouriteTiles.length > 0 ? (
+        {!loading || favouriteTiles.length > 0 ? (
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
@@ -952,7 +1309,7 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
       <Modal transparent visible={aiModalOpen} animationType="fade" onRequestClose={() => setAiModalOpen(false)}>
         <Pressable style={styles.modalBackdrop} onPress={() => !aiGenerating && setAiModalOpen(false)}>
           <Pressable
-            style={[styles.modalCard, { paddingBottom: insets.bottom + 16 }]}
+            style={[styles.modalCard, styles.aiModalCard, { paddingBottom: insets.bottom + 12 }]}
             onPress={(e) => e.stopPropagation()}
           >
             <Text style={styles.modalTitle}>
@@ -961,36 +1318,38 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
             <Text style={styles.modalHint}>
               {isEnglishGenerator
                 ? "Generate SPM-style oral prompts, then practise with timed recording and AI marking."
-                : "Pick Form (must match ingested textbooks), then topic-specific uses chapter titles from the database."}
+                : "Choose form, mode, question type, and how many questions."}
             </Text>
 
-            <Text style={styles.fieldLabel}>Form (matches textbook in RAG)</Text>
-            <View style={styles.choiceRow}>
-              {(["Form 4", "Form 5"] as const).map((lvl) => (
-                <Pressable
-                  key={lvl}
-                  style={[styles.choiceChip, metaFormLevel === lvl && styles.choiceChipActive]}
-                  onPress={() => {
-                    setMetaFormLevel(lvl);
-                    setAiSelectedChapter("");
-                  }}
-                >
-                  <Text
-                    style={[styles.choiceChipText, metaFormLevel === lvl && styles.choiceChipTextActive]}
-                  >
-                    {lvl}
-                  </Text>
-                </Pressable>
-              ))}
-            </View>
-
+            <ScrollView
+              style={[styles.aiModalScroll, { maxHeight: aiModalScrollMaxHeight }]}
+              contentContainerStyle={styles.aiModalScrollContent}
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator
+              nestedScrollEnabled
+            >
             {isEnglishGenerator ? (
               <>
-                <Text style={styles.fieldLabel}>Skill</Text>
+                <Text style={styles.fieldLabel}>Form</Text>
                 <View style={styles.choiceRow}>
-                  <View style={[styles.choiceChip, styles.choiceChipActive]}>
-                    <Text style={[styles.choiceChipText, styles.choiceChipTextActive]}>Speaking</Text>
-                  </View>
+                  <Pressable
+                    style={[styles.choiceChip, aiFormLevel === 4 && styles.choiceChipActive]}
+                    onPress={() => setAiFormLevel(4)}
+                    disabled={aiGenerating}
+                  >
+                    <Text style={[styles.choiceChipText, aiFormLevel === 4 && styles.choiceChipTextActive]}>
+                      Form 4
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    style={[styles.choiceChip, aiFormLevel === 5 && styles.choiceChipActive]}
+                    onPress={() => setAiFormLevel(5)}
+                    disabled={aiGenerating}
+                  >
+                    <Text style={[styles.choiceChipText, aiFormLevel === 5 && styles.choiceChipTextActive]}>
+                      Form 5
+                    </Text>
+                  </Pressable>
                 </View>
 
                 <Text style={styles.fieldLabel}>Speaking part</Text>
@@ -1003,6 +1362,7 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
                         englishSpeakingPart === opt.id && styles.choiceChipActive,
                       ]}
                       onPress={() => setEnglishSpeakingPart(opt.id)}
+                      disabled={aiGenerating}
                     >
                       <Text
                         style={[
@@ -1026,6 +1386,7 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
                         englishTopicCategory === topic && styles.choiceChipActive,
                       ]}
                       onPress={() => setEnglishTopicCategory(topic)}
+                      disabled={aiGenerating}
                     >
                       <Text
                         style={[
@@ -1051,6 +1412,7 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
                             englishQuestionCount === count && styles.choiceChipActive,
                           ]}
                           onPress={() => setEnglishQuestionCount(count)}
+                          disabled={aiGenerating}
                         >
                           <Text
                             style={[
@@ -1068,14 +1430,43 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
               </>
             ) : (
               <>
+            <Text style={styles.fieldLabel}>Form</Text>
+            <View style={styles.choiceRow}>
+              <Pressable
+                style={[styles.choiceChip, aiFormLevel === 4 && styles.choiceChipActive]}
+                onPress={() => {
+                  setAiFormLevel(4);
+                  setAiTopicDropdownOpen(false);
+                }}
+                disabled={aiGenerating}
+              >
+                <Text style={[styles.choiceChipText, aiFormLevel === 4 && styles.choiceChipTextActive]}>
+                  Form 4
+                </Text>
+              </Pressable>
+              <Pressable
+                style={[styles.choiceChip, aiFormLevel === 5 && styles.choiceChipActive]}
+                onPress={() => {
+                  setAiFormLevel(5);
+                  setAiTopicDropdownOpen(false);
+                }}
+                disabled={aiGenerating}
+              >
+                <Text style={[styles.choiceChipText, aiFormLevel === 5 && styles.choiceChipTextActive]}>
+                  Form 5
+                </Text>
+              </Pressable>
+            </View>
+
             <Text style={styles.fieldLabel}>Mode</Text>
             <View style={styles.choiceRow}>
               <Pressable
                 style={[styles.choiceChip, aiMode === "general" && styles.choiceChipActive]}
                 onPress={() => {
                   setAiMode("general");
-                  setAiSelectedChapter("");
+                  setAiTopicDropdownOpen(false);
                 }}
+                disabled={aiGenerating}
               >
                 <Text style={[styles.choiceChipText, aiMode === "general" && styles.choiceChipTextActive]}>
                   General
@@ -1083,121 +1474,171 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
               </Pressable>
               <Pressable
                 style={[styles.choiceChip, aiMode === "topic" && styles.choiceChipActive]}
-                onPress={() => {
-                  setAiMode("topic");
-                  setAiSelectedChapter("");
-                }}
+                onPress={() => setAiMode("topic")}
+                disabled={aiGenerating}
               >
                 <Text style={[styles.choiceChipText, aiMode === "topic" && styles.choiceChipTextActive]}>
                   Topic-specific
                 </Text>
               </Pressable>
+              {oralModeAvailable ? (
+                <Pressable
+                  style={[styles.choiceChip, aiMode === "oral" && styles.choiceChipActive]}
+                  onPress={() => {
+                    setAiMode("oral");
+                    setAiTopicDropdownOpen(false);
+                  }}
+                  disabled={aiGenerating}
+                >
+                  <Text style={[styles.choiceChipText, aiMode === "oral" && styles.choiceChipTextActive]}>
+                    Oral
+                  </Text>
+                </Pressable>
+              ) : null}
             </View>
+
+            {aiMode === "oral" ? (
+              <Text style={styles.oralModeHint}>
+                Generates one speaking prompt, then you record your answer with the microphone.
+              </Text>
+            ) : null}
 
             {aiMode === "topic" ? (
               <>
-                <Text style={styles.fieldLabel}>Syllabus topic (from your textbook DB)</Text>
-                {ragChaptersLoading ? (
-                  <ActivityIndicator style={{ marginVertical: 12 }} color={BRAND} />
-                ) : ragChapters.length > 0 ? (
-                  <ScrollView
-                    style={styles.topicChapterScroll}
-                    nestedScrollEnabled
-                    keyboardShouldPersistTaps="handled"
-                  >
-                    {ragChapters.map((ch) => {
-                      const active = aiSelectedChapter === ch;
-                      return (
-                        <Pressable
-                          key={ch}
-                          style={[styles.topicChapterRow, active && styles.topicChapterRowActive]}
-                          onPress={() => setAiSelectedChapter(ch)}
-                        >
-                          <Text
-                            style={[styles.topicChapterRowText, active && styles.topicChapterRowTextActive]}
-                            numberOfLines={3}
-                          >
-                            {ch}
-                          </Text>
-                        </Pressable>
-                      );
-                    })}
-                  </ScrollView>
-                ) : (
-                  <Text style={styles.modalHint}>
-                    No chapter headings found for this subject and form. Ingest a textbook or pick another
-                    form.
-                  </Text>
-                )}
-              </>
-            ) : null}
-
-            <Text style={styles.fieldLabel}>Question type</Text>
-            <View style={styles.choiceRow}>
-              {(["mcq", "subjective"] as const).map((type) => (
+                <Text style={styles.fieldLabel}>Topic</Text>
                 <Pressable
-                  key={type}
-                  style={[styles.choiceChip, aiQuestionType === type && styles.choiceChipActive]}
-                  onPress={() => setAiQuestionType(type)}
-                >
-                  <Text
-                    style={[styles.choiceChipText, aiQuestionType === type && styles.choiceChipTextActive]}
-                  >
-                    {type === "mcq" ? "MCQ" : "Subjective"}
-                  </Text>
-                </Pressable>
-              ))}
-            </View>
-
-            <Text style={styles.fieldLabel}>Number of questions</Text>
-            <View style={styles.choiceRow}>
-              {[5, 10, 15, 20].map((count) => (
-                <Pressable
-                  key={count}
-                  style={[styles.choiceChip, aiQuestionCount === count && styles.choiceChipActive]}
-                  onPress={() => setAiQuestionCount(count)}
+                  style={styles.topicDropdownButton}
+                  onPress={() => setAiTopicDropdownOpen((open) => !open)}
+                  disabled={aiGenerating}
                 >
                   <Text
                     style={[
-                      styles.choiceChipText,
-                      aiQuestionCount === count && styles.choiceChipTextActive,
+                      styles.topicDropdownText,
+                      aiTopic.trim().length === 0 && styles.topicDropdownPlaceholder,
                     ]}
                   >
-                    {count}
+                    {aiTopic.trim().length > 0 ? aiTopic : "Select a topic"}
                   </Text>
+                  <ChevronDown
+                    size={18}
+                    color={colors.textSecondary}
+                    style={aiTopicDropdownOpen ? styles.topicDropdownIconOpen : undefined}
+                  />
                 </Pressable>
-              ))}
-            </View>
 
+                {aiTopicOptions.length === 0 ? (
+                  <Text style={styles.modalEmpty}>
+                    No topics for {aiFormLevelLabel} and this subject yet.
+                  </Text>
+                ) : null}
+
+                {aiTopicDropdownOpen && aiTopicOptions.length > 0 ? (
+                  <View style={styles.topicDropdownMenu}>
+                    <ScrollView nestedScrollEnabled style={styles.topicDropdownScroll}>
+                      {aiTopicOptions.map((topic) => (
+                        <Pressable
+                          key={topic}
+                          style={[
+                            styles.topicDropdownItem,
+                            aiTopic === topic && styles.topicDropdownItemActive,
+                          ]}
+                          onPress={() => {
+                            setAiTopic(topic);
+                            setAiTopicDropdownOpen(false);
+                          }}
+                        >
+                          <Text
+                            style={[
+                              styles.topicDropdownItemText,
+                              aiTopic === topic && styles.topicDropdownItemTextActive,
+                            ]}
+                          >
+                            {topic}
+                          </Text>
+                        </Pressable>
+                      ))}
+                    </ScrollView>
+                  </View>
+                ) : null}
+              </>
+            ) : null}
+
+            {aiMode !== "oral" ? (
+              <>
+                <Text style={styles.fieldLabel}>Question type</Text>
+                <View style={styles.choiceRow}>
+                  {(["mcq", "subjective"] as const).map((type) => (
+                    <Pressable
+                      key={type}
+                      style={[styles.choiceChip, aiQuestionType === type && styles.choiceChipActive]}
+                      onPress={() => setAiQuestionType(type)}
+                      disabled={aiGenerating}
+                    >
+                      <Text
+                        style={[styles.choiceChipText, aiQuestionType === type && styles.choiceChipTextActive]}
+                      >
+                        {type === "mcq" ? "MCQ" : "Subjective"}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+
+                <Text style={styles.fieldLabel}>Number of questions</Text>
+                <View style={styles.choiceRow}>
+                  {[5, 10, 15, 20].map((count) => (
+                    <Pressable
+                      key={count}
+                      style={[styles.choiceChip, aiQuestionCount === count && styles.choiceChipActive]}
+                      onPress={() => setAiQuestionCount(count)}
+                      disabled={aiGenerating}
+                    >
+                      <Text
+                        style={[
+                          styles.choiceChipText,
+                          aiQuestionCount === count && styles.choiceChipTextActive,
+                        ]}
+                      >
+                        {count}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </>
+            ) : null}
               </>
             )}
+            </ScrollView>
 
-            <Pressable
-              style={({ pressed }) => [styles.generateActionBtn, pressed && styles.generateActionBtnPressed]}
-              onPress={() =>
-                void (isEnglishGenerator ? runEnglishSpeakingGenerate() : runAiGenerate())
-              }
-              disabled={aiGenerating}
-            >
-              <LinearGradient
-                colors={["#F15A29", "#5B2EFF"]}
-                start={{ x: 0, y: 0.5 }}
-                end={{ x: 1, y: 0.5 }}
-                style={styles.generateActionBtnGrad}
+            <View style={styles.aiModalFooter}>
+              <Pressable
+                style={({ pressed }) => [styles.generateActionBtn, pressed && styles.generateActionBtnPressed]}
+                onPress={() =>
+                  void (isEnglishGenerator ? runEnglishSpeakingGenerate() : runAiGenerate())
+                }
+                disabled={aiGenerating}
               >
-                <Text style={styles.generateActionBtnText}>
-                  {aiGenerating
-                    ? "Generating..."
-                    : isEnglishGenerator
-                      ? "Start speaking practice"
-                      : "Generate"}
-                </Text>
-              </LinearGradient>
-            </Pressable>
+                <LinearGradient
+                  colors={["#F15A29", "#5B2EFF"]}
+                  start={{ x: 0, y: 0.5 }}
+                  end={{ x: 1, y: 0.5 }}
+                  style={styles.generateActionBtnGrad}
+                >
+                  <Text style={styles.generateActionBtnText}>
+                    {aiGenerating
+                      ? "Generating..."
+                      : isEnglishGenerator
+                        ? "Start speaking practice"
+                        : aiMode === "oral"
+                          ? "Generate oral practice"
+                          : "Generate"}
+                  </Text>
+                </LinearGradient>
+              </Pressable>
 
-            <Pressable style={styles.modalClose} onPress={() => !aiGenerating && setAiModalOpen(false)}>
-              <Text style={styles.modalCloseText}>Close</Text>
-            </Pressable>
+              <Pressable style={styles.modalClose} onPress={() => !aiGenerating && setAiModalOpen(false)}>
+                <Text style={styles.modalCloseText}>Close</Text>
+              </Pressable>
+            </View>
           </Pressable>
         </Pressable>
       </Modal>
@@ -1379,6 +1820,23 @@ const styles = StyleSheet.create({
     paddingTop: 20,
     maxHeight: "72%",
   },
+  aiModalCard: {
+    maxHeight: "90%",
+  },
+  aiModalScroll: {
+    flexGrow: 0,
+    flexShrink: 1,
+  },
+  aiModalScrollContent: {
+    paddingBottom: 4,
+  },
+  aiModalFooter: {
+    flexShrink: 0,
+    paddingTop: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: "rgba(15, 23, 42, 0.08)",
+    backgroundColor: "#FFFFFF",
+  },
   modalTitle: {
     fontSize: 18,
     fontFamily: fonts.bold,
@@ -1411,9 +1869,9 @@ const styles = StyleSheet.create({
     marginVertical: 20,
   },
   modalClose: {
-    marginTop: 12,
+    marginTop: 4,
     alignSelf: "center",
-    paddingVertical: 12,
+    paddingVertical: 10,
   },
   modalCloseText: {
     fontSize: 15,
@@ -1451,6 +1909,13 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     gap: 8,
   },
+  oralModeHint: {
+    fontFamily: fonts.regular,
+    fontSize: 13,
+    lineHeight: 18,
+    color: colors.textSecondary,
+    marginBottom: 12,
+  },
   choiceChip: {
     paddingHorizontal: 12,
     paddingVertical: 8,
@@ -1471,45 +1936,61 @@ const styles = StyleSheet.create({
   choiceChipTextActive: {
     color: "#FFFFFF",
   },
-  topicChapterScroll: {
-    maxHeight: 280,
-    borderWidth: 1,
-    borderColor: "rgba(15, 23, 42, 0.12)",
-    borderRadius: 12,
-    marginBottom: 4,
-  },
-  topicChapterRow: {
-    paddingVertical: 12,
-    paddingHorizontal: 12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "rgba(15, 23, 42, 0.08)",
-  },
-  topicChapterRowActive: {
-    backgroundColor: BRAND_SOFT,
-  },
-  topicChapterRowText: {
-    fontSize: 14,
-    fontFamily: fonts.regular,
-    color: colors.text,
-    lineHeight: 20,
-  },
-  topicChapterRowTextActive: {
-    fontFamily: fonts.semiBold,
-    color: colors.text,
-  },
-  topicInput: {
+  topicDropdownButton: {
+    minHeight: 48,
     borderWidth: 1,
     borderColor: "rgba(15, 23, 42, 0.16)",
     borderRadius: 12,
     paddingHorizontal: 12,
     paddingVertical: 10,
-    fontSize: 14,
-    fontFamily: fonts.regular,
-    color: colors.text,
     backgroundColor: "#FFFFFF",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+  topicDropdownText: {
+    flex: 1,
+    fontSize: 14,
+    fontFamily: fonts.medium,
+    color: colors.text,
+  },
+  topicDropdownPlaceholder: {
+    color: "#94A3B8",
+  },
+  topicDropdownIconOpen: {
+    transform: [{ rotate: "180deg" }],
+  },
+  topicDropdownMenu: {
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: "rgba(15, 23, 42, 0.12)",
+    borderRadius: 12,
+    backgroundColor: "#FFFFFF",
+    overflow: "hidden",
+  },
+  topicDropdownScroll: {
+    maxHeight: 176,
+  },
+  topicDropdownItem: {
+    paddingHorizontal: 12,
+    paddingVertical: 11,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(15, 23, 42, 0.06)",
+  },
+  topicDropdownItemActive: {
+    backgroundColor: theme.brandSoft,
+  },
+  topicDropdownItemText: {
+    fontSize: 14,
+    fontFamily: fonts.medium,
+    color: colors.text,
+  },
+  topicDropdownItemTextActive: {
+    color: BRAND,
+    fontFamily: fonts.bold,
   },
   generateActionBtn: {
-    marginTop: 14,
     borderRadius: 12,
     overflow: "hidden",
   },

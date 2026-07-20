@@ -3,8 +3,6 @@
  */
 
 import type { MarkBreakdownItem, QuestionAnalysis, RubricIdea } from "../types";
-import type { PipelineGradingContext } from "./gradingContext";
-import { studentAnswerMentionsAllComparisonSubjects } from "./gradingComparisonSubjects";
 import { isDiagramDeixisAnswer } from "./gradingEvidencePolicy";
 import { studentAnswerExplicitlySupportsMarkPoint } from "./gradingEvidencePolicy";
 import { verifyBorderlineMeaningMatch } from "./qwenGradingClient";
@@ -185,43 +183,6 @@ export function ideasShareSynonymGroup(a: string, b: string): boolean {
   return false;
 }
 
-export function studentAnswerContainsSpecies(studentAnswer: string, speciesKeyword: string): boolean {
-  const key = (speciesKeyword || "").trim();
-  if (key.length < 2) return true;
-  const normKey = normalizeFormulaText(key);
-  const normAns = normalizeFormulaText(studentAnswer);
-  if (normAns.includes(normKey)) return true;
-  return studentAnswerCoversIdea(studentAnswer, key);
-}
-
-export function allEquationSpeciesPresent(studentAnswer: string, keywords: string[] | undefined): boolean {
-  const species = (keywords ?? []).map((k) => k.trim()).filter((k) => k.length >= 2);
-  if (species.length === 0) return true;
-  return species.every((s) => studentAnswerContainsSpecies(studentAnswer, s));
-}
-
-/** Post-split / backfill: add cluster phrases that match the row idea text. */
-export function enrichRubricRowFromSynonymClusters(row: RubricIdea): RubricIdea {
-  const ideaNorm = normalizeAnswerText(row.idea);
-  const kw = new Set((row.keywords ?? []).map((k) => k.trim()).filter(Boolean));
-  const acc = new Set((row.acceptedConcepts ?? []).map((k) => k.trim()).filter(Boolean));
-  for (const group of EQUIVALENT_PHRASE_GROUPS) {
-    const groupHit = group.some((g) => {
-      const ng = normalizeAnswerText(g);
-      return ideaNorm.includes(ng) || [...kw, ...acc].some((p) => normalizeAnswerText(p).includes(ng));
-    });
-    if (!groupHit) continue;
-    for (const phrase of group.slice(0, 6)) {
-      if (row.openEnded) kw.add(phrase);
-      else acc.add(phrase);
-    }
-  }
-  const next: RubricIdea = { ...row };
-  if (kw.size > 0) next.keywords = [...new Set([...(row.keywords ?? []), ...kw])].slice(0, 12);
-  if (acc.size > 0) next.acceptedConcepts = [...new Set([...(row.acceptedConcepts ?? []), ...acc])].slice(0, 8);
-  return next;
-}
-
 /** Rubric row needs source/destination or tissue route (e.g. leaves → roots), not just "transports food". */
 export function rubricIdeaRequiresRouteDetail(idea: string): boolean {
   const id = normalizeAnswerText(idea);
@@ -351,7 +312,7 @@ export function studentAnswerContainsDistinctiveRubricToken(
     .split(/\W+/)
     .filter((w) => w.length >= 4 && !GENERIC.has(w));
 
-  if (ideaTokens.length === 0) return true; // no distinctive tokens to check
+  if (ideaTokens.length === 0) return false;
   const ansNorm = normalizeAnswerText(studentAnswer);
 
   // At least one distinctive rubric token must appear in the student answer.
@@ -379,7 +340,6 @@ export async function fixMissingIdeasAgainstStudentAnswer(params: {
   score: number;
   maxScore: number;
   questionAnalysis?: QuestionAnalysis | null;
-  gradingContext?: PipelineGradingContext | null;
 }): Promise<ContradictionFixResult> {
   const { studentAnswer, maxScore, question } = params;
   if (params.score >= params.maxScore) {
@@ -406,15 +366,6 @@ export async function fixMissingIdeasAgainstStudentAnswer(params: {
     if (
       !substantiveAnswer &&
       !studentAnswerContainsDistinctiveRubricToken(studentAnswer, idea, rubricRow?.acceptedConcepts)
-    ) {
-      continue;
-    }
-
-    if (
-      params.gradingContext?.isCompareQ &&
-      rubricRow?.comparisonSubjects &&
-      rubricRow.comparisonSubjects.length >= 2 &&
-      !studentAnswerMentionsAllComparisonSubjects(studentAnswer, rubricRow.comparisonSubjects)
     ) {
       continue;
     }

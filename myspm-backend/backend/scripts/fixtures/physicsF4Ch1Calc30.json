@@ -1,0 +1,281 @@
+{
+  "meta": {
+    "subject": "Physics",
+    "form": "Form 4",
+    "chapter": "Chapter 1: Measurement",
+    "purpose": "Model-answer quality for calculation questions (Formula / Working / Final answer)",
+    "questionCount": 30
+  },
+  "questions": [
+    {
+      "id": "P4C1C-01",
+      "topic": "unit_conversion_length",
+      "maxScore": 2,
+      "question": "Calculate the equivalent of 3.5 km in metres. Show the conversion working. (2 marks)",
+      "expectedFinal": { "value": 3500, "unit": "m", "tolerance": 0 },
+      "expectedFormulaHints": ["1000", "km", "m"],
+      "weakStudentAnswer": "3500"
+    },
+    {
+      "id": "P4C1C-02",
+      "topic": "unit_conversion_time",
+      "maxScore": 2,
+      "question": "Calculate the equivalent of 450 ms in seconds. Show the conversion working. (2 marks)",
+      "expectedFinal": { "value": 0.45, "unit": "s", "tolerance": 0.001 },
+      "expectedFormulaHints": ["10^{-3}", "0.001", "ms"],
+      "weakStudentAnswer": "0.45 s"
+    },
+    {
+      "id": "P4C1C-03",
+      "topic": "density",
+      "maxScore": 3,
+      "question": "A metal block has mass 240 g and volume 30 cm³. Calculate its density in g cm⁻³. (3 marks)",
+      "expectedFinal": { "value": 8, "unit": "g cm^{-3}", "tolerance": 0.01 },
+      "expectedFormulaHints": ["density", "ρ", "m/V", "mass", "volume"],
+      "weakStudentAnswer": "8"
+    },
+    {
+      "id": "P4C1C-04",
+      "topic": "density_si",
+      "maxScore": 3,
+      "question": "A liquid has mass 1.8 kg and volume 0.002 m³. Calculate its density in kg m⁻³. (3 marks)",
+      "expectedFinal": { "value": 900, "unit": "kg m^{-3}", "tolerance": 1 },
+      "expectedFormulaHints": ["ρ", "m/V", "density"],
+      "weakStudentAnswer": "900"
+    },
+    {
+      "id": "P4C1C-05",
+      "topic": "speed",
+      "maxScore": 3,
+      "question": "A car travels 150 m in 12 s. Calculate its average speed in m s⁻¹. (3 marks)",
+      "expectedFinal": { "value": 12.5, "unit": "m s^{-1}", "tolerance": 0.05 },
+      "expectedFormulaHints": ["speed", "distance", "time", "v =", "s/t"],
+      "weakStudentAnswer": "12.5"
+    },
+    {
+      "id": "P4C1C-06",
+      "topic": "speed_kmh",
+      "maxScore": 3,
+      "question": "A runner covers 2.4 km in 0.40 hours. Calculate the average speed in km h⁻¹. (3 marks)",
+      "expectedFinal": { "value": 6, "unit": "km h^{-1}", "tolerance": 0.05 },
+      "expectedFormulaHints": ["speed", "distance/time", "2.4"],
+      "weakStudentAnswer": "6"
+    },
+    {
+      "id": "P4C1C-07",
+      "topic": "volume_then_density",
+      "maxScore": 4,
+      "question": "A rectangular block measures 5.0 cm × 4.0 cm × 2.0 cm and has mass 160 g. Calculate (a) its volume and (b) its density in g cm⁻³. (4 marks)",
+      "expectedFinal": { "value": 4, "unit": "g cm^{-3}", "tolerance": 0.05 },
+      "expectedFormulaHints": ["V =", "lwh", "density", "m/V"],
+      "weakStudentAnswer": "density = 4"
+    },
+    {
+      "id": "P4C1C-08",
+      "topic": "scientific_notation_calc",
+      "maxScore": 2,
+      "question": "A distance is 4.5 × 10⁴ m. Calculate this distance in kilometres. Show your working. (2 marks)",
+      "expectedFinal": { "value": 45, "unit": "km", "tolerance": 0.1 },
+      "expectedFormulaHints": ["10^4", "1000", "km"],
+      "weakStudentAnswer": "45 km"
+    },
+    {
+      "id": "P4C1C-09",
+      "topic": "prefix_mega",
+      "maxScore": 2,
+      "question": "Calculate the equivalent of 2.5 MW in watts. Show the conversion working. (2 marks)",
+      "expectedFinal": { "value": 2500000, "unit": "W", "tolerance": 0 },
+      "expectedFormulaHints": ["10^6", "mega", "1000000"],
+      "weakStudentAnswer": "2500000 W"
+    },
+    {
+      "id": "P4C1C-10",
+      "topic": "gradient",
+      "maxScore": 3,
+      "question": "A straight-line graph passes through points (2.0 s, 6.0 m) and (5.0 s, 15.0 m). Calculate the gradient of the graph. State the unit of the gradient. (3 marks)",
+      "expectedFinal": { "value": 3, "unit": "m s^{-1}", "tolerance": 0.05 },
+      "expectedFormulaHints": ["gradient", "Δy", "Δx", "rise", "run"],
+      "weakStudentAnswer": "3"
+    },
+    {
+      "id": "P4C1C-11",
+      "topic": "period_average",
+      "maxScore": 2,
+      "question": "In a simple pendulum experiment, the time for 20 complete oscillations is 36.0 s. Calculate the period of the pendulum. (2 marks)",
+      "expectedFinal": { "value": 1.8, "unit": "s", "tolerance": 0.02 },
+      "expectedFormulaHints": ["T =", "t/n", "20", "period"],
+      "weakStudentAnswer": "1.8 s"
+    },
+    {
+      "id": "P4C1C-12",
+      "topic": "area",
+      "maxScore": 2,
+      "question": "A rectangular surface measures 1.2 m by 0.80 m. Calculate its area in m². (2 marks)",
+      "expectedFinal": { "value": 0.96, "unit": "m^{2}", "tolerance": 0.01 },
+      "expectedFormulaHints": ["A =", "length", "width", "l × w"],
+      "weakStudentAnswer": "0.96"
+    },
+    {
+      "id": "P4C1C-13",
+      "topic": "pressure",
+      "maxScore": 3,
+      "question": "A force of 120 N acts uniformly on an area of 0.030 m². Calculate the pressure in Pa. (3 marks)",
+      "expectedFinal": { "value": 4000, "unit": "Pa", "tolerance": 1 },
+      "expectedFormulaHints": ["P =", "F/A", "pressure"],
+      "weakStudentAnswer": "4000"
+    },
+    {
+      "id": "P4C1C-14",
+      "topic": "density_find_mass",
+      "maxScore": 3,
+      "question": "The density of a liquid is 800 kg m⁻³. Calculate the mass of 0.025 m³ of this liquid. (3 marks)",
+      "expectedFinal": { "value": 20, "unit": "kg", "tolerance": 0.1 },
+      "expectedFormulaHints": ["m =", "ρV", "density"],
+      "weakStudentAnswer": "20 kg"
+    },
+    {
+      "id": "P4C1C-15",
+      "topic": "time_from_speed",
+      "maxScore": 3,
+      "question": "A motorcycle travels at a constant speed of 20 m s⁻¹. Calculate the time taken to travel 1.5 km. Give your answer in seconds. (3 marks)",
+      "expectedFinal": { "value": 75, "unit": "s", "tolerance": 0.5 },
+      "expectedFormulaHints": ["t =", "s/v", "distance", "1500"],
+      "weakStudentAnswer": "75"
+    },
+    {
+      "id": "P4C1C-16",
+      "topic": "unit_conversion_cm_m",
+      "maxScore": 2,
+      "question": "Calculate the equivalent of 85 cm in metres. Show the conversion working. (2 marks)",
+      "expectedFinal": { "value": 0.85, "unit": "m", "tolerance": 0.001 },
+      "expectedFormulaHints": ["100", "cm", "m"],
+      "weakStudentAnswer": "0.85"
+    },
+    {
+      "id": "P4C1C-17",
+      "topic": "unit_conversion_micro",
+      "maxScore": 2,
+      "question": "Calculate the equivalent of 250 μm in metres. Show the conversion working. (2 marks)",
+      "expectedFinal": { "value": 0.00025, "unit": "m", "tolerance": 1e-7 },
+      "expectedFormulaHints": ["10^{-6}", "0.000001", "μm", "micro"],
+      "weakStudentAnswer": "0.00025 m"
+    },
+    {
+      "id": "P4C1C-18",
+      "topic": "density_find_volume",
+      "maxScore": 3,
+      "question": "A sample of oil has density 0.85 g cm⁻³ and mass 170 g. Calculate its volume in cm³. (3 marks)",
+      "expectedFinal": { "value": 200, "unit": "cm^{3}", "tolerance": 0.5 },
+      "expectedFormulaHints": ["V =", "m/ρ", "density"],
+      "weakStudentAnswer": "200"
+    },
+    {
+      "id": "P4C1C-19",
+      "topic": "speed_distance",
+      "maxScore": 3,
+      "question": "A cyclist moves at a constant speed of 5.0 m s⁻¹ for 3.0 minutes. Calculate the distance travelled in metres. (3 marks)",
+      "expectedFinal": { "value": 900, "unit": "m", "tolerance": 1 },
+      "expectedFormulaHints": ["s =", "vt", "distance", "180"],
+      "weakStudentAnswer": "900"
+    },
+    {
+      "id": "P4C1C-20",
+      "topic": "average_speed_two_parts",
+      "maxScore": 3,
+      "question": "A student walks 120 m in 40 s and then runs 180 m in 30 s. Calculate the average speed for the whole journey in m s⁻¹. (3 marks)",
+      "expectedFinal": { "value": 4.286, "unit": "m s^{-1}", "tolerance": 0.05 },
+      "expectedFormulaHints": ["average speed", "total distance", "total time", "300", "70"],
+      "weakStudentAnswer": "4.29"
+    },
+    {
+      "id": "P4C1C-21",
+      "topic": "volume_cube",
+      "maxScore": 2,
+      "question": "A cube has side length 4.0 cm. Calculate its volume in cm³. (2 marks)",
+      "expectedFinal": { "value": 64, "unit": "cm^{3}", "tolerance": 0.1 },
+      "expectedFormulaHints": ["V =", "a³", "side"],
+      "weakStudentAnswer": "64"
+    },
+    {
+      "id": "P4C1C-22",
+      "topic": "pressure_find_force",
+      "maxScore": 3,
+      "question": "The pressure on a surface is 2500 Pa and the area is 0.040 m². Calculate the force acting on the surface in N. (3 marks)",
+      "expectedFinal": { "value": 100, "unit": "N", "tolerance": 0.5 },
+      "expectedFormulaHints": ["F =", "PA", "pressure"],
+      "weakStudentAnswer": "100"
+    },
+    {
+      "id": "P4C1C-23",
+      "topic": "pressure_find_area",
+      "maxScore": 3,
+      "question": "A force of 75 N produces a pressure of 1500 Pa. Calculate the area in m². (3 marks)",
+      "expectedFinal": { "value": 0.05, "unit": "m^{2}", "tolerance": 0.001 },
+      "expectedFormulaHints": ["A =", "F/P", "pressure"],
+      "weakStudentAnswer": "0.05"
+    },
+    {
+      "id": "P4C1C-24",
+      "topic": "scientific_notation_to_standard",
+      "maxScore": 2,
+      "question": "A length is given as 3.2 × 10⁻² m. Calculate this length in centimetres. (2 marks)",
+      "expectedFinal": { "value": 3.2, "unit": "cm", "tolerance": 0.01 },
+      "expectedFormulaHints": ["10^{-2}", "100", "cm"],
+      "weakStudentAnswer": "3.2 cm"
+    },
+    {
+      "id": "P4C1C-25",
+      "topic": "giga_prefix",
+      "maxScore": 2,
+      "question": "Calculate the equivalent of 1.2 GHz in hertz. Show the conversion working. (2 marks)",
+      "expectedFinal": { "value": 1200000000, "unit": "Hz", "tolerance": 0 },
+      "expectedFormulaHints": ["10^9", "giga", "1000000000"],
+      "weakStudentAnswer": "1200000000"
+    },
+    {
+      "id": "P4C1C-26",
+      "topic": "gradient_from_table",
+      "maxScore": 3,
+      "question": "A straight-line graph of distance against time passes through (0 s, 0 m) and (8.0 s, 24.0 m). Calculate the gradient and state what physical quantity it represents. (3 marks)",
+      "expectedFinal": { "value": 3, "unit": "m s^{-1}", "tolerance": 0.05 },
+      "expectedFormulaHints": ["gradient", "Δy", "Δx", "speed"],
+      "weakStudentAnswer": "3 m/s"
+    },
+    {
+      "id": "P4C1C-27",
+      "topic": "pendulum_total_time",
+      "maxScore": 2,
+      "question": "The period of a simple pendulum is 1.5 s. Calculate the time for 25 complete oscillations. (2 marks)",
+      "expectedFinal": { "value": 37.5, "unit": "s", "tolerance": 0.1 },
+      "expectedFormulaHints": ["t =", "nT", "25", "period"],
+      "weakStudentAnswer": "37.5"
+    },
+    {
+      "id": "P4C1C-28",
+      "topic": "density_water_block",
+      "maxScore": 4,
+      "question": "A wooden block measures 10.0 cm × 5.0 cm × 2.0 cm and has mass 80 g. Calculate (a) its volume and (b) its density in g cm⁻³. (4 marks)",
+      "expectedFinal": { "value": 0.8, "unit": "g cm^{-3}", "tolerance": 0.02 },
+      "expectedFormulaHints": ["V =", "density", "m/V", "100"],
+      "weakStudentAnswer": "0.8"
+    },
+    {
+      "id": "P4C1C-29",
+      "topic": "speed_kmh_to_ms",
+      "maxScore": 3,
+      "question": "A car travels at 72 km h⁻¹. Calculate this speed in m s⁻¹. Show your working. (3 marks)",
+      "expectedFinal": { "value": 20, "unit": "m s^{-1}", "tolerance": 0.1 },
+      "expectedFormulaHints": ["1000", "3600", "72"],
+      "weakStudentAnswer": "20"
+    },
+    {
+      "id": "P4C1C-30",
+      "topic": "mass_from_density_si",
+      "maxScore": 3,
+      "question": "The density of aluminium is 2700 kg m⁻³. Calculate the mass of an aluminium cube of volume 0.0020 m³. (3 marks)",
+      "expectedFinal": { "value": 5.4, "unit": "kg", "tolerance": 0.05 },
+      "expectedFormulaHints": ["m =", "ρV", "2700"],
+      "weakStudentAnswer": "5.4"
+    }
+  ]
+}

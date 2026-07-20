@@ -186,12 +186,3 @@ export function studentAnswerMentionsAllComparisonSubjects(
 }
 
 /** Attach parsed comparison subjects to rubric rows for comparison stems. */
-export function applyComparisonSubjectsToRubricIdeas(ideas: RubricIdea[], question: string): RubricIdea[] {
-  if (!isComparisonDifferenceQuestion(question)) return ideas;
-  const subjects = extractComparisonSubjectsFromQuestion(question);
-  if (subjects.length < 2) return ideas;
-  return ideas.map((row) => ({
-    ...row,
-    comparisonSubjects: row.comparisonSubjects?.length ? row.comparisonSubjects : subjects,
-  }));
-}

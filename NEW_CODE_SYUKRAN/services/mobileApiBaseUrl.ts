@@ -1,4 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { Platform } from "react-native";
 
 const FALLBACK_DEFAULT_PREFIX = "http://10.0.2.2:3000";
 
@@ -12,13 +13,20 @@ const STORAGE_KEY = "MYSPM_MOBILE_API_BASE_URL_PREFIX";
 
 function normalizePrefix(input: string): string {
   const trimmed = input.trim();
-  if (!trimmed) return DEFAULT_MOBILE_API_BASE_URL_PREFIX;
+  if (!trimmed) return toReachablePrefix(DEFAULT_MOBILE_API_BASE_URL_PREFIX);
   const noTrailing = trimmed.replace(/\/+$/, "");
   const idx = noTrailing.toLowerCase().indexOf("/api/mobile");
   if (idx >= 0) {
-    return noTrailing.slice(0, idx).replace(/\/+$/, "") || DEFAULT_MOBILE_API_BASE_URL_PREFIX;
+    return toReachablePrefix(
+      noTrailing.slice(0, idx).replace(/\/+$/, "") || DEFAULT_MOBILE_API_BASE_URL_PREFIX,
+    );
   }
-  return noTrailing;
+  return toReachablePrefix(noTrailing);
+}
+
+function toReachablePrefix(prefix: string): string {
+  if (Platform.OS !== "web") return prefix;
+  return prefix.replace("://10.0.2.2:", "://localhost:");
 }
 
 export async function getMobileApiBaseUrlPrefix(): Promise<string> {

@@ -20,6 +20,7 @@ import {
 } from "./calculationChunkPipeline";
 import { isChemistryCalculationSubject } from "./calculationSubjectPolicy";
 import { formatSpmStudentFriendlyRulesBlock } from "../gradingPolicy";
+import { RETURN_JSON_QUESTION_TEXT_AND_MODEL_ANSWER } from "../prompts/shared/jsonRules";
 import type { RubricIdea } from "../../types";
 
 export type TextbookChunkRow = {
@@ -209,7 +210,7 @@ async function generateQuestionFromChunk(params: {
   const system = [
     "You write one short Malaysian SPM Form 4/5 exam-style subjective question from a single textbook excerpt.",
     formatSpmStudentFriendlyRulesBlock(),
-    "Return JSON only: { \"questionText\": string, \"modelAnswer\": string }.",
+    RETURN_JSON_QUESTION_TEXT_AND_MODEL_ANSWER,
     "questionText must end with mark allocation, e.g. '(2 marks)' or '(2 markah)'.",
     `maxMarks for the question must be ${maxMarks}.`,
     "Ask only about facts and concepts present in the excerpt â€” do not require outside knowledge.",

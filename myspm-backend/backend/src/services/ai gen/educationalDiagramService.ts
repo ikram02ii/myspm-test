@@ -1,4 +1,4 @@
-﻿import { chatCompletion, generateImage } from "./llmProvider";
+import { chatCompletion, generateImage } from "./llmProvider";
 import { extractGeneratedQuestionStems } from "./extractQuestionStems";
 
 export type GeneratedEducationalDiagram = {
@@ -16,7 +16,7 @@ type PlannedEducationalDiagram = {
 const SCIENCE_DIAGRAM_SUBJECTS = new Set(["biology", "chemistry", "physics", "science", "math", "additional math"]);
 const DETERMINISTIC_MATH_SUBJECTS = new Set(["math", "additional math"]);
 
-/** Suppress fake/garbled labels ΓÇö qwen-image is tuned for text posters. */
+/** Suppress fake/garbled labels — qwen-image is tuned for text posters. */
 export const EDUCATIONAL_DIAGRAM_NEGATIVE_PROMPT =
   "text, letters, alphabet, words, writing, typography, font, label, caption, title, subtitle, annotation, " +
   "arrow with text, callout, watermark, logo, numbers, symbols, speech bubble, question, sentence, " +
@@ -278,7 +278,7 @@ function parseCoordinatePoints(stem: string): CartesianPoint[] {
 }
 
 function parseLinearEquation(stem: string): LinearEquation | null {
-  const normalized = stem.replace(/ΓêÆ/g, "-");
+  const normalized = stem.replace(/−/g, "-");
   const match = normalized.match(
     /(?:y|f\s*\(\s*x\s*\))\s*=\s*([+-]?\s*(?:\d+(?:\.\d+)?|\.\d+)?\s*)x(?!\s*\^)(?:\s*([+-])\s*(\d+(?:\.\d+)?))?/i,
   );
@@ -307,7 +307,7 @@ function parseLinearEquation(stem: string): LinearEquation | null {
 }
 
 function parseQuadraticEquation(stem: string): QuadraticEquation | null {
-  const normalized = stem.replace(/ΓêÆ/g, "-").replace(/\s+/g, "");
+  const normalized = stem.replace(/−/g, "-").replace(/\s+/g, "");
   const match = normalized.match(/(?:y|f\(x\))=((?:[+-]?\d*(?:\.\d+)?)x\^2)((?:[+-]\d*(?:\.\d+)?)x)?([+-]\d+(?:\.\d+)?)?/i);
   if (!match) return null;
 
@@ -331,7 +331,7 @@ function parseQuadraticEquation(stem: string): QuadraticEquation | null {
 }
 
 function parseCircleEquation(stem: string): CircleEquation | null {
-  const normalized = stem.replace(/ΓêÆ/g, "-").replace(/\s+/g, "");
+  const normalized = stem.replace(/−/g, "-").replace(/\s+/g, "");
   const rhs = normalized.match(/\(x([+-]\d+(?:\.\d+)?)\)\^2\+\(y([+-]\d+(?:\.\d+)?)\)\^2=(\d+(?:\.\d+)?)/i);
   if (rhs) {
     const h = -Number(rhs[1]);
@@ -355,7 +355,7 @@ function parseCircleEquation(stem: string): CircleEquation | null {
 }
 
 function parseGraphTheorySpec(stem: string): GraphTheorySpec | null {
-  const normalized = stem.toLowerCase().replace(/ΓêÆ/g, "-");
+  const normalized = stem.toLowerCase().replace(/−/g, "-");
   const vertexMatch = normalized.match(
     /(\d+)\s*(?:vertices|vertex|nodes|node|bucu|vertexes)\b/,
   );
@@ -375,7 +375,7 @@ function normalizeExpr(expr: string): string {
 }
 
 function parseRectangleFacts(stem: string): RectangleFacts | null {
-  const text = stem.replace(/ΓêÆ/g, "-");
+  const text = stem.replace(/−/g, "-");
 
   const lengthParen = text.match(/(?:length|panjang)[^()\n]*\(\s*([^)\n]+?)\s*\)/i);
   const widthParen = text.match(/(?:width|lebar)[^()\n]*\(\s*([^)\n]+?)\s*\)/i);

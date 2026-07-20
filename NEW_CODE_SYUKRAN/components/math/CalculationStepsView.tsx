@@ -7,6 +7,7 @@ import {
   looksLikeCalculationWorking,
   parseCalculationModelAnswer,
   parseWorkingDisplayRows,
+  prepareCalculationModelAnswerDisplay,
   type WorkingDisplayRow,
 } from "../../utils/parseCalculationSteps";
 import { MathExpressionText } from "./MathExpressionText";
@@ -128,9 +129,28 @@ function FinalAnswerBox({ lines }: { lines: string[] }) {
   );
 }
 
+function TheoryPointsSection({ points }: { points: string[] }) {
+  if (points.length === 0) return null;
+
+  return (
+    <View style={styles.theorySection}>
+      <Text style={styles.sectionLabel}>Explanation</Text>
+      {points.map((point, index) => (
+        <Text key={index} style={styles.theoryPointText}>
+          {point}
+        </Text>
+      ))}
+    </View>
+  );
+}
+
 export function CalculationStepsView({ text }: Props) {
-  const layout = useMemo(() => parseCalculationModelAnswer(text), [text]);
-  const isCalc = looksLikeCalculationWorking(text);
+  const prepared = useMemo(() => prepareCalculationModelAnswerDisplay(text), [text]);
+  const layout = useMemo(
+    () => parseCalculationModelAnswer(prepared.structuredText),
+    [prepared.structuredText],
+  );
+  const isCalc = looksLikeCalculationWorking(text) || looksLikeCalculationWorking(prepared.structuredText);
 
   const hasContent =
     layout.formulaLines.length > 0 ||
@@ -148,6 +168,7 @@ export function CalculationStepsView({ text }: Props) {
       <FormulaBox lines={layout.formulaLines} />
       <WorkingSection lines={layout.workingLines} />
       <FinalAnswerBox lines={layout.finalLines} />
+      <TheoryPointsSection points={prepared.theoryPoints} />
     </View>
   );
 }
@@ -162,8 +183,8 @@ const styles = StyleSheet.create({
   },
   sectionLabel: {
     fontSize: 11,
-    fontFamily: fonts.semiBold,
-    color: colors.textSecondary,
+    fontFamily: fonts.bold,
+    color: "#7F8C8D",
     textTransform: "uppercase",
     letterSpacing: 0.8,
   },
@@ -175,6 +196,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
+    borderWidth: 1,
+    borderColor: "rgba(180, 136, 60, 0.12)",
   },
   formulaText: {
     fontSize: 14,
@@ -259,19 +282,19 @@ const styles = StyleSheet.create({
   },
   finalBox: {
     alignSelf: "flex-start",
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
     backgroundColor: "#E8F5E9",
     borderRadius: 10,
     paddingVertical: 12,
     paddingHorizontal: 14,
+    borderWidth: 1,
+    borderColor: "rgba(46, 125, 50, 0.18)",
   },
   finalValue: {
     fontSize: 18,
     lineHeight: 26,
     color: "#2E7D32",
-    fontFamily: fonts.bold,
+    fontFamily: MONO,
+    fontWeight: "700",
     fontVariant: ["tabular-nums"],
   },
   unitChip: {
@@ -286,5 +309,15 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: "#2E7D32",
     fontFamily: fonts.semiBold,
+  },
+  theorySection: {
+    gap: 6,
+    marginTop: 2,
+  },
+  theoryPointText: {
+    fontSize: 14,
+    lineHeight: 21,
+    color: colors.text,
+    fontFamily: fonts.regular,
   },
 });

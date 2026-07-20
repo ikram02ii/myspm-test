@@ -8,6 +8,7 @@ import {
   showWorkingStagePlan,
 } from "./calculationAcfPolicy";
 import { resolveCalculationDomain } from "./calculationSubjectPolicy";
+import { buildMarkingPointDecompositionGuidance } from "./markingPointDecomposition";
 import type { QuestionAnalysis } from "../../types";
 import type { AssessmentIntent, AssessmentIntentCategory, AssessmentIntentFamily } from "./types";
 
@@ -190,60 +191,77 @@ export function intentGuidanceForLlm(
   question = "",
   subject?: string,
 ): string[] {
+  const decomposition = buildMarkingPointDecompositionGuidance(
+    question,
+    maxScore,
+    intent.analysis,
+  );
+
+  let familyLines: string[];
   switch (intent.family) {
     case "recall":
-      return [
+      familyLines = [
         "Each creditworthy item: creditWeight=1 unless stem specifies otherwise.",
         "creditWeight values MUST sum exactly to max marks.",
         parseStemRequiredItemCount(question) != null
           ? `Stem requires exactly ${parseStemRequiredItemCount(question)} specific items — openPool=false, each item is a separate credit unit.`
           : "Mark rule: count_distinct_units, openPool=true only when any valid syllabus item from a broad category is accepted.",
       ];
+      break;
     case "explanation":
-      return [
+      familyLines = [
         `Extract exactly ${maxScore} independently creditworthy concept unit(s), each creditWeight=1.`,
         "Never use one unit with creditWeight > 1 — each mark is a separate tick.",
         "A concise correct explanation earns full marks when all units are demonstrated.",
         "Supporting facts: creditWeight=0, required=false — never load-bearing.",
         "Mark rule: count_distinct_units, openPool=false.",
       ];
+      break;
     case "definition":
-      return [
+      familyLines = [
         `For ${maxScore} mark(s): create exactly ${maxScore} separate component units, each creditWeight=1.`,
         "Never combine all marks into one unit — partial answers must be able to earn 1 mark.",
         "Include SPM paraphrases in aliases (BM/EN, short forms, full-sentence definitions).",
         "Each credit unit creditWeight MUST sum exactly to max marks.",
         "Mark rule: count_distinct_units, openPool=false.",
       ];
+      break;
     case "process":
-      return [
+      familyLines = [
         "Extract meaningful stages only — not micro-facts within a stage.",
         "Link stages with sequence_next relations.",
         "Mark rule: ordered_stages.",
       ];
+      break;
     case "comparison":
-      return [
-        "Extract one creditworthy contrast point per side (e.g. element vs compound) — max 2 units for 2 marks.",
+      familyLines = [
+        "Extract one creditworthy contrast point per side — prefer separate 1-mark units, not one dual-side blob.",
         "Do NOT use abstract dimension labels without the actual contrasting fact.",
         "Mark rule: count_distinct_units, openPool=false.",
       ];
+      break;
     case "effects_evaluative":
-      return [
+      familyLines = [
         "Each independently creditworthy effect/advantage/disadvantage is one unit.",
         "Do not add supporting-detail units for the same effect.",
         "Mark rule: count_distinct_units.",
       ];
+      break;
     case "humanities":
-      return [
+      familyLines = [
         "Extract claim units and justification units with justifies relations.",
         "Mark rule: claim_plus_reason.",
       ];
+      break;
     case "calculation":
       return calculationIntentGuidance(maxScore, question, subject);
     default:
-      return [
+      familyLines = [
         "Extract examiner-creditable understanding units only.",
         "Apply independence test before creating multiple units.",
       ];
+      break;
   }
+
+  return [...decomposition, ...familyLines];
 }

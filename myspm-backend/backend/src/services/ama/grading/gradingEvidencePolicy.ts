@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Evidence-only marking: credit only what the student actually wrote.
  */
 
@@ -62,6 +62,31 @@ export const FEEDBACK_EVIDENCE_ONLY_LINES = [
   "- Chemical equations: if a formula, arrow, or state symbol appears in the student's answer, validate it — never tell them to include it again.",
 ] as const;
 
+export const FEEDBACK_MARK_SCHEME_BOUND_LINES = [
+  "MARK-SCHEME-BOUND FEEDBACK (mandatory):",
+  "- Evaluate the student ONLY against the BINDING MARKING POINTS list provided — nothing else.",
+  "- NEVER penalize or criticize the student in feedback for missing an idea that is NOT an individual unawarded marking point.",
+  "- Do NOT import extra requirements from the model answer, reference answer, textbook, or question stem beyond what each marking point explicitly requires.",
+  "- Do NOT ask for additional examples, details, or sub-points unless a specific unawarded marking point demands them.",
+  "- strengths[] may only reflect awarded marking points; improvements[] may only reflect unawarded marking points (brief rephrase OK).",
+  "- If every marking point was awarded, feedback must be positive only and improvements MUST be [].",
+] as const;
+
+export const FEEDBACK_NOT_MODEL_ANSWER_LINES = [
+  "FEEDBACK IS NOT MODEL ANSWER (mandatory — keep roles separate):",
+  "- The feedback field is marking COMMENTARY only: what the student did well, what was missing, or what was wrong.",
+  "- NEVER write the full correct answer, sample answer, worked solution, or marking-point solution inside feedback.",
+  "- NEVER use headings or labels such as 'Model answer:', 'Jawapan:', 'Correct answer:', or 'Sample answer:' in feedback.",
+  "- NEVER list bullet points of the correct marking scheme as if teaching the answer — that belongs in modelAnswer only (separate field).",
+  "- When marks were lost, you MAY name the TYPE of gap (e.g. 'effect on transpiration') — do NOT write the full sentence the student should have written.",
+  "- improvements[] = short gap labels only (≤12 words each), NOT model-answer sentences.",
+  "- Do NOT quote unawarded marking-point text verbatim as the 'correct' wording.",
+] as const;
+
+/**
+ * @deprecated Tranche A audit: no live `src/` consumers. Prefer CRITICAL_EVIDENCE_RULE_LINES
+ * via formatEvidenceOnlyMarkingBlock / exam-standard composition. Kept for optional reuse.
+ */
 export function formatCriticalEvidenceRuleBlock(): string {
   return CRITICAL_EVIDENCE_RULE_LINES.join("\n");
 }
@@ -89,8 +114,51 @@ export function formatEvidenceOnlyMarkingBlock(options?: EvidenceOnlyMarkingOpti
   return parts.join("\n");
 }
 
+/**
+ * @deprecated Tranche A audit: no live `src/` consumers. Canonical feedback uses
+ * prompts/feedback/gapFeedbackPrompt.ts instead. Lines remain for reference.
+ */
 export function formatFeedbackEvidenceOnlyBlock(): string {
-  return FEEDBACK_EVIDENCE_ONLY_LINES.join("\n");
+  return [
+    ...FEEDBACK_EVIDENCE_ONLY_LINES,
+    "",
+    ...FEEDBACK_MARK_SCHEME_BOUND_LINES,
+    "",
+    ...FEEDBACK_NOT_MODEL_ANSWER_LINES,
+  ].join("\n");
+}
+
+const INTERNAL_LABEL_PATTERNS = [
+  /\[low-context-warning\]/gi,
+  /\[textbook context\]/gi,
+  /\[past paper mark scheme\]/gi,
+];
+
+/** Strip model-answer bleed and internal labels from learner-facing feedback. */
+export function sanitizeLearnerFeedback(raw: string, opts?: { maxSentences?: number }): string {
+  if (!raw) return "";
+  const maxSentences =
+    typeof opts?.maxSentences === "number" && opts.maxSentences > 0 ? opts.maxSentences : 3;
+  let cleaned = raw;
+  for (const pattern of INTERNAL_LABEL_PATTERNS) {
+    cleaned = cleaned.replace(pattern, "");
+  }
+  cleaned = cleaned.replace(
+    /(^|\n)\s*(?:model answer|jawapan(?:\s+model)?|correct answer|sample answer|expected answer)\s*[:：][\s\S]*/gi,
+    "",
+  );
+  cleaned = cleaned.replace(/(^|\n)\s*(?:•|\*|-)\s+.+(?:\n\s*(?:•|\*|-)\s+.+)+/g, (block) => {
+    const lines = block.trim().split("\n");
+    return lines.length >= 3 ? "" : block;
+  });
+  cleaned = cleaned.replace(/\s{2,}/g, " ").replace(/\n{2,}/g, "\n").trim();
+
+  const sentences = cleaned
+    .split(/(?<=[.!?])\s+/)
+    .map((sentence) => sentence.trim())
+    .filter(Boolean);
+  if (sentences.length <= maxSentences) return cleaned;
+  return sentences.slice(0, maxSentences).join(" ").trim();
 }
 
 const STOPWORDS = new Set([
@@ -183,15 +251,6 @@ export function isDiagramDeixisAnswer(text: string): boolean {
     return true;
   }
   return false;
-}
-
-export function isVisualFigureQuestion(question: string, options?: EvidenceOnlyMarkingOptions): boolean {
-  return gradingUsesVisualFigure({
-    question,
-    diagramContextStructured: options?.diagramContextStructured,
-    diagramImageUrl: options?.diagramImageUrl,
-    diagramImageBase64: options?.diagramImageBase64,
-  });
 }
 
 const TARGET_ENTITY_GROUPS: readonly string[][] = [
@@ -466,15 +525,4 @@ export function studentAnswerExplicitlySupportsMarkPoint(
   }
 
   return false;
-}
-
-export function filterGroundedStudentIdeas<
-  T extends { idea: string; anchoredText?: string },
->(ideas: T[], studentAnswer: string): T[] {
-  return ideas.filter((row) => {
-    if (!row.idea.trim() || isDiagramDeixisAnswer(row.idea)) return false;
-    const anchor = row.anchoredText?.trim();
-    if (anchor && ideaTextGroundedInAnswer(anchor, studentAnswer, 0.55)) return true;
-    return ideaTextGroundedInAnswer(row.idea, studentAnswer, 0.6);
-  });
 }

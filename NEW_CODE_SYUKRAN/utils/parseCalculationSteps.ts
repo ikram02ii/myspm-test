@@ -36,10 +36,12 @@ export function sanitizeEquationLine(line: string): string {
   s = stripStepNumberPrefix(s);
   s = s.replace(INLINE_STEP_RE, "");
 
+  // Extract an equation buried after junk labels (e.g. "/ Working: n = …"),
+  // but never truncate a line that already starts with math (digit / letter / "(").
   const embedded = s.match(
     /(?:^|[\s:])((?:[A-Za-z][A-Za-z0-9₀-₉]*|[(][^)]+[)])\s*=\s*.+)$/,
   );
-  if (embedded?.[1] && !/^[A-Za-z(]/.test(s)) {
+  if (embedded?.[1] && !/^[A-Za-z(0-9]/.test(s)) {
     s = embedded[1].trim();
   }
 
@@ -153,6 +155,11 @@ export function isNumericWorkingLine(line: string): boolean {
   return false;
 }
 
+function isReactionEquationLine(line: string): boolean {
+  const t = line.trim();
+  return /[→⟶⇌↔]/.test(t) || /\s->\s/.test(t) || /\s→\s/.test(t);
+}
+
 /** General symbolic formula before numeric substitution. */
 export function isSymbolicFormulaLine(line: string): boolean {
   if (isNumericWorkingLine(line)) return false;
@@ -161,6 +168,8 @@ export function isSymbolicFormulaLine(line: string): boolean {
   const split = splitLabelValue(t);
   const expr = split?.value ?? t;
 
+  // Balanced chemical / nuclear equations are formulas even with stoichiometric digits.
+  if (isReactionEquationLine(t)) return true;
   if (/RAM\s*\(|M[_rR]|A[_rR]\s*\(/i.test(expr)) return true;
   if (!/\d/.test(expr)) return true;
   if (split && /^[A-Za-z]$/.test(split.label.trim()) && !/\d/.test(expr)) return true;
@@ -171,12 +180,25 @@ export function isSymbolicFormulaLine(line: string): boolean {
   return false;
 }
 
+/**
+ * Rebalance Formula vs Working.
+ * Explicit Formula: lines from the backend are kept unless they are clearly
+ * numeric substitution — heuristics must not demote worded formulas or
+ * reaction equations that contain digits (e.g. 2KClO3 → 2KCl + 3O2).
+ */
 function rebalanceFormulaAndWorking(layout: CalculationModelAnswerLayout): void {
-  const combined = [...layout.formulaLines, ...layout.workingLines];
   const formulas: string[] = [];
   const working: string[] = [];
 
-  for (const line of combined) {
+  for (const line of layout.formulaLines) {
+    if (isNumericWorkingLine(line) && !isReactionEquationLine(line)) {
+      working.push(line);
+    } else {
+      formulas.push(line);
+    }
+  }
+
+  for (const line of layout.workingLines) {
     if (isNumericWorkingLine(line)) {
       working.push(line);
     } else if (isSymbolicFormulaLine(line)) {
@@ -226,8 +248,127 @@ function normalizeRepeatedLhs(lines: string[]): string[] {
   return out;
 }
 
+function extractSymbolicFormulaFromWorkedLine(line: string): string | null {
+  const match = line.match(
+    /(?:^|,\s*)([A-Za-zΔ][\wΔ]*\s*=\s*(?:(?!\s*=\s*-?\d)[^=])+?)(?=\s*=\s*-?\d)/,
+  );
+  return match?.[1]?.trim() ?? null;
+}
+
+function extractFinalAnswerFromWorkedLine(line: string): string | null {
+  const numericFinal = line.match(/=\s*(-?\d+(?:\.\d+)?(?:e[+-]?\d+)?)\s+(.+)$/);
+  if (numericFinal) {
+    const value = numericFinal[1]!.trim();
+    const tail = numericFinal[2]!.trim();
+    if (/(?:J|kg|mol|g|N|W|V|A|Pa|°C|K|L|Ω|m\/s|%|°|dm|cm)/i.test(tail) || /^[A-Z][A-Za-z₀-₉\d]*$/.test(tail)) {
+      return `${value} ${tail}`.trim();
+    }
+  }
+
+  const formulaMatch = line.match(/=\s*([A-Z][A-Za-z₀-₉\d]*)\s*$/);
+  if (formulaMatch) return formulaMatch[1]!;
+
+  return null;
+}
+
+function isTheoryProseChunk(part: string): boolean {
+  const t = part.trim();
+  if (!t) return false;
+  if (!/=/.test(t) && !/\d/.test(t)) return true;
+  if (
+    /\b(?:because|therefore|explain|lower|higher|faster|stores|compared to|useful in)\b/i.test(t) &&
+    (t.match(/=/g)?.length ?? 0) <= 1 &&
+    !/=\s*-?\d+(?:\.\d+)?\s*(?:J|kg|mol|g|N|W|V|A|Pa|°C|K)/i.test(t)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+export type PreparedCalculationDisplay = {
+  structuredText: string;
+  theoryPoints: string[];
+};
+
+/** Turn semicolon-separated calc blobs into Formula / Working / Final answer sections. */
+export function prepareCalculationModelAnswerDisplay(raw: string): PreparedCalculationDisplay {
+  const text = raw.trim();
+  if (!text) return { structuredText: "", theoryPoints: [] };
+
+  if (/(?:^|\n)\s*(?:formula|working|final answer)\b/im.test(text)) {
+    return { structuredText: text, theoryPoints: [] };
+  }
+
+  if (!text.includes(";")) {
+    return { structuredText: text, theoryPoints: [] };
+  }
+
+  const parts = text.split(";").map((part) => part.trim()).filter(Boolean);
+  if (parts.length < 2) return { structuredText: text, theoryPoints: [] };
+
+  const theoryPoints: string[] = [];
+  const workingParts: string[] = [];
+  let formulaLine: string | null = null;
+  let finalLine: string | null = null;
+
+  for (const part of parts) {
+    if (isTheoryProseChunk(part)) {
+      theoryPoints.push(part);
+      continue;
+    }
+
+    const symbolic = extractSymbolicFormulaFromWorkedLine(part);
+    const final = extractFinalAnswerFromWorkedLine(part);
+    if (symbolic && !formulaLine) formulaLine = symbolic;
+    if (final) finalLine = final;
+    workingParts.push(part);
+  }
+
+  if (workingParts.length === 0 && !formulaLine && !finalLine) {
+    return { structuredText: text, theoryPoints };
+  }
+
+  const sections: string[] = [];
+  if (formulaLine) sections.push(`Formula\n${formulaLine}`);
+  if (workingParts.length > 0) sections.push(`Working\n${workingParts.join("\n")}`);
+  if (finalLine) sections.push(`Final answer\n${finalLine}`);
+
+  return {
+    structuredText: sections.join("\n\n"),
+    theoryPoints,
+  };
+}
+
+function promoteFinalFromWorking(layout: CalculationModelAnswerLayout): void {
+  if (layout.finalLines.length > 0) return;
+  for (let i = layout.workingLines.length - 1; i >= 0; i -= 1) {
+    const final = extractFinalAnswerFromWorkedLine(layout.workingLines[i]!);
+    if (final) {
+      layout.finalLines.push(final);
+      return;
+    }
+  }
+}
+
+function promoteFormulaFromWorking(layout: CalculationModelAnswerLayout): void {
+  if (layout.formulaLines.length > 0) return;
+  for (const line of layout.workingLines) {
+    const symbolic = extractSymbolicFormulaFromWorkedLine(line);
+    if (symbolic) {
+      layout.formulaLines.push(symbolic);
+      return;
+    }
+    if (isSymbolicFormulaLine(line)) {
+      layout.formulaLines.push(line);
+      return;
+    }
+  }
+}
+
 function postProcessLayout(layout: CalculationModelAnswerLayout): CalculationModelAnswerLayout {
   rebalanceFormulaAndWorking(layout);
+  promoteFormulaFromWorking(layout);
+  promoteFinalFromWorking(layout);
   layout.workingLines = normalizeRepeatedLhs(layout.workingLines);
   return layout;
 }
@@ -275,7 +416,10 @@ export function parseCalculationModelAnswer(raw: string): CalculationModelAnswer
       }
 
       active = section;
-      if (rest && (isEquationLine(rest) || /=/.test(rest))) {
+      // Keep the section body even when it has no "=" (common for weighted-average
+      // formulas, mole ratios, and chemical equations written as expressions).
+      // The old gate required isEquationLine / "=" and silently dropped those.
+      if (rest) {
         if (active === "formula" && shouldStartWorkingSection(rest, "formula")) {
           flush();
           active = "working";
@@ -296,6 +440,12 @@ export function parseCalculationModelAnswer(raw: string): CalculationModelAnswer
 
     const prose = sanitizeEquationLine(line);
     if (prose) {
+      // Multi-line Formula sections often continue as plain expressions (no "=").
+      // Keep them in the formula buffer instead of discarding.
+      if (active === "formula") {
+        pushLine(buffer, prose);
+        continue;
+      }
       flush();
       if (active === "working" || active === null) {
         layout.workingLines.push(prose);
@@ -359,10 +509,12 @@ export function parseWorkingDisplayRows(workingLines: string[]): WorkingDisplayR
 export function looksLikeCalculationWorking(text: string): boolean {
   const t = text.trim();
   if (!t) return false;
+  const semicolonCalc = (t.match(/;/g)?.length ?? 0) >= 2 && /=/.test(t) && /\d/.test(t);
   const hasStructure =
     /(?:formula|substitution|working|final answer|jawapan)/i.test(t) ||
-    (t.includes("\n") && /=/.test(t));
-  const hasMath = /\d/.test(t) && (/[=÷×/\^]/.test(t) || /(?:formula|working|answer)/i.test(t));
+    (t.includes("\n") && /=/.test(t)) ||
+    semicolonCalc;
+  const hasMath = /\d/.test(t) && (/[=÷×/^]/.test(t) || /(?:formula|working|answer)/i.test(t));
   return hasStructure && hasMath;
 }
 

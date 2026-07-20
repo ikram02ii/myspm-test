@@ -32,7 +32,7 @@ async function qwenTranscribeFromBuffer(
 ): Promise<string> {
   const apiKey = process.env.QWEN_API_KEY?.trim();
   if (!apiKey) {
-    throw new Error("Set QWEN_API_KEY in backend/.env for English speaking transcription.");
+    throw new Error("Set QWEN_API_KEY in backend/.env for speech transcription.");
   }
 
   const headers = {
@@ -119,14 +119,16 @@ async function qwenTranscribeFromBuffer(
   throw new Error("Qwen transcription timed out after 2 minutes.");
 }
 
-/** Transcribe speaking audio in-process (no separate stt-api server). */
+/** Transcribe speaking / oral audio in-process (no separate stt service folder). */
 export async function transcribeSpeakingAudio(params: {
   buffer: Buffer;
   mimeType?: string;
   originalName?: string;
+  /** Override env STT_LANGUAGE (e.g. ms-MY for subject oral). */
+  language?: string;
 }): Promise<SpeakingTranscribeResult> {
   const model = sttModel();
-  const language = sttLanguage();
+  const language = params.language?.trim() || sttLanguage();
 
   const ext =
     params.mimeType?.includes("webm")

@@ -1,7 +1,8 @@
 import type { AssessmentCaseFile, UnderstandingDemonstration } from "./types";
 import { unitDemonstrated } from "./coverageChainScorer";
 import { isCalculationIntent } from "./calculationAcfPolicy";
-import type { MarkBreakdownItem } from "../../types";
+import { isPhysicsCalculation } from "./calculationSubjectPolicy";
+import { findFormulaStageUnitId } from "./calculationNumericMatch";
 
 export function scoreCalculationDemonstration(
   acf: AssessmentCaseFile,
@@ -43,28 +44,26 @@ export function scoreCalculationDemonstration(
     if (unitDemonstrated(udm, unit.id)) demonstrated.add(unit.id);
   }
 
-  // Implied-formula rule (3+ stages): working stages imply the formula stage was applied.
-  if (ordered.length >= 3) {
-    const formulaStage = ordered[0];
-    const workingStageDemonstrated = ordered
-      .slice(1, ordered.length - 1)
-      .some((u) => demonstrated.has(u.id));
-    if (formulaStage && workingStageDemonstrated) {
-      demonstrated.add(formulaStage.id);
-    }
-  }
+  const creditMeta = ordered.map((u) => ({ id: u.id, content: u.content }));
+  const formulaStageId = findFormulaStageUnitId(creditMeta);
+  const formulaStage = formulaStageId ? ordered.find((u) => u.id === formulaStageId) : undefined;
+  const formulaExplicitlyWrong =
+    formulaStage != null &&
+    udm.unitsDemonstrated.some((d) => d.unitId === formulaStage.id && d.valid === false);
 
-  // 2-stage plan (formula + final): a substituted arithmetic line earns the formula mark too.
-  if (ordered.length === 2) {
-    const formulaStage = ordered[0];
-    const finalStage = ordered[1];
-    if (formulaStage && finalStage && !demonstrated.has(formulaStage.id)) {
-      const finalDemo = udm.unitsDemonstrated.find(
-        (d) => d.unitId === finalStage.id && d.valid,
-      );
-      if (finalDemo?.quote && /[=×x\*\/]/.test(finalDemo.quote) && /\d/.test(finalDemo.quote)) {
-        demonstrated.add(formulaStage.id);
-      }
+  // Written-only policy: each stage — including the formula/equation stage — is
+  // credited ONLY when the student actually demonstrated it. We do NOT infer the
+  // formula/equation mark from later working or a correct final answer: a
+  // balanced equation or stated formula is a distinct artifact the student must
+  // write to earn that mark. (Subject-agnostic; the evaluator/gate still credits
+  // a genuinely written formula, e.g. "v = s/t", on its own.)
+
+  // Physics: wrong formula — no credit for formula or any later stage.
+  if (isPhysicsCalculation(acf) && formulaExplicitlyWrong && formulaStage) {
+    demonstrated.delete(formulaStage.id);
+    const formulaIdx = ordered.findIndex((u) => u.id === formulaStage.id);
+    for (const unit of ordered.slice(formulaIdx + 1)) {
+      demonstrated.delete(unit.id);
     }
   }
 
@@ -77,34 +76,4 @@ export function scoreCalculationDemonstration(
   }
 
   return { score: Math.max(0, Math.min(max, score)), awardedUnitIds };
-}
-
-export function calculationMarkBreakdown(
-  acf: AssessmentCaseFile,
-  udm: UnderstandingDemonstration,
-  awardedUnitIds: Set<string>,
-): MarkBreakdownItem[] {
-  return acf.units
-    .filter((u) => u.creditWeight > 0)
-    .map((unit) => {
-      const awarded = awardedUnitIds.has(unit.id);
-      const demo = udm.unitsDemonstrated.find((d) => d.unitId === unit.id && d.valid);
-      // Awarded without a direct demonstration quote ⇒ credited via the
-      // implied-formula rule (the formula/method is evidenced by the working).
-      const impliedFromWorking = awarded && !demo;
-      return {
-        idea: unit.content,
-        marks: unit.creditWeight,
-        awarded,
-        rubricId: unit.id,
-        matchMethod: awarded ? "llmVerifier" : undefined,
-        reason: awarded
-          ? demo?.quote
-            ? `Demonstrated: "${demo.quote}"`
-            : impliedFromWorking
-              ? "Credited: the formula/method is applied in the substitution/working shown."
-              : "Calculation step demonstrated."
-          : udm.unitsMissing.find((g) => g.id === unit.id)?.reason ?? "Not demonstrated.",
-      };
-    });
 }

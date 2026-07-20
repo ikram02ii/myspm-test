@@ -4,7 +4,11 @@
  */
 
 import { answersAgree, extractFormulaFromText } from "./calculationAnswerVerification";
-import { CALCULATION_STAGE_LABELS, GENERIC_CALCULATION_STAGE_LABELS } from "./calculationAcfPolicy";
+import {
+  CALCULATION_STAGE_LABELS,
+  GENERIC_CALCULATION_STAGE_LABELS,
+  PHYSICS_CALCULATION_STAGE_LABELS,
+} from "./calculationAcfPolicy";
 
 const UNIT_TOKEN =
   /\b(mol|g|kg|mg|dm3|cm3|m3|ml|mL|l|L|kJ|J|s-1|g\/s|mol\/dm3|mol\s*dm-3|%|°C|K|Pa|kPa|atm)\b/i;
@@ -150,7 +154,12 @@ export function studentAnswerMatchesReference(
 
 export function findFinalStageUnitId(creditUnitIds: Array<{ id: string; content: string }>): string | null {
   const final = creditUnitIds.find(
-    (u) => u.id === "calc_final" || u.content === CALCULATION_STAGE_LABELS.final,
+    (u) =>
+      u.id === "calc_final" ||
+      u.content === CALCULATION_STAGE_LABELS.final ||
+      u.content === GENERIC_CALCULATION_STAGE_LABELS.final ||
+      u.content === PHYSICS_CALCULATION_STAGE_LABELS.final ||
+      u.content.toLowerCase().includes("final answer"),
   );
   return final?.id ?? creditUnitIds[creditUnitIds.length - 1]?.id ?? null;
 }
@@ -162,6 +171,7 @@ export function findFormulaStageUnitId(
     (u) =>
       u.content === CALCULATION_STAGE_LABELS.formula ||
       u.content === GENERIC_CALCULATION_STAGE_LABELS.formula ||
+      u.content === PHYSICS_CALCULATION_STAGE_LABELS.formula ||
       u.content.toLowerCase().includes("formula") ||
       u.content.toLowerCase().includes("equation") ||
       u.content.toLowerCase().includes("method"),
@@ -176,8 +186,21 @@ export function findSubstitutionStageUnitId(
     (u) =>
       u.content === CALCULATION_STAGE_LABELS.substitution ||
       u.content === GENERIC_CALCULATION_STAGE_LABELS.substitution ||
+      u.content === PHYSICS_CALCULATION_STAGE_LABELS.substitution ||
       u.content.toLowerCase().includes("substitution") ||
-      u.content.toLowerCase().includes("working"),
+      (u.content.toLowerCase().includes("working") &&
+        !u.content.toLowerCase().includes("calculation working")),
   );
   return sub?.id ?? null;
+}
+
+export function findCalculationStageUnitId(
+  creditUnits: Array<{ id: string; content: string }>,
+): string | null {
+  const calc = creditUnits.find(
+    (u) =>
+      u.content === PHYSICS_CALCULATION_STAGE_LABELS.calculation ||
+      u.content.toLowerCase().includes("calculation working"),
+  );
+  return calc?.id ?? null;
 }

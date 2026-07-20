@@ -1,10 +1,11 @@
-﻿/**
+/**
  * Deterministic question analysis for SPM grading (command words, demand shape,
  * suggested marks). No LLM â€” keeps behaviour stable across subjects.
  */
 
 import { hasCompoundAndDemand } from "./gradingChecks";
 import { hasTwoDistinctDemandsJoinedByAnd } from "./gradingPolicy";
+import { inferMaxScoreFromMarkScheme } from "./markSchemeInference";
 import type {
   DemandType,
   EquationType,
@@ -289,33 +290,9 @@ function classifyQuestionType(q: string, commandWord: CommandWord): QuestionAnal
 }
 
 function suggestedMaxFromStem(q: string, analysis: Pick<QuestionAnalysis, "commandWord" | "questionType" | "isCompoundQuestion">): number {
-  const s = norm(q);
-  const compound = analysis.isCompoundQuestion || hasCompoundAndDemand(q) || hasTwoDistinctDemandsJoinedByAnd(q);
-  const evolutionLike =
-    /\b(evolution\s+of|development\s+of|history\s+of|sequence\s+of|from\s+.+\s+to\s+.+)\b/i.test(s) &&
-    /\b(dalton|thomson|rutherford|bohr|model|stage|scientist|teori|teori atom)\b/i.test(s);
-
-  if (/\b(five|5|lima)\s+(reason|point|factor|example|item)/i.test(s)) return 5;
-  if (/\b(four|4|empat)\b/.test(s) && /\b(state|give|list|name|nyatakan|senaraikan)/i.test(s)) return 4;
-  if (/\b(three|3|tiga)\b/.test(s) && /\b(state|give|list|name|nyatakan|senaraikan)/i.test(s)) return 3;
-  if (/\b(two|2|dua)\b/.test(s) && /\b(state|give|list|property|properties|nyatakan|senaraikan)/i.test(s)) return 2;
-  if (/\b(one|1|a\s+single|only\s+one)\b/.test(s) && /\b(state|give|name|identify|nyatakan|namakan)/i.test(s)) return 1;
-  if (/\bwhich\s+(type|kind|sort)\s+of\b/.test(s) || /\bidentify\b|\bkenal\s*pasti\b/i.test(s)) return 1;
-
-  if (compound) return Math.max(2, suggestedMaxFromStemSimple(analysis));
-
-  if (evolutionLike) return 4;
-  if (analysis.questionType === "compare_contrast") return Math.min(6, 4);
-  if (analysis.questionType === "cause_effect" || /\bexplain\s+why\b|\bmengapa\b/i.test(s)) {
-    if (/\b(process|mechanism|sequence|stages?|development|evolution|langkah|urutan|peringkat)\b/i.test(s)) return 4;
-    return 3;
-  }
-  if (analysis.questionType === "function_purpose" || /\b(primary\s+)?purpose\b|\bmain\s+function\b/i.test(s)) return 2;
-  if (analysis.questionType === "structure_description") return Math.min(4, 3);
-  if (analysis.questionType === "open_ended_example") return 2;
-  if (analysis.questionType === "fixed_answer") {
-    if (/\b(two|2|dua)\b/.test(s)) return 2;
-    return 2;
+  const fromScheme = inferMaxScoreFromMarkScheme(q, suggestedMaxFromStemSimple(analysis));
+  if (fromScheme.source !== "client") {
+    return fromScheme.maxScore;
   }
   return suggestedMaxFromStemSimple(analysis);
 }
@@ -324,40 +301,6 @@ function suggestedMaxFromStemSimple(analysis: Pick<QuestionAnalysis, "commandWor
   if (analysis.questionType === "mcq") return 1;
   if (analysis.commandWord === "explain" || analysis.commandWord === "discuss") return 4;
   return 2;
-}
-
-/**
- * Maps analysis bucket â†’ legacy rubric builder questionType string in DB/cache.
- */
-export function mapAnalysisToRubricQuestionType(a: QuestionAnalysis): string {
-  switch (a.questionType) {
-    case "mcq":
-      return "general";
-    case "compare_contrast":
-      return "compare";
-    case "calculation":
-      return "calculate";
-    case "cause_effect":
-      return "explain";
-    case "structure_description":
-      return "describe";
-    case "function_purpose":
-      return "general";
-    case "open_ended_example":
-      return "general";
-    case "sequence_order":
-      return "list";
-    case "fixed_answer":
-      if (a.commandWord === "define") return "define";
-      if (a.commandWord === "identify") return "identify";
-      if (a.commandWord === "list") return "list";
-      if (a.commandWord === "name") return "name";
-      if (a.commandWord === "state") return "state";
-      return "general";
-    default:
-      if (a.commandWord === "discuss") return "discuss";
-      return "general";
-  }
 }
 
 export function analyzeQuestion(question: string, subject?: string | null): QuestionAnalysis {

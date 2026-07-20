@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+﻿import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Animated,
@@ -23,8 +23,9 @@ import { MathLineChart } from "../components/math/MathLineChart";
 import { BiologyStructuredDiagram } from "../components/biology/BiologyStructuredDiagram";
 import { AnimalCellDiagramWithLabels } from "../components/biology/AnimalCellDiagramWithLabels";
 import { LabeledAnimalCellDiagram } from "../components/biology/LabeledAnimalCellDiagram";
-import { CalculationStepsView } from "../components/math/CalculationStepsView";
 import { MathFormattedText } from "../components/math/MathFormattedText";
+import { CalculationStepsView } from "../components/math/CalculationStepsView";
+import { looksLikeCalculationWorking } from "../utils/parseCalculationSteps";
 import {
   inferOrganelleHighlights,
   isBiologySubject,
@@ -33,6 +34,7 @@ import {
 import { isMatrixOnlyOption } from "../utils/parseMatrixNotation";
 import type { PracticeStackParamList } from "../navigation/PracticeStack";
 import {
+  buildQuestionPayloadForGrade,
   fetchPracticeSetDetail,
   resolveQuestionMarks,
   type PracticeSetQuestion,
@@ -178,21 +180,244 @@ function isSelectionCorrect(selected: Set<number>, correct: Set<number>): boolea
 }
 
 /** maxScore for /rag/grade (open-ended). */
-function resolveOpenEndedMaxScore(q: PracticeSetQuestion, questionForGrade: string): number {
-  return resolveQuestionMarks(q, questionForGrade);
+function resolveOpenEndedMaxScore(q: PracticeSetQuestion): number {
+  const gradePayload = buildQuestionPayloadForGrade(
+    q.questionText,
+    q.questionForGrade,
+    q.explanation,
+  );
+  return resolveQuestionMarks(q, gradePayload);
 }
 
 function stripModelAnswerLabel(raw: string | undefined): string {
-  const text = (raw ?? "").trim();
-  if (!text) return "";
-  return text.replace(/^Model answer(?:\s*\/\s*Jawapan model)?\s*:\s*/i, "").trim();
+  return (raw ?? "")
+    .trim()
+    .replace(/^Model answer(?:\s*\/\s*Jawapan model)?\s*:\s*/i, "")
+    .trim();
 }
 
-function openEndedFeedbackOnly(
-  result: { feedback?: string } | null | undefined,
-): string {
-  const feedback = (result?.feedback ?? "").trim();
-  return feedback || "No feedback returned.";
+function extractModelAnswerFromExplanation(explanation: string | null | undefined): string {
+  const text = (explanation ?? "").trim();
+  if (!text) return "";
+  const labeled = text.match(/^(?:jawapan|answer|model answer)\s*[:：]\s*([\s\S]*)$/i);
+  if (labeled?.[1]?.trim()) return labeled[1].trim();
+  return text;
+}
+
+type ModelMarkPoint = {
+  text: string;
+  marks: number;
+};
+
+type OpenEndedFeedback = {
+  feedback: string;
+  modelPoints: ModelMarkPoint[];
+  maxScore: number;
+  modelAnswerRaw?: string;
+  showCalculationLayout: boolean;
+};
+
+const CALC_MARK_SCHEME_LABEL =
+  /formula|substitution|calculation|correct data|si unit|final answer|data extraction|unit conversion/i;
+
+function detectCalculationFeedback(
+  result: { markBreakdown?: Array<{ idea?: string }> } | null | undefined,
+  answerRaw: string,
+  questionText: string,
+): boolean {
+  const breakdown = result?.markBreakdown ?? [];
+  const calcRows = breakdown.filter((row) => CALC_MARK_SCHEME_LABEL.test(row.idea ?? ""));
+  if (calcRows.length >= 2) return true;
+  if (calcRows.length === 1 && breakdown.length === 1) return true;
+
+  if (looksLikeCalculationWorking(answerRaw)) return true;
+
+  const stem = questionText.trim();
+  if (
+    /\b(calculate|kir[ao]|hitung|solve|find the value|determine the value|berapakah|nyatakan formula|hitungkan)\b/i.test(
+      stem,
+    )
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+function splitModelAnswerPoints(raw: string, expectedCount?: number, defaultMarks = 1): ModelMarkPoint[] {
+  const text = raw.trim();
+  if (!text) return [];
+
+  const stripBulletPrefix = (chunk: string) =>
+    chunk.trim().replace(/^[-•*]\s*/, "").replace(/^\d+[.)]\s*/, "").trim();
+
+  const looksLikePointStart = (line: string) => {
+    const t = line.trim();
+    return /^[•\-*]\s+\S/.test(t) || /^\d+[.)]\s+\S/.test(t);
+  };
+
+  const toPoints = (chunks: string[]): ModelMarkPoint[] => {
+    let cleaned = chunks.map(stripBulletPrefix).filter((p) => p.length > 0);
+    const target =
+      typeof expectedCount === "number" && expectedCount > 0 ? Math.floor(expectedCount) : undefined;
+    if (target && cleaned.length > target) {
+      const head = cleaned.slice(0, target - 1);
+      const tail = cleaned.slice(target - 1).join(" ").trim();
+      cleaned = [...head, tail];
+    }
+    return cleaned.map((chunk) => ({ text: chunk, marks: defaultMarks }));
+  };
+
+  // 1) Blank-line paragraphs first (matches backend "1.\n\n2." format)
+  const paragraphs = text
+    .split(/\n\s*\n+/)
+    .map((p) => p.replace(/\n+/g, " ").trim())
+    .filter(Boolean);
+  if (paragraphs.length >= 2) return toPoints(paragraphs);
+
+  // 2) Numbered / bulleted lines — merge soft-wrapped continuations
+  const rawLines = text
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (rawLines.length > 1) {
+    const merged: string[] = [];
+    for (const line of rawLines) {
+      if (merged.length === 0 || looksLikePointStart(line)) {
+        merged.push(line);
+      } else {
+        merged[merged.length - 1] = `${merged[merged.length - 1]} ${line}`.trim();
+      }
+    }
+    if (merged.length > 1) return toPoints(merged);
+  }
+
+  // 3) Inline bullets
+  const inlineBulletCount = (text.match(/•/g) || []).length;
+  if (inlineBulletCount >= 2) {
+    const inlineParts = text
+      .split(/\s*•\s*/)
+      .map(stripBulletPrefix)
+      .filter((part) => part.length >= 2);
+    if (inlineParts.length >= 2) return toPoints(inlineParts);
+  }
+
+  // 4) Inline numbered "1. … 2. …"
+  const numberedInline = text.match(/(?:^|\s)\d+[.)]\s+\S/g);
+  if (numberedInline && numberedInline.length >= 2) {
+    const parts = text
+      .split(/(?:^|\s)(?=\d+[.)]\s+\S)/)
+      .map(stripBulletPrefix)
+      .filter((p) => p.length >= 2);
+    if (parts.length >= 2) return toPoints(parts);
+  }
+
+  // 5) Semicolon ONLY for short state-style facts — never cut long prose mid-point
+  if (text.includes(";")) {
+    const parts = text.split(";").map((p) => p.trim()).filter(Boolean);
+    const allShort = parts.length >= 2 && parts.every((p) => p.split(/\s+/).length <= 18);
+    if (allShort) return toPoints(parts);
+  }
+
+  const sequenceMatch = text.match(
+    /(?:^|\s)(?:First|Secondly|Second|Third|Fourth|Fifth|Finally|Lastly)\s*[,:]?\s*/gi,
+  );
+  if (sequenceMatch && sequenceMatch.length >= 2) {
+    const chunks = text
+      .split(/(?:^|\s)(?:First|Secondly|Second|Third|Fourth|Fifth|Finally|Lastly)\s*[,:]?\s*/i)
+      .map((part) => part.trim().replace(/[.]\s*$/, ""))
+      .filter(Boolean);
+    if (chunks.length >= 2) return toPoints(chunks);
+  }
+
+  if (expectedCount && expectedCount >= 2) {
+    const sentences = text
+      .split(/(?<=[.!?])\s+/)
+      .map((sentence) => sentence.trim())
+      .filter((sentence) => sentence.length >= 12);
+    if (sentences.length >= expectedCount) return toPoints(sentences.slice(0, expectedCount));
+  }
+
+  return [{ text, marks: defaultMarks }];
+}
+
+function stripModelAnswerFromFeedback(raw: string): string {
+  const text = (raw ?? "").trim();
+  if (!text) return "";
+  return text
+    .replace(
+      /\n\s*(?:model answer|jawapan(?:\s+model)?|correct answer|sample answer)\s*[:：][\s\S]*/gi,
+      "",
+    )
+    .trim();
+}
+
+function parseOpenEndedFeedback(
+  result: {
+    feedback?: string;
+    modelAnswer?: string;
+    modelAnswerPoints?: string[];
+    modelAnswerPointCards?: Array<{ text?: string; marks?: number }>;
+    score?: number;
+    maxScore?: number;
+    markBreakdown?: Array<{ idea?: string; marks?: number }>;
+  } | null | undefined,
+  fallbackExplanation?: string | null,
+  questionText = "",
+): OpenEndedFeedback {
+  const feedback = stripModelAnswerFromFeedback((result?.feedback ?? "").trim());
+  const modelAnswer = stripModelAnswerLabel(result?.modelAnswer);
+  const max = Number(result?.maxScore);
+  const maxScore = Number.isFinite(max) && max > 0 ? Math.round(max) : 1;
+  const generatedAnswer = extractModelAnswerFromExplanation(fallbackExplanation);
+  // Always show the model answer (even at full marks). Prefer the backend model
+  // answer; fall back to one extracted from the explanation regardless of score.
+  const answerRaw = modelAnswer || generatedAnswer;
+  const showCalculationLayout = detectCalculationFeedback(result, answerRaw, questionText);
+
+  if (showCalculationLayout) {
+    return {
+      feedback: feedback || (answerRaw ? "" : "No feedback returned."),
+      modelPoints: [],
+      maxScore,
+      modelAnswerRaw: answerRaw,
+      showCalculationLayout: true,
+    };
+  }
+
+  const apiCards = Array.isArray(result?.modelAnswerPointCards)
+    ? result!
+        .modelAnswerPointCards!.map((c) => ({
+          text: String(c?.text || "").trim(),
+          marks: Number.isFinite(Number(c?.marks)) && Number(c?.marks) > 0 ? Number(c!.marks) : 1,
+        }))
+        .filter((c) => c.text.length > 0)
+    : [];
+
+  const apiPoints = Array.isArray(result?.modelAnswerPoints)
+    ? result!.modelAnswerPoints!.map((p) => String(p || "").trim()).filter(Boolean)
+    : [];
+
+  // Prefer structured API cards/points — never trust local text re-split when backend provided them.
+  const modelPoints =
+    apiCards.length > 0
+      ? apiCards
+      : apiPoints.length > 0
+        ? apiPoints.map((text) => ({ text, marks: 1 }))
+        : answerRaw
+          ? splitModelAnswerPoints(answerRaw, maxScore)
+          : [];
+
+  return {
+    feedback: feedback || (modelPoints.length === 0 ? "No feedback returned." : ""),
+    modelPoints,
+    maxScore,
+    showCalculationLayout: false,
+  };
+}
+
+function formatMarkLabel(marks: number): string {
+  return marks === 1 ? "1 mark" : `${marks} marks`;
 }
 
 type QuestionMarkResult = {
@@ -205,9 +430,7 @@ type QuestionSessionState = {
   selectedIndices: number[];
   openEndedAnswer: string;
   showFeedback: boolean;
-  aiFeedbackText: string | null;
-  gradeModelAnswer: string | null;
-  modelAnswerExpanded: boolean;
+  openEndedFeedback: OpenEndedFeedback | null;
   speakingTranscript: string | null;
   speakingMarkingText: string | null;
   speakingReadyForNext: boolean;
@@ -218,9 +441,7 @@ function emptyQuestionSession(): QuestionSessionState {
     selectedIndices: [],
     openEndedAnswer: "",
     showFeedback: false,
-    aiFeedbackText: null,
-    gradeModelAnswer: null,
-    modelAnswerExpanded: false,
+    openEndedFeedback: null,
     speakingTranscript: null,
     speakingMarkingText: null,
     speakingReadyForNext: false,
@@ -271,9 +492,7 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
   const [showFeedback, setShowFeedback] = useState(false);
   const [questionResults, setQuestionResults] = useState<Record<number, QuestionMarkResult>>({});
   const [finished, setFinished] = useState(false);
-  const [aiFeedbackText, setAiFeedbackText] = useState<string | null>(null);
-  const [gradeModelAnswer, setGradeModelAnswer] = useState<string | null>(null);
-  const [modelAnswerExpanded, setModelAnswerExpanded] = useState(false);
+  const [openEndedFeedback, setOpenEndedFeedback] = useState<OpenEndedFeedback | null>(null);
   const [openEndedAnswer, setOpenEndedAnswer] = useState("");
   const [ocrBusy, setOcrBusy] = useState(false);
   const [ocrError, setOcrError] = useState<string | null>(null);
@@ -406,9 +625,7 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
       selectedIndices: Array.from(selected),
       openEndedAnswer,
       showFeedback,
-      aiFeedbackText,
-      gradeModelAnswer,
-      modelAnswerExpanded,
+      openEndedFeedback,
       speakingTranscript,
       speakingMarkingText,
       speakingReadyForNext,
@@ -417,9 +634,7 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
     selected,
     openEndedAnswer,
     showFeedback,
-    aiFeedbackText,
-    gradeModelAnswer,
-    modelAnswerExpanded,
+    openEndedFeedback,
     speakingTranscript,
     speakingMarkingText,
     speakingReadyForNext,
@@ -429,9 +644,7 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
     setSelected(new Set(state.selectedIndices));
     setOpenEndedAnswer(state.openEndedAnswer);
     setShowFeedback(state.showFeedback);
-    setAiFeedbackText(state.aiFeedbackText);
-    setGradeModelAnswer(state.gradeModelAnswer);
-    setModelAnswerExpanded(state.modelAnswerExpanded);
+    setOpenEndedFeedback(state.openEndedFeedback);
     setSpeakingTranscript(state.speakingTranscript);
     setSpeakingMarkingText(state.speakingMarkingText);
     setSpeakingReadyForNext(state.speakingReadyForNext);
@@ -546,12 +759,14 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
 
   const correctIndices = q && isMcq ? parseCorrectIndices(q.correctAnswer, q.options.length) : new Set<number>();
   const multiSelect = q && isMcq ? questionAllowsMultiSelect(q, correctIndices) : false;
-  const questionForGradeStem = q ? (q.questionForGrade ?? q.questionText).trim() : "";
+  const gradeQuestionPayload = q
+    ? buildQuestionPayloadForGrade(q.questionText, q.questionForGrade, q.explanation)
+    : "";
   const questionMarks =
     q && isSpeakingQuestion
       ? 10
       : q
-        ? resolveQuestionMarks(q, questionForGradeStem)
+        ? resolveQuestionMarks(q, gradeQuestionPayload)
         : 1;
   const showSpeakingFeedbackPanel =
     showFeedback || (isSpeakingQuestion && speakingReadyForNext);
@@ -576,14 +791,17 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
   const onCheck = () => {
     if (!q) return;
     if (!isMcq) {
-      setAiFeedbackText(null);
+      setOpenEndedFeedback(null);
       setShowFeedback(true);
       return;
     }
     if (selected.size === 0) return;
-    setAiFeedbackText(null);
+    setOpenEndedFeedback(null);
     const ok = isSelectionCorrect(selected, correctIndices);
-    const maxMarks = resolveQuestionMarks(q, q.questionForGrade ?? q.questionText);
+    const maxMarks = resolveQuestionMarks(
+      q,
+      buildQuestionPayloadForGrade(q.questionText, q.questionForGrade, q.explanation),
+    );
     const earned = ok ? maxMarks : 0;
     setQuestionResults((prev) => ({
       ...prev,
@@ -596,21 +814,28 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
     if (!q || isMcq) return;
     const studentAnswer = openEndedAnswer.trim();
     if (!studentAnswer) {
-      setAiFeedbackText("Please write an answer (or use OCR) before submitting.");
+      setOpenEndedFeedback({
+        feedback: "Please write an answer (or use OCR) before submitting.",
+        modelPoints: [],
+        maxScore: 1,
+        showCalculationLayout: false,
+      });
       setShowFeedback(true);
       return;
     }
 
     const subject = routeSubject ?? "Biology";
     const form = routeFormLevel ?? "Form 4";
-    const questionForGrade = (q.questionForGrade ?? q.questionText).trim();
-    const requestedMaxScore = resolveOpenEndedMaxScore(q, questionForGrade);
+    const questionForGrade = buildQuestionPayloadForGrade(
+      q.questionText,
+      q.questionForGrade,
+      q.explanation,
+    );
+    const requestedMaxScore = resolveOpenEndedMaxScore(q);
 
     try {
       setOpenEndedMarkingBusy(true);
-      setAiFeedbackText(null);
-      setGradeModelAnswer(null);
-      setModelAnswerExpanded(false);
+      setOpenEndedFeedback(null);
       const result = await ragApiPost<any>("/rag/grade", {
         question: questionForGrade,
         studentAnswer,
@@ -619,6 +844,7 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
         topK: 8,
         maxScore: requestedMaxScore,
         rubricId: q.rubricId ?? undefined,
+        questionType: q.questionType ?? undefined,
         diagramImageUrl: q.diagramImageUrl?.trim() || undefined,
       });
       const earnedRaw = Number(result?.score);
@@ -631,15 +857,17 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
         ...prev,
         [q.id]: { earned: Math.min(earned, maxMarks), max: maxMarks },
       }));
-      const earnedClamped = Math.min(earned, maxMarks);
-      const modelAnswer = stripModelAnswerLabel(result?.modelAnswer);
-      const showModelAnswer = earnedClamped < maxMarks && modelAnswer.length > 0;
-      setGradeModelAnswer(showModelAnswer ? modelAnswer : null);
-      setModelAnswerExpanded(showModelAnswer);
-      setAiFeedbackText(openEndedFeedbackOnly(result));
+      setOpenEndedFeedback(
+        parseOpenEndedFeedback(result, q.explanation, questionForGrade),
+      );
       setShowFeedback(true);
     } catch (e) {
-      setAiFeedbackText(e instanceof Error ? e.message : "Failed to grade your answer.");
+      setOpenEndedFeedback({
+        feedback: e instanceof Error ? e.message : "Failed to grade your answer.",
+        modelPoints: [],
+        maxScore: requestedMaxScore,
+        showCalculationLayout: false,
+      });
       setShowFeedback(true);
     } finally {
       setOpenEndedMarkingBusy(false);
@@ -697,7 +925,7 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
       recordSpeakingResult(result.score, result.maxScore);
       setSpeakingTranscript(transcript.trim() || null);
       setSpeakingMarkingText(formatSpeakingGradeSummary(result));
-      setAiFeedbackText(null);
+      setOpenEndedFeedback(null);
       setShowFeedback(true);
     },
     [recordSpeakingResult],
@@ -722,7 +950,7 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
         max: payload.totalMax,
       });
       part1SkipToIndexRef.current = payload.skipToIndex;
-      setAiFeedbackText(null);
+      setOpenEndedFeedback(null);
       setShowFeedback(true);
       setSpeakingReadyForNext(false);
     },
@@ -756,7 +984,7 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
         markingParts.push(formatSpeakingGradeSummary(speak));
       }
       setSpeakingMarkingText(markingParts.length > 0 ? markingParts.join("\n\n\n") : null);
-      setAiFeedbackText(null);
+      setOpenEndedFeedback(null);
       setShowFeedback(true);
     },
     [recordSpeakingResult],
@@ -789,7 +1017,7 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
       }
       setOpenEndedAnswer(text);
       setShowFeedback(false);
-      setAiFeedbackText(null);
+      setOpenEndedFeedback(null);
       setOcrError(null);
     } catch (e) {
       const raw = e instanceof Error ? e.message : "OCR failed. Check your connection and try again.";
@@ -855,7 +1083,12 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
       return sum + (r?.earned ?? 0);
     }, 0);
     const totalMax = questions.reduce(
-      (sum, item) => sum + resolveQuestionMarks(item, item.questionForGrade ?? item.questionText),
+      (sum, item) =>
+        sum +
+        resolveQuestionMarks(
+          item,
+          buildQuestionPayloadForGrade(item.questionText, item.questionForGrade, item.explanation),
+        ),
       0,
     );
 
@@ -876,7 +1109,10 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
         </View>
         <Text style={styles.reviewSectionTitle}>Your marks per question</Text>
         {questions.map((item, i) => {
-          const maxMarks = resolveQuestionMarks(item, item.questionForGrade ?? item.questionText);
+          const maxMarks = resolveQuestionMarks(
+            item,
+            buildQuestionPayloadForGrade(item.questionText, item.questionForGrade, item.explanation),
+          );
           const result = questionResults[item.id];
           const earned = result?.earned;
           const max = result?.max ?? maxMarks;
@@ -1246,26 +1482,49 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
               transcript={speakingTranscript}
               markingText={speakingMarkingText}
             />
-          ) : (aiFeedbackText || q.explanation) ? (
-            <Text style={styles.explanation}>{aiFeedbackText ?? q.explanation}</Text>
-          ) : null}
-          {!isSpeakingQuestion && gradeModelAnswer ? (
-            <Pressable
-              style={({ pressed }) => [
-                styles.modelAnswerCard,
-                pressed && styles.modelAnswerCardPressed,
-              ]}
-              onPress={() => setModelAnswerExpanded((open) => !open)}
-            >
-              <Text style={styles.modelAnswerToggleText}>
-                {modelAnswerExpanded ? "Model answer" : "View model answer"}
-              </Text>
-              {modelAnswerExpanded ? (
-                <View style={styles.modelAnswerContent}>
-                  <CalculationStepsView text={gradeModelAnswer} />
-                </View>
-              ) : null}
-            </Pressable>
+          ) : openEndedFeedback ? (
+            openEndedFeedback.showCalculationLayout ? (
+              <>
+                {openEndedFeedback.feedback ? (
+                  <Text style={styles.explanation}>{openEndedFeedback.feedback}</Text>
+                ) : null}
+                {openEndedFeedback.modelAnswerRaw ? (
+                  <View style={styles.calcModelSection}>
+                    <Text style={styles.calcModelTitle}>Model answer</Text>
+                    <View style={styles.calcModelCard}>
+                      <CalculationStepsView text={openEndedFeedback.modelAnswerRaw} />
+                    </View>
+                  </View>
+                ) : null}
+              </>
+            ) : (
+              <>
+                {openEndedFeedback.feedback ? (
+                  <Text style={styles.explanation}>{openEndedFeedback.feedback}</Text>
+                ) : null}
+                {openEndedFeedback.modelPoints.length > 0 ? (
+                  <View style={styles.modelPointsSection}>
+                    <Text style={styles.modelPointsTitle}>
+                      Model answer · {openEndedFeedback.maxScore} mark
+                      {openEndedFeedback.maxScore === 1 ? "" : "s"}
+                    </Text>
+                    {openEndedFeedback.modelPoints.map((point, i) => (
+                      <View key={i} style={styles.modelPointRow}>
+                        <View style={styles.modelPointBadge}>
+                          <Text style={styles.modelPointBadgeText}>{i + 1}</Text>
+                        </View>
+                        <View style={styles.modelPointBody}>
+                          <Text style={styles.modelPointMark}>{formatMarkLabel(point.marks)}</Text>
+                          <Text style={styles.modelPointText}>{point.text}</Text>
+                        </View>
+                      </View>
+                    ))}
+                  </View>
+                ) : null}
+              </>
+            )
+          ) : q.explanation ? (
+            <Text style={styles.explanation}>{q.explanation}</Text>
           ) : null}
         </Animated.View>
       ) : null}
@@ -1670,31 +1929,78 @@ const styles = StyleSheet.create({
     lineHeight: 21,
     marginTop: 8,
   },
-  modelAnswerCard: {
-    alignSelf: "stretch",
-    marginTop: 12,
+  modelPointsSection: {
+    marginTop: 14,
+    gap: 8,
+  },
+  modelPointsTitle: {
+    fontSize: 11,
+    fontFamily: fonts.bold,
+    color: colors.textSecondary,
+    textTransform: "uppercase",
+    letterSpacing: 0.6,
+    marginBottom: 2,
+  },
+  modelPointRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "rgba(15, 23, 42, 0.08)",
     paddingVertical: 10,
     paddingHorizontal: 12,
-    borderRadius: 8,
+  },
+  modelPointBadge: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: theme.brandSoftSage,
     borderWidth: 1,
-    borderColor: "rgba(15, 23, 42, 0.14)",
-    backgroundColor: "#FFFFFF",
+    borderColor: "rgba(152, 168, 105, 0.35)",
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+    marginTop: 2,
   },
-  modelAnswerCardPressed: { opacity: 0.85 },
-  modelAnswerToggleText: {
+  modelPointBadgeText: {
     fontSize: 12,
-    fontFamily: fonts.semiBold,
-    color: BRAND,
+    fontFamily: fonts.bold,
+    color: theme.brandDeep,
   },
-  modelAnswerBody: {
-    marginTop: 8,
+  modelPointBody: {
+    flex: 1,
+    gap: 2,
+  },
+  modelPointMark: {
+    fontSize: 10,
+    fontFamily: fonts.bold,
+    color: BRAND,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+  modelPointText: {
     fontSize: 14,
-    fontFamily: fonts.regular,
+    fontFamily: fonts.medium,
     color: colors.text,
     lineHeight: 21,
   },
-  modelAnswerContent: {
-    marginTop: 8,
+  calcModelSection: {
+    marginTop: 14,
+    gap: 8,
+  },
+  calcModelTitle: {
+    fontSize: 14,
+    fontFamily: fonts.bold,
+    color: BRAND,
+  },
+  calcModelCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "rgba(15, 23, 42, 0.08)",
+    padding: 14,
   },
   primaryBtn: { marginTop: 22, borderRadius: 16, overflow: "hidden" },
   primaryBtnOff: { opacity: 0.95 },

@@ -105,9 +105,7 @@ export default function CameraPreviewScreen({ route, navigation }: Props) {
     if (aiResult) return { cardMessage: formatAiOutput(aiResult), cardTextStyle: styles.cardTextAi };
     return {
       cardMessage:
-        isAiScanBackendConfigured()
-          ? "Your scan will be processed when you capture a photo."
-          : "Set EXPO_PUBLIC_DEFAULT_MOBILE_API_BASE_URL_PREFIX so OCR can reach the backend.",
+        "Sign in (email required for scan storage), or set EXPO_PUBLIC_AI_SCAN_BASE_URL for OCR scan.",
       cardTextStyle: styles.cardText,
     };
   }, [aiResult, processError, processing]);

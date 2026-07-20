@@ -1,6 +1,10 @@
-# MySPM Mobile (APPLICATBLE TO "OLD CODE" FOLDER ONLY)
+# MySPM
 
-A React Native mobile application for exam management, built with Expo and TypeScript.
+Mobile app (`NEW_CODE_SYUKRAN/`) and backend (`myspm-backend/`).
+
+## Mobile app (NEW_CODE_SYUKRAN)
+
+A React Native application for exam management, built with Expo and TypeScript.
 
 ## Features
 
@@ -25,7 +29,7 @@ A React Native mobile application for exam management, built with Expo and TypeS
 1. Clone the repository:
 ```bash
 git clone <repository-url>
-cd MySPM-mobile/OLD_CODE
+cd NEW_CODE_SYUKRAN
 ```
 
 2. Install dependencies:

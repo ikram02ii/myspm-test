@@ -26,7 +26,13 @@
     "plugins": [
       "expo-font",
       "expo-secure-store",
-      "@react-native-google-signin/google-signin"
+      "@react-native-google-signin/google-signin",
+      [
+        "expo-av",
+        {
+          "microphonePermission": "Allow MySPM to record your voice for oral practice."
+        }
+      ]
     ],
     "extra": {
       "eas": {

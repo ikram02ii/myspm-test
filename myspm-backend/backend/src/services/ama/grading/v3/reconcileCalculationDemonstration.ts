@@ -7,6 +7,7 @@ import { answersAgree } from "./calculationAnswerVerification";
 import {
   detectUnitMismatch,
   extractComparableFinalAnswer,
+  findCalculationStageUnitId,
   findFinalStageUnitId,
   findFormulaStageUnitId,
   findSubstitutionStageUnitId,
@@ -15,6 +16,7 @@ import {
   studentAnswerMatchesReference,
 } from "./calculationNumericMatch";
 import { isCalculationIntent } from "./calculationAcfPolicy";
+import { isPhysicsCalculation } from "./calculationSubjectPolicy";
 import type { AssessmentCaseFile, UnderstandingDemonstration } from "./types";
 
 function invalidateUnit(
@@ -31,6 +33,44 @@ function invalidateUnit(
     invalidClaims.push({ text: quote, reason });
   }
   return { ...udm, unitsDemonstrated, invalidClaims };
+}
+
+function invalidateDownstreamStages(
+  udm: UnderstandingDemonstration,
+  creditUnits: Array<{ id: string; content: string }>,
+  fromUnitId: string,
+  reason: string,
+): UnderstandingDemonstration {
+  const fromIdx = creditUnits.findIndex((u) => u.id === fromUnitId);
+  if (fromIdx < 0) return udm;
+
+  let result = udm;
+  for (const unit of creditUnits.slice(fromIdx + 1)) {
+    const demo = result.unitsDemonstrated.find((d) => d.unitId === unit.id && d.valid);
+    if (demo) {
+      result = invalidateUnit(result, unit.id, demo.quote, reason);
+    }
+  }
+  return result;
+}
+
+function formulaMarkedWrong(udm: UnderstandingDemonstration, formulaId: string): boolean {
+  const formulaDemo = udm.unitsDemonstrated.find((d) => d.unitId === formulaId);
+  if (formulaDemo && formulaDemo.valid === false) return true;
+  if (
+    formulaDemo &&
+    udm.invalidClaims.some(
+      (c) =>
+        c.text === formulaDemo.quote &&
+        /wrong|incorrect|invalid/i.test(c.reason) &&
+        /formula|equation/i.test(c.reason),
+    )
+  ) {
+    return true;
+  }
+  return udm.invalidClaims.some((c) =>
+    /wrong formula|incorrect (formula|equation)|formula.*wrong|equation.*wrong/i.test(c.reason),
+  );
 }
 
 function pickFinalLineFromStudent(studentAnswer: string): string {
@@ -95,7 +135,9 @@ export function reconcileCalculationDemonstration(params: {
   const finalId = findFinalStageUnitId(creditUnits);
   const formulaId = findFormulaStageUnitId(creditUnits);
   const substitutionId = findSubstitutionStageUnitId(creditUnits);
+  const calculationId = findCalculationStageUnitId(creditUnits);
   const showWorking = params.acf.markRule.calcPolicy === "show_working";
+  const physicsCalc = isPhysicsCalculation(params.acf);
   const comparableRef = reference ? extractComparableFinalAnswer(reference) : "";
 
   let udm = params.udm;
@@ -146,6 +188,28 @@ export function reconcileCalculationDemonstration(params: {
         "No substitution or arithmetic working shown for this stage.",
       );
     }
+  }
+
+  if (showWorking && calculationId) {
+    const calcDemo = udm.unitsDemonstrated.find((d) => d.unitId === calculationId && d.valid);
+    if (calcDemo && !quoteLooksLikeSubstitution(calcDemo.quote)) {
+      udm = invalidateUnit(
+        udm,
+        calculationId,
+        calcDemo.quote,
+        "No calculation working shown for this stage.",
+      );
+    }
+  }
+
+  // Physics: wrong formula invalidates all downstream stages.
+  if (showWorking && physicsCalc && formulaId && formulaMarkedWrong(udm, formulaId)) {
+    udm = invalidateDownstreamStages(
+      udm,
+      creditUnits,
+      formulaId,
+      "Wrong formula — substitution, calculation, and final cannot be credited.",
+    );
   }
 
   // --- Wrong final credited without reference: scan invalidClaims from LLM + strip orphan final ---
