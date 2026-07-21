@@ -4,8 +4,8 @@ import {
   buildPastPaperMarksGuidance,
   isMcqGenerationQuery,
   isSubjectiveGenerationQuery,
-} from "../rag/retrieval/pastPaperMarksHints";
-import type { RetrievedChunk } from "../rag/types";
+} from "../ama/retrieval/pastPaperMarksHints";
+import type { RetrievedChunk } from "../ama/types";
 
 const SYSTEM_PROMPT_BASE = `You are an assistant for Malaysian SPM exam preparation.
 Use ONLY the provided context excerpts when stating specific facts. If context is insufficient, say so in one short sentence.

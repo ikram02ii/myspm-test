@@ -17,7 +17,7 @@ import type { GenerateImageItem } from "./generateFromRagEnhancements";
 import { generateQuestionFromRagContext } from "./ragQuestionGenerator";
 import { validateDiagramImageRelevance } from "./diagramVisionValidation";
 import { buildAgent4TextValidatorSystemPrompt } from "./diagramValidatorSyllabusPrompts";
-import type { RetrievedChunk } from "../rag/types";
+import type { RetrievedChunk } from "../ama/types";
 
 export type DiagramPlan = {
   questionIndex: number;

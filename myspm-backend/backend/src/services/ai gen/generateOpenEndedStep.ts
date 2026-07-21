@@ -1,24 +1,24 @@
 import { chatCompletion } from "./llmProvider";
 import { formatGeneratorContextBlock } from "./generateFromRagEnhancements";
-import { fetchConsecutiveTextbookChunks, retrieveChunks } from "../rag/retrieval/retrievalService";
+import { fetchConsecutiveTextbookChunks, retrieveChunks } from "../ama/retrieval/retrievalService";
 import {
   chunksToGenerationSources,
   formatSourcesSummary,
   type RagGenerationSource,
-} from "../rag/retrieval/ragSourceAttribution";
-import { analyzeQuestion } from "../rag/grading/questionAnalysisService";
+} from "../ama/retrieval/ragSourceAttribution";
+import { analyzeQuestion } from "../ama/grading/questionAnalysisService";
 import {
   buildAssessmentCasePackage,
   evidenceUnitsToRubricIdeas,
   saveGeneratedAssessmentCase,
-} from "../rag/grading/v3/assessmentCaseService";
+} from "../ama/grading/v3/assessmentCaseService";
 import {
   buildCandidateChunkPool,
   mergeChunksExcerpt,
   questionDraftContextChunks,
   resolveGroundingChunksForQuestion,
-} from "../rag/grading/v3/groundingChunks";
-import type { RetrievedChunk, RubricIdea } from "../rag/types";
+} from "../ama/grading/v3/groundingChunks";
+import type { RetrievedChunk, RubricIdea } from "../ama/types";
 import { getRetrievalContext, storeRetrievalContext } from "./openEndedGenerationContext";
 
 export type OpenEndedRagInput = {

@@ -13,8 +13,8 @@ import {
   buildPastPaperMarksGuidance,
   isMcqGenerationQuery,
   isSubjectiveGenerationQuery,
-} from "../rag/retrieval/pastPaperMarksHints";
-import type { RetrievedChunk } from "../rag/types";
+} from "../ama/retrieval/pastPaperMarksHints";
+import type { RetrievedChunk } from "../ama/types";
 import { enrichMathAnswerWithSvg } from "./mathSvg";
 
 export type GenerateRagDiagram = {

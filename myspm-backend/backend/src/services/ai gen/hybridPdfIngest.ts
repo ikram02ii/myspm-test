@@ -7,8 +7,8 @@ import {
   type PageExtractionRoute,
 } from "./pageVisionClassifier";
 import { renderPdfPageToPng } from "./pdfToPngPages";
-import { extractPdfPages, extractPdfPagesFromBuffer } from "../rag/ingestion/pdfTextExtract";
-import { embedText } from "../rag/retrieval/embeddingsService";
+import { extractPdfPages, extractPdfPagesFromBuffer } from "../ama/ingestion/pdfTextExtract";
+import { embedText } from "../ama/retrieval/embeddingsService";
 import {
   qwenVisionExtractPage,
   uploadPageImageToOss,
