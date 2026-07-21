@@ -43,7 +43,14 @@ function fullSyllabusFormClause<T extends { form: typeof ragPastPapersTable.form
 }
 
 export function pastPaperFormWhereClause(queryForm: string | undefined | null): SQL | undefined {
-  return fullSyllabusFormClause(ragPastPapersTable, queryForm);
+  const q = normalizeForm(queryForm);
+  if (!q || q.toLowerCase() === "general") return undefined;
+  const fullSyllabus = [...FULL_SYLLABUS_FORMS] as string[];
+  const clauses: SQL[] = [eq(ragPastPapersTable.form, q), inArray(ragPastPapersTable.form, fullSyllabus)];
+  // SPM past papers are often tagged Form 5 while students practise in Form 4 (and vice versa).
+  if (q === "Form 4") clauses.push(eq(ragPastPapersTable.form, "Form 5"));
+  if (q === "Form 5") clauses.push(eq(ragPastPapersTable.form, "Form 4"));
+  return or(...clauses);
 }
 
 export function textbookFormWhereClause(queryForm: string | undefined | null): SQL | undefined {

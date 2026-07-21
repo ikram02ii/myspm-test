@@ -1,4 +1,4 @@
-import type { RetrievedChunk } from "../types";
+import type { RetrievedChunk } from "./types";
 
 /** Extract SPM-style mark values from chunk text (e.g. [3], 4 markah, Markah: 2). */
 export function extractMarksFromText(text: string): number[] {
@@ -64,20 +64,16 @@ export function buildPastPaperMarksGuidance(chunks: RetrievedChunk[]): string {
   return summarizePastPaperMarkDistribution(samples) ?? "";
 }
 
-const MCQ_GENERATION_QUERY_PATTERN =
-  /\bMCQ\b|objektif|multiple[- ]choice|A[-–]D\b|A-D options/i;
-
-export function isMcqGenerationQuery(query: string): boolean {
-  return MCQ_GENERATION_QUERY_PATTERN.test(query);
-}
-
 export function isSubjectiveGenerationQuery(query: string): boolean {
-  if (isMcqGenerationQuery(query)) return false;
-  // Question-generation prompts that explicitly forbid mark-scheme / markah format.
   if (/\bdo\s+not\s+use\b[\s\S]{0,80}\b(?:marking\s+points?|markah|marks?)\b/i.test(query)) {
     return false;
   }
   return /\bsubjective\b|essay|karangan|open[- ]?ended|structured\s+question|marking\s+points?|short\s+answer(?!\s+[A-D])/i.test(
     query,
   );
+}
+
+export function isMcqGenerationQuery(query: string): boolean {
+  if (isSubjectiveGenerationQuery(query)) return false;
+  return /\bMCQ\b|objektif|multiple[- ]choice|A[-–]D\b|A-D options/i.test(query);
 }

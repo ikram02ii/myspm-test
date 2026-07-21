@@ -58,6 +58,12 @@ export type RetrievedChunk = {
   questionRef?: string;
   /** Typical mark weight from past-paper / mark-scheme chunks (question generation hints). */
   maxMarks?: number | null;
+  /** Exam year when sourceType is past_paper. */
+  year?: number | null;
+  /** e.g. Paper 2 / Kertas 2 when sourceType is past_paper. */
+  paperLabel?: string | null;
+  /** Original PDF filename at ingest. */
+  sourceName?: string | null;
 };
 
 export type RetrieveChunksResult = {

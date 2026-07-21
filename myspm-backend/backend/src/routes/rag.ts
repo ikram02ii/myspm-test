@@ -11,6 +11,7 @@ import { listTextbooks, registerTextbook } from "../services/ama/ingestion/textb
 import { gradeSpeakingPhase } from "../services/ama/speaking/speakingGradeService";
 import { transcribeSpeakingAudio } from "../services/ama/speaking/speakingTranscribeService";
 import { generateWithRag } from "../services/ai gen/generateFromRag";
+import { generateOpenEndedQuestionStep } from "../services/ai gen/generateOpenEndedStep";
 import { runGenerateFromUpload } from "../services/ai gen/generateFromUpload";
 
 const router: IRouter = Router();
@@ -426,6 +427,61 @@ router.post("/grading-context", async (req, res) => {
     const statusCode = message === "query is required" ? 400 : 500;
     console.error("[rag] grading context build failed", error);
     return res.status(statusCode).json({ error: message });
+  }
+});
+
+router.post("/generate-open-ended-step", async (req, res) => {
+  try {
+    const query = typeof req.body?.query === "string" ? req.body.query.trim() : "";
+    if (!query) {
+      return res.status(400).json({ error: "Body must include non-empty string \"query\"" });
+    }
+
+    const subject = typeof req.body?.subject === "string" ? req.body.subject.trim() : "";
+    if (!subject) {
+      return res.status(400).json({ error: "Body must include non-empty string \"subject\"" });
+    }
+
+    const questionIndex =
+      typeof req.body?.questionIndex === "number" && Number.isFinite(req.body.questionIndex)
+        ? req.body.questionIndex
+        : 1;
+    const totalQuestions =
+      typeof req.body?.totalQuestions === "number" && Number.isFinite(req.body.totalQuestions)
+        ? req.body.totalQuestions
+        : 1;
+    const priorStems = Array.isArray(req.body?.priorStems)
+      ? req.body.priorStems.filter((s: unknown): s is string => typeof s === "string")
+      : [];
+    const generationContextId =
+      typeof req.body?.generationContextId === "string" ? req.body.generationContextId.trim() : undefined;
+
+    const topK =
+      typeof req.body?.topK === "number" && Number.isFinite(req.body.topK) ? req.body.topK : 8;
+    const chapterFilterRaw =
+      typeof req.body?.chapterFilter === "string" ? req.body.chapterFilter.trim() : "";
+    const chapterHintRaw =
+      typeof req.body?.chapterHint === "string" ? req.body.chapterHint.trim() : "";
+    const formRaw = typeof req.body?.form === "string" ? req.body.form.trim() : "";
+
+    const result = await generateOpenEndedQuestionStep({
+      query,
+      subject,
+      form: formRaw || null,
+      topK,
+      chapterFilter: chapterFilterRaw || null,
+      chapterHint: chapterHintRaw || null,
+      questionIndex,
+      totalQuestions,
+      priorStems,
+      generationContextId: generationContextId || null,
+    });
+
+    return res.json(result);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to generate question";
+    console.error("[rag] generate-open-ended-step failed", error);
+    return res.status(500).json({ error: message });
   }
 });
 

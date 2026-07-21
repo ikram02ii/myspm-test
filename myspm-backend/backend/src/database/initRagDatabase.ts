@@ -126,6 +126,22 @@ export async function ensureRagSchema(): Promise<void> {
   `);
 
   await ragPool.query(`
+    ALTER TABLE ${t("rag_textbook_chunks")}
+      ADD COLUMN IF NOT EXISTS source_image_url TEXT,
+      ADD COLUMN IF NOT EXISTS embedding TEXT,
+      ADD COLUMN IF NOT EXISTS chunk_kind VARCHAR(32);
+  `);
+
+  await ragPool.query(`
+    ALTER TABLE ${t("rag_past_paper_chunks")}
+      ADD COLUMN IF NOT EXISTS page_start INTEGER,
+      ADD COLUMN IF NOT EXISTS page_end INTEGER,
+      ADD COLUMN IF NOT EXISTS source_image_url TEXT,
+      ADD COLUMN IF NOT EXISTS embedding TEXT,
+      ADD COLUMN IF NOT EXISTS chunk_kind VARCHAR(32);
+  `);
+
+  await ragPool.query(`
     CREATE TABLE IF NOT EXISTS ${t("rag_grading_results")} (
       id SERIAL PRIMARY KEY,
       submission_id VARCHAR(120) NOT NULL,

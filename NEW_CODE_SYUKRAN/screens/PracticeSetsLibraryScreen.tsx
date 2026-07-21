@@ -39,12 +39,18 @@ import {
   type OnboardingSubject,
 } from "../services/mobileOnboarding";
 import {
+  attachGenerationSourcesToQuestions,
   fetchPracticeSetList,
+  formatRagSourcesSummary,
+  normalizeRagSourcesFromApi,
   type StructuredQuestionDiagram,
   type MathLineDiagram,
   type PracticeSetQuestion,
   type PracticeSetSummary,
+  type RagSourceAttribution,
 } from "../services/mobilePracticeSets";
+import { setAiPracticeAttribution, persistAiPracticeAttribution } from "../services/aiPracticeAttributionStore";
+import { buildAiAttributionPayload } from "../services/aiPracticeAttributionPayload";
 import { ragApiPost } from "../services/ragApi";
 import type { SttLanguage } from "../services/oralApi";
 import {
@@ -409,11 +415,22 @@ type RagGeneratedImage = {
 type RagGenerateResponse = {
   answer: string;
   sources?: unknown;
+  sourceLabel?: string;
   diagram?: MathLineDiagram;
   diagrams?: MathLineDiagram[];
   structuredDiagrams?: StructuredQuestionDiagram[];
   generatedImages?: RagGeneratedImage[];
 };
+
+function ragAttributionFromGenerateResponse(result: RagGenerateResponse): {
+  ragSources: RagSourceAttribution[];
+  ragSourceLabel: string;
+} {
+  const ragSources = normalizeRagSourcesFromApi(result.sources);
+  const ragSourceLabel =
+    result.sourceLabel?.trim() || formatRagSourcesSummary(ragSources) || ragSources[0]?.label || "";
+  return { ragSources, ragSourceLabel };
+}
 
 function isScienceDiagramSubject(subject: string): boolean {
   return /^(biology|chemistry|physics|science|math|additional math)$/i.test(subject.trim());
@@ -864,9 +881,13 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
         ? `Do not repeat or closely paraphrase these recently generated question stems: ${recentQuestions.map((q, i) => `${i + 1}. ${q}`).join(" ")} `
         : "";
     const variationSeed = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const scopeInstructions =
+      selectedTopic.length > 0
+        ? `Cover varied subtopics or skills within the selected chapter (${selectedTopic}). `
+        : `Cover varied subtopics across MULTIPLE different chapters in the ${aiFormLevelLabel} syllabus — do not focus all questions on one chapter. `;
     const variationInstructions =
       `Use a different set of question angles each time. ` +
-      `Cover varied subtopics or skills within the selected chapter. ` +
+      scopeInstructions +
       `Mix recall, understanding, application, and KBAT/HOTS where suitable. ` +
       `Avoid repeating common wording or previously generated question patterns. ` +
       avoidInstructions +
@@ -1036,46 +1057,68 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
         {
           query: buildAiQuery(backendSubject),
           subject: backendSubject,
+          form: aiFormLevelLabel,
+          chapterHint: aiMode === "topic" ? aiTopic.trim() || undefined : undefined,
           topK: 8,
           generateImage: isScienceDiagramSubject(backendSubject),
         },
       );
 
+      const { ragSources, ragSourceLabel } = ragAttributionFromGenerateResponse(result);
+      const sourceLabelForSession =
+        ragSourceLabel || result.sourceLabel?.trim() || formatRagSourcesSummary(ragSources) || "";
+      const sessionAttribution = { sourceLabel: sourceLabelForSession, sources: ragSources };
+      setAiPracticeAttribution(sessionAttribution);
+      await persistAiPracticeAttribution(sessionAttribution);
+      const aiSourcePayload = buildAiAttributionPayload(sourceLabelForSession, ragSources);
+
       if (aiQuestionType === "mcq") {
-        const parsed = attachGeneratedImagesToQuestions(
-          attachStructuredDiagramsToQuestions(
-            attachDiagramsToQuestions(
-              parseAiGeneratedMcqAnswer(result.answer),
-              result.diagrams ?? (result.diagram ? [result.diagram] : []),
+        const parsed = attachGenerationSourcesToQuestions(
+          attachGeneratedImagesToQuestions(
+            attachStructuredDiagramsToQuestions(
+              attachDiagramsToQuestions(
+                parseAiGeneratedMcqAnswer(result.answer),
+                result.diagrams ?? (result.diagram ? [result.diagram] : []),
+              ),
+              result.structuredDiagrams,
             ),
-            result.structuredDiagrams,
+            result.generatedImages,
           ),
-          result.generatedImages,
+          { sources: result.sources, sourceLabel: sourceLabelForSession, sourcePayload: aiSourcePayload },
         );
         if (parsed.length === 0) {
           showToast("AI did not return parseable MCQ questions. Try again.");
           return;
         }
+        if (!sourceLabelForSession && ragSources.length === 0) {
+          console.warn("[AI Practice] /rag/generate returned no source attribution");
+        }
         aiQuestionHistoryRef.current.set(historyKey, summarizeQuestionStems(parsed));
         setAiModalOpen(false);
         (navigation as any).navigate("PracticeSession", {
           title: "AI Practice",
+          isAiPractice: true,
           questions: parsed,
           subject: backendSubject,
           formLevel: aiFormLevelLabel,
+          ragSourceLabel: sourceLabelForSession,
+          aiSourcePayload,
         });
         return;
       }
 
-      const parsedOpen = attachGeneratedImagesToQuestions(
-        attachStructuredDiagramsToQuestions(
-          attachDiagramsToQuestions(
-            parseAiGeneratedOpenEnded(result.answer, "short"),
-            result.diagrams ?? (result.diagram ? [result.diagram] : []),
+      const parsedOpen = attachGenerationSourcesToQuestions(
+        attachGeneratedImagesToQuestions(
+          attachStructuredDiagramsToQuestions(
+            attachDiagramsToQuestions(
+              parseAiGeneratedOpenEnded(result.answer, "short"),
+              result.diagrams ?? (result.diagram ? [result.diagram] : []),
+            ),
+            result.structuredDiagrams,
           ),
-          result.structuredDiagrams,
+          result.generatedImages,
         ),
-        result.generatedImages,
+        { sources: result.sources, sourceLabel: sourceLabelForSession, sourcePayload: aiSourcePayload },
       );
       if (parsedOpen.length === 0) {
         showToast("AI did not return parseable questions. Try again.");
@@ -1086,9 +1129,12 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
       setAiModalOpen(false);
       (navigation as any).navigate("PracticeSession", {
         title: "AI Practice",
+        isAiPractice: true,
         questions: parsedOpen,
         subject: backendSubject,
         formLevel: aiFormLevelLabel,
+        ragSourceLabel: sourceLabelForSession,
+        aiSourcePayload,
       });
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Failed to generate questions.");

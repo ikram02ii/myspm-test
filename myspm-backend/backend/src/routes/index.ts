@@ -15,6 +15,7 @@ import lovRouter from "./lov";
 import initRouter from "./init";
 import mobileRouter from "./mobile";
 import ragRouter from "./rag";
+import sttRouter from "./stt";
 
 const router: IRouter = Router();
 
@@ -25,6 +26,7 @@ router.use(initRouter);
 router.use(scanRouter);
 router.use("/mobile", mobileRouter);
 router.use("/rag", ragRouter);
+router.use("/stt", sttRouter);
 
 // Protected routes (auth required) - apply middleware to each protected route group
 // Dashboard - all authenticated users
