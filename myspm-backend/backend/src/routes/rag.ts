@@ -748,6 +748,7 @@ router.post("/grade", gradeUpload.single("diagramImage"), async (req, res) => {
       userId: Number.isFinite(userId) ? userId : null,
       chapterFilter: typeof req.body?.chapterFilter === "string" ? req.body.chapterFilter : undefined,
       chapterHint: typeof req.body?.chapterHint === "string" ? req.body.chapterHint : undefined,
+      questionContext: typeof req.body?.questionContext === "string" ? req.body.questionContext : undefined,
     });
 
     return res.json(result);

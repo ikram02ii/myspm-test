@@ -7,7 +7,7 @@ import { ragDb, ragGradingResultsTable } from "../../../lib/ragDb";
 import { auditRetrievedContext } from "../retrieval/contextAuditService";
 import { buildGradingContextFromChunks, retrieveChunks } from "../retrieval/retrievalService";
 import { gradeWithPipelineV2, extractStudentIdeas } from "./gradePipelineService";
-import { analyzeQuestion } from "./questionAnalysisService";
+import { analyzeQuestion } from "./analysis/questionAnalysisService";
 import type {
   DiagramContext,
   GradeSubmissionInput,
@@ -15,23 +15,25 @@ import type {
   MarkBreakdownItem,
   RetrievedChunk,
 } from "../types";
-import { inferAdjustedMaxScore } from "./gradingChecks";
-import { fixMissingIdeasAgainstStudentAnswer } from "./gradingFairness";
-import { validateTopicConsistency } from "./gradingChecks";
-import { applyScoreConsistencyRules, computeRetrievalConfidence } from "./gradingChecks";
-import { resolveFeedbackLanguage } from "./gradingTextUtils";
+import { inferAdjustedMaxScore } from "./shared/gradingChecks";
+import { fixMissingIdeasAgainstStudentAnswer } from "./matching/gradingFairness";
+import { applyScoreConsistencyRules, computeRetrievalConfidence } from "./shared/gradingChecks";
+import { validateGradeResult } from "./validators/validateGradeResult";
+import { resolveFeedbackLanguage } from "./shared/gradingTextUtils";
 import {
   generateDiagramContextWithQwen,
   renderDiagramContextForGrader,
   buildEnrichedRetrievalQuery,
-} from "./diagramFactExtraction";
+} from "./extraction/diagramFactExtraction";
+import { gradingNeedsVisionExtract } from "./shared/gradingPolicy";
+import { hasEmbeddedMarkScheme } from "./analysis/markSchemeInference";
 import {
   gradeWithLegacyPipeline,
   isMcqLetterOnlyExplanationRequest,
   briefIdeaFeedback,
   sanitizeFeedback,
 } from "./legacy/gradeWithLegacyPipeline";
-import { reconcileFeedbackToMarkingTruth } from "./v3/feedbackTruthPolicy";
+import { reconcileFeedbackToMarkingTruth } from "./feedback/feedbackTruthPolicy";
 
 function filterChunksByAudit(chunks: RetrievedChunk[], relevantChunkIds: string[]): RetrievedChunk[] {
   if (relevantChunkIds.length === 0) return [];
@@ -70,33 +72,74 @@ export async function gradeSubmission(input: GradeSubmissionInput): Promise<Grad
   const maxScore = scoreAdjustment.adjustedMaxScore;
 
   // Vision: extract visual facts only. Never awards marks.
-  // Facts enrich retrieval + context; theory/calc agents still score the written answer.
+  // Skip VL when an image is decorative (attached) but the stem does not need the figure —
+  // generated questions often send diagramImageUrl even for non-diagram items.
+  const gradeStartedAt = Date.now();
+  const selfContainedScheme = hasEmbeddedMarkScheme(question);
+  const hasDiagramImage = Boolean(input.diagramImageUrl?.trim() || input.diagramImageBase64?.trim());
+  const needsVision = hasDiagramImage && gradingNeedsVisionExtract(question);
+
   let diagramContextStructured: DiagramContext | undefined;
   let diagramContextWarning: string | undefined;
-  if (input.diagramImageUrl?.trim() || input.diagramImageBase64?.trim()) {
-    try {
-      const vision = await generateDiagramContextWithQwen({
+
+  // Run vision + retrieval in parallel when vision is needed (was sequential → slow).
+  // Retrieval uses the stem alone; diagram facts enrich grader context, not the chunk query.
+  const visionPromise = needsVision
+    ? generateDiagramContextWithQwen({
         question,
         subject: input.subject,
         imageUrl: input.diagramImageUrl,
         imageBase64: input.diagramImageBase64,
+      })
+        .then((vision) => {
+          console.info("[rag][grade] vision extract (facts only — not a marking agent)", {
+            submissionId,
+            model: vision.model,
+            diagramType: vision.diagram.diagramType,
+            labelCount: vision.diagram.labels.length,
+            confidence: vision.diagram.confidence,
+            rawLength: vision.rawText.length,
+          });
+          return vision;
+        })
+        .catch((error: unknown) => {
+          diagramContextWarning =
+            error instanceof Error ? error.message : "Failed to generate diagram context.";
+          console.warn("[rag][grade] diagram context failed", {
+            submissionId,
+            warning: diagramContextWarning,
+          });
+          return null;
+        })
+    : Promise.resolve(null);
+
+  if (hasDiagramImage && !needsVision) {
+    console.info("[rag][grade] vision extract skipped (image attached but stem does not require figure)", {
+      submissionId,
+    });
+  }
+
+  // Embedded Jawapan / Marking points: skip chunk retrieval + LLM audit (often filters to 0 anyway).
+  const retrievalPromise = selfContainedScheme
+    ? Promise.resolve({ chunks: [] as RetrievedChunk[] })
+    : retrieveChunks({
+        query: buildEnrichedRetrievalQuery(question, undefined),
+        subject: input.subject?.trim(),
+        form: input.form?.trim(),
+        topK: input.topK,
       });
-      diagramContextStructured = vision.diagram;
-      console.info("[rag][grade] vision extract (facts only — not a marking agent)", {
-        submissionId,
-        model: vision.model,
-        diagramType: vision.diagram.diagramType,
-        labelCount: vision.diagram.labels.length,
-        confidence: vision.diagram.confidence,
-        rawLength: vision.rawText.length,
-      });
-    } catch (error) {
-      diagramContextWarning = error instanceof Error ? error.message : "Failed to generate diagram context.";
-      console.warn("[rag][grade] diagram context failed", {
-        submissionId,
-        warning: diagramContextWarning,
-      });
-    }
+
+  const [visionResult, retrieval] = await Promise.all([visionPromise, retrievalPromise]);
+  console.info("[rag][grade] stage timing", {
+    submissionId,
+    stage: "vision_retrieval",
+    elapsedMs: Date.now() - gradeStartedAt,
+    selfContainedScheme,
+    needsVision,
+  });
+
+  if (visionResult) {
+    diagramContextStructured = visionResult.diagram;
   }
 
   // Back-compat: callers that still expect a string get a deterministic
@@ -105,24 +148,28 @@ export async function gradeSubmission(input: GradeSubmissionInput): Promise<Grad
     ? renderDiagramContextForGrader(diagramContextStructured)
     : undefined;
 
-  const retrievalQuery = buildEnrichedRetrievalQuery(question, diagramContextStructured);
-  const retrieval = await retrieveChunks({
-    query: retrievalQuery,
-    subject: input.subject?.trim(),
-    form: input.form?.trim(),
-    topK: input.topK,
-  });
   console.info("[rag][grade] retrieved chunks", {
     count: retrieval.chunks.length,
     submissionId,
+    skipped: selfContainedScheme,
   });
 
-  const contextAudit = await auditRetrievedContext(question, retrieval.chunks);
+  const contextAudit = selfContainedScheme
+    ? {
+        relevanceScore: 1,
+        isSufficientContext: true,
+        relevantChunkIds: [] as string[],
+        irrelevantChunkIds: [] as string[],
+        reason: "Self-contained mark scheme in question; textbook retrieval/audit skipped.",
+      }
+    : await auditRetrievedContext(question, retrieval.chunks);
   const filteredChunks = filterChunksByAudit(retrieval.chunks, contextAudit.relevantChunkIds);
   const effectiveChunks = filteredChunks.length > 0 ? filteredChunks : [];
   const context = buildGradingContextFromChunks(question, effectiveChunks);
 
-  const lowConfidence = !contextAudit.isSufficientContext || filteredChunks.length === 0;
+  const lowConfidence = selfContainedScheme
+    ? false
+    : !contextAudit.isSufficientContext || filteredChunks.length === 0;
   const warning = lowConfidence ? "Insufficient textbook context for reliable grading." : null;
 
   console.info("[rag][grade] context audit", {
@@ -136,6 +183,8 @@ export async function gradeSubmission(input: GradeSubmissionInput): Promise<Grad
     originalMaxScore: scoreAdjustment.originalMaxScore,
     adjustedMaxScore: maxScore,
     maxScoreAdjustedReason: scoreAdjustment.maxScoreAdjustedReason,
+    selfContainedScheme,
+    elapsedMs: Date.now() - gradeStartedAt,
   });
 
   const pipelineEnv = (process.env["RAG_GRADE_PIPELINE"] || "v3").trim().toLowerCase();
@@ -154,6 +203,12 @@ export async function gradeSubmission(input: GradeSubmissionInput): Promise<Grad
       gradingLowConfidence: lowConfidence,
       gradingContextWarning: warning,
     });
+    console.info("[rag][grade] stage timing", {
+      submissionId,
+      stage: "pipeline_v2_complete",
+      elapsedMs: Date.now() - gradeStartedAt,
+      selfContainedScheme,
+    });
 
     // Pipeline v2 already reconciles marks; second pass inflated partial transport answers.
     const v2Reconciled = {
@@ -163,16 +218,6 @@ export async function gradeSubmission(input: GradeSubmissionInput): Promise<Grad
       score: gradedV2.score,
       contradictionCheckPassed: gradedV2.contradictionCheckPassed,
     };
-
-    const scoreConsistency = applyScoreConsistencyRules({
-      score: v2Reconciled.score,
-      maxScore,
-      markBreakdown: v2Reconciled.markBreakdown ?? gradedV2.markBreakdown,
-      missingIdeas: v2Reconciled.missingIdeas,
-      studentAnswer,
-      questionAnalysis,
-    });
-    const finalScoreV2 = scoreConsistency.score;
 
     const retrievalConfidence = computeRetrievalConfidence({
       audit: contextAudit,
@@ -184,21 +229,24 @@ export async function gradeSubmission(input: GradeSubmissionInput): Promise<Grad
     const mcqLetterV2 = isMcqLetterOnlyExplanationRequest(question, studentAnswer, maxScore);
     let feedbackOut = sanitizeFeedback(gradedV2.feedback, { maxSentences: mcqLetterV2 ? 8 : undefined });
 
-    const topicV2 = validateTopicConsistency({
-      question,
-      studentAnswer,
-      feedback: feedbackOut,
-      modelAnswer: gradedV2.modelAnswer,
+    const validatedV2 = validateGradeResult({
+      score: v2Reconciled.score,
+      maxScore,
+      markBreakdown: v2Reconciled.markBreakdown ?? gradedV2.markBreakdown,
       missingIdeas: v2Reconciled.missingIdeas,
       matchedIdeas: v2Reconciled.matchedIdeas,
+      studentAnswer,
+      question,
+      feedback: feedbackOut,
+      modelAnswer: gradedV2.modelAnswer,
       rubricIdeas: gradedV2.rubricIdeas,
-      markBreakdown: v2Reconciled.markBreakdown ?? gradedV2.markBreakdown,
-      score: finalScoreV2,
-      maxScore,
+      questionAnalysis,
       language: answerLangV2,
+      acf: null,
     });
-    feedbackOut = topicV2.feedback;
-    const modelAnswerOut = topicV2.modelAnswer ?? gradedV2.modelAnswer;
+    const finalScoreV2 = validatedV2.score;
+    feedbackOut = validatedV2.feedback;
+    const modelAnswerOut = validatedV2.modelAnswer ?? gradedV2.modelAnswer;
 
     const truth = reconcileFeedbackToMarkingTruth({
       feedback: feedbackOut,
@@ -234,7 +282,7 @@ export async function gradeSubmission(input: GradeSubmissionInput): Promise<Grad
         matchedRubricIds: bd.filter((r) => r.awarded && r.rubricId).map((r) => r.rubricId),
         missingRubricIds: bd.filter((r) => !r.awarded && r.rubricId).map((r) => r.rubricId),
         contradictionCheckPassed: v2Reconciled.contradictionCheckPassed,
-        topicConsistencyPassed: topicV2.topicConsistencyPassed,
+        topicConsistencyPassed: validatedV2.topicConsistencyPassed,
         scoreAfterConsistency: finalScoreV2,
         retrievalConfidence,
         decisionLog: gradedV2.decisionLog,
@@ -278,8 +326,8 @@ export async function gradeSubmission(input: GradeSubmissionInput): Promise<Grad
         "outsideRubricAwardCount" in gradedV2
           ? (gradedV2 as { outsideRubricAwardCount?: number }).outsideRubricAwardCount
           : undefined,
-      topicConsistencyPassed: topicV2.topicConsistencyPassed,
-      topicConsistencyWarning: topicV2.topicConsistencyWarning,
+      topicConsistencyPassed: validatedV2.topicConsistencyPassed,
+      topicConsistencyWarning: validatedV2.topicConsistencyWarning,
       questionAnalysis,
       retrievalConfidence,
       diagramContext,
@@ -332,7 +380,7 @@ export async function gradeSubmission(input: GradeSubmissionInput): Promise<Grad
     studentAnswer,
     questionAnalysis,
   });
-  const finalScore = scoreConsistencyV1.score;
+  const finalScorePreValidate = scoreConsistencyV1.score;
   const finalMatched = reconciled.matchedIdeas;
   const finalMissing = reconciled.missingIdeas;
   const finalBreakdown = reconciled.markBreakdown ?? graded.parsed.markBreakdown;
@@ -341,7 +389,7 @@ export async function gradeSubmission(input: GradeSubmissionInput): Promise<Grad
   });
   const finalFeedback = reconciled.contradictionCheckPassed
     ? modelFeedback
-    : briefIdeaFeedback(finalScore, maxScore, finalMatched, finalMissing, answerLang);
+    : briefIdeaFeedback(finalScorePreValidate, maxScore, finalMatched, finalMissing, answerLang);
 
   const retrievalConfidenceV1 = computeRetrievalConfidence({
     audit: contextAudit,
@@ -355,23 +403,24 @@ export async function gradeSubmission(input: GradeSubmissionInput): Promise<Grad
     acceptedPhrases: [] as string[],
   }));
 
-  let feedbackV1 = finalFeedback;
-  let modelAnswerV1 = graded.parsed.modelAnswer;
-  const topicV1 = validateTopicConsistency({
-    question,
-    studentAnswer,
-    feedback: feedbackV1,
-    modelAnswer: modelAnswerV1,
+  const validatedV1 = validateGradeResult({
+    score: finalScorePreValidate,
+    maxScore,
+    markBreakdown: finalBreakdown,
     missingIdeas: finalMissing,
     matchedIdeas: finalMatched,
+    studentAnswer,
+    question,
+    feedback: finalFeedback,
+    modelAnswer: graded.parsed.modelAnswer,
     rubricIdeas: rubricIdeaStrings,
-    markBreakdown: finalBreakdown,
-    score: finalScore,
-    maxScore,
+    questionAnalysis,
     language: answerLang,
+    acf: null,
   });
-  feedbackV1 = topicV1.feedback;
-  modelAnswerV1 = topicV1.modelAnswer ?? modelAnswerV1;
+  const finalScore = validatedV1.score;
+  let feedbackV1 = validatedV1.feedback;
+  let modelAnswerV1 = validatedV1.modelAnswer ?? graded.parsed.modelAnswer;
 
   const truthV1 = reconcileFeedbackToMarkingTruth({
     feedback: feedbackV1,
@@ -399,7 +448,7 @@ export async function gradeSubmission(input: GradeSubmissionInput): Promise<Grad
       auditApprovedChunkCount: filteredChunks.length,
       effectiveChunkCount: effectiveChunks.length,
       contradictionCheckPassed: reconciled.contradictionCheckPassed,
-      topicConsistencyPassed: topicV1.topicConsistencyPassed,
+      topicConsistencyPassed: validatedV1.topicConsistencyPassed,
       retrievalConfidence: retrievalConfidenceV1,
     });
   }
@@ -434,8 +483,8 @@ export async function gradeSubmission(input: GradeSubmissionInput): Promise<Grad
     rubricIdeas: rubricIdeaStrings,
     acceptedConcepts: acceptedConceptsV1,
     contradictionCheckPassed: reconciled.contradictionCheckPassed,
-    topicConsistencyPassed: topicV1.topicConsistencyPassed,
-    topicConsistencyWarning: topicV1.topicConsistencyWarning,
+    topicConsistencyPassed: validatedV1.topicConsistencyPassed,
+    topicConsistencyWarning: validatedV1.topicConsistencyWarning,
     questionAnalysis,
     retrievalConfidence: retrievalConfidenceV1,
     diagramContext,

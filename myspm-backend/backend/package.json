@@ -10,18 +10,22 @@
     "dev": "cross-env NODE_ENV=development tsx ./src/index.ts",
     "build": "npm run typecheck && tsx ./build.ts",
     "start": "node ./dist/index.mjs",
+
+    "typecheck": "npm run typecheck:libs && tsc -p tsconfig.json --noEmit",
+    "typecheck:libs": "tsc -b tsconfig.workspace.json",
+
+    "test:marking": "tsx ./scripts/marking/runAll.ts",
+    "test:marking:contracts": "tsx ./scripts/marking/subjectContracts.test.ts",
+    "test:marking:policy": "tsx ./scripts/marking/calculationPolicy.test.ts",
+
     "ingest:textbook": "tsx ./scripts/ingestTextbook.ts",
     "ingest:past-paper": "tsx ./scripts/ingestPastPaper.ts",
     "ingest:past-paper-vision": "tsx ./scripts/ingestPastPaperVision.ts",
+    "ingest:past-paper-qa": "tsx ./scripts/ingestPastPaperQa.ts",
     "ingest:pdf-hybrid": "tsx ./scripts/ingestPdfHybrid.ts",
     "classify:pdf-pages": "tsx ./scripts/classifyPdfPages.ts",
-    "ingest:past-paper-qa": "tsx ./scripts/ingestPastPaperQa.ts",
     "extract:pdf-text": "tsx ./scripts/extractPastPaperPdfText.ts",
-    "typecheck:libs": "tsc -b tsconfig.workspace.json",
-    "typecheck": "npm run typecheck:libs && tsc -p tsconfig.json --noEmit",
-    "test:marking": "tsx ./scripts/marking/artifactPolicy.test.ts && tsx ./scripts/marking/agentRouter.test.ts && tsx ./scripts/marking/subjectContracts.test.ts && tsx ./scripts/marking/calculationPolicy.test.ts && tsx ./scripts/marking/calculationVerification.test.ts && tsx ./scripts/marking/coverageChain.test.ts && tsx ./scripts/marking/gradeServiceSplitWiring.test.ts && tsx ./scripts/marking/normalizeCalculationModelAnswer.test.ts && tsx ./scripts/marking/perPointModelAnswer.test.ts && tsx ./scripts/marking/markingPointDecomposition.test.ts && tsx ./scripts/marking/feedbackAndModelPoints.test.ts && tsx ./scripts/marking/udmTraceExamples.test.ts && tsx ./scripts/marking/coverThresholdMeasure.test.ts && tsx ./scripts/marking/fixedSetWipe.test.ts && tsx ./scripts/marking/coreConceptScoring.test.ts",
-    "test:marking:contracts": "tsx ./scripts/marking/subjectContracts.test.ts",
-    "test:marking:policy": "tsx ./scripts/marking/calculationPolicy.test.ts",
+
     "test:physics-f4-ch1-theory": "tsx ./scripts/runPhysicsF4Ch1TheoryBenchmark.ts",
     "test:physics-f4-ch1-theory:dry": "tsx ./scripts/runPhysicsF4Ch1TheoryBenchmark.ts --dry",
     "test:physics-f4-ch1-theory:smoke": "tsx ./scripts/runPhysicsF4Ch1TheoryBenchmark.ts --limit 3",

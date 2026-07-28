@@ -12,21 +12,21 @@ import {
   formatDiagramImageEvidenceBlock,
   formatSpmStudentFriendlyRulesBlock,
   gradingUsesVisualFigure,
-} from "../gradingPolicy";
-import { formatEvidenceOnlyMarkingBlock, sanitizeLearnerFeedback } from "../gradingEvidencePolicy";
-import { renderDiagramContextForGrader } from "../diagramFactExtraction";
+} from "../shared/gradingPolicy";
+import { formatEvidenceOnlyMarkingBlock, sanitizeLearnerFeedback } from "../shared/gradingEvidencePolicy";
+import { renderDiagramContextForGrader } from "../extraction/diagramFactExtraction";
 import {
   buildFeedbackVerbFormatRulesBlock,
   buildModelAnswerQualityRulesBlock,
   buildModelAnswerVerbFormatRulesBlock,
-} from "../modelAnswerFeedbackFormatPolicy";
+} from "../feedback/modelAnswerFeedbackFormatPolicy";
 import {
   buildLanguageDirective,
   resolveFeedbackLanguage,
   isDiagramLabelQuestion,
   isGraphReadingQuestion,
   type AnswerLanguage,
-} from "../gradingTextUtils";
+} from "../shared/gradingTextUtils";
 
 type QwenGradeShape = {
   score: number;

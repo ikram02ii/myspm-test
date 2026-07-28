@@ -2,7 +2,7 @@
  * Feedback canonical language strings (B4).
  * Text must stay byte-identical to the approved gap-feedback LANGUAGE RULE section.
  */
-import type { AnswerLanguage } from "../../gradingTextUtils";
+import type { AnswerLanguage } from "../../shared/gradingTextUtils";
 
 /** Language label line for the feedback system prompt (after `Language: `). */
 export function buildFeedbackCanonicalLanguageLine(language: AnswerLanguage): string {

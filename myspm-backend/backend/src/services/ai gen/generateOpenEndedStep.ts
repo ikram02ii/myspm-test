@@ -6,7 +6,10 @@ import {
   formatSourcesSummary,
   type RagGenerationSource,
 } from "../ama/retrieval/ragSourceAttribution";
-import { analyzeQuestion } from "../ama/grading/questionAnalysisService";
+import {
+  analyzeQuestion,
+  suggestMaxMarksFromQuestionStructure,
+} from "../ama/grading/questionAnalysisService";
 import {
   buildAssessmentCasePackage,
   evidenceUnitsToRubricIdeas,
@@ -94,10 +97,18 @@ function sourcesFromHits(hits: RetrievedChunk[]): RagGenerationSource[] {
   return chunksToGenerationSources(hits);
 }
 
+function stripTrailingMarkAllocation(text: string): string {
+  return text
+    .replace(/\s*\(\s*\d+\s*marks?\s*\)\s*$/i, "")
+    .replace(/\s*\(\s*\d+\s*markah\s*\)\s*$/i, "")
+    .trim();
+}
+
 function normalizeOpenEndedQuestionText(questionTextRaw: string, maxMarks: number): string | null {
-  const trimmed = questionTextRaw.trim();
+  const trimmed = stripTrailingMarkAllocation(questionTextRaw.trim());
   if (!trimmed) return null;
-  return /\bmarks?\)|\bmarkah\)/i.test(trimmed) ? trimmed : `${trimmed} (${maxMarks} marks)`;
+  const safe = Math.max(1, Math.min(6, Math.floor(maxMarks)));
+  return `${trimmed} (${safe} mark${safe === 1 ? "" : "s"})`;
 }
 
 async function generateOneOpenEndedQuestionDraft(params: {
@@ -115,8 +126,9 @@ async function generateOneOpenEndedQuestionDraft(params: {
     "Return JSON only, no prose, no code fences.",
     'Schema: { "questionText": string, "maxMarks": number }',
     "Generate exactly one question per response.",
-    "questionText must include mark allocation at the end, e.g. '(2 marks)'.",
-    "maxMarks must be an integer from 1 to 3 only.",
+    "questionText must include mark allocation at the end, e.g. '(2 marks)' — the server may recalibrate marks from question structure.",
+    "maxMarks should reflect demand: identify/name one ≈ 1; state/list two ≈ 2; explain/describe ≈ 3–4; compare ≈ 4; calculation with working ≈ 2–3.",
+    "maxMarks must be an integer from 1 to 6.",
     "The question must be short and answerable in a few sentences.",
     "Use SPM Form 4/5 depth only.",
     "Do not repeat or closely paraphrase any prior question stem listed in the user message.",
@@ -173,8 +185,17 @@ async function generateOneOpenEndedQuestionDraft(params: {
       : null;
   const questionTextRaw = typeof row?.["questionText"] === "string" ? row["questionText"].trim() : "";
   if (!questionTextRaw) return null;
+  // Drive marks from stem structure/type (pre-merge behaviour); do not trust LLM defaults of 1.
+  const structural = suggestMaxMarksFromQuestionStructure(questionTextRaw);
   const marksRaw = typeof row?.["maxMarks"] === "number" ? row["maxMarks"] : Number(row?.["maxMarks"]);
-  const maxMarks = Number.isFinite(marksRaw) ? Math.max(1, Math.min(3, Math.floor(marksRaw))) : 2;
+  const llmMarks = Number.isFinite(marksRaw) ? Math.floor(marksRaw) : NaN;
+  const maxMarks = Math.max(
+    1,
+    Math.min(
+      6,
+      Number.isFinite(llmMarks) && llmMarks >= 2 ? Math.max(llmMarks, structural) : structural,
+    ),
+  );
   const questionText = normalizeOpenEndedQuestionText(questionTextRaw, maxMarks);
   if (!questionText) return null;
   return { questionText, maxMarks };

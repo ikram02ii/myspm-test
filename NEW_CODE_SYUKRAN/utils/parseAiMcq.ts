@@ -3,6 +3,9 @@ import {
   buildQuestionPayloadForGrade,
   inferMaxScoreFromMarkScheme,
 } from "./markSchemeInference";
+import {
+  resolveMarksPreferringStructure,
+} from "./questionMarkAllocation";
 
 function normalizeNewlines(s: string): string {
   return (s ?? "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
@@ -100,13 +103,31 @@ function countDistinctModelAnswerPoints(text: string): number {
   return 1;
 }
 
-function resolveGeneratedMaxMarks(lines: string[], jawapan: string, markingPoints: string[]): number | undefined {
-  if (markingPoints.length >= 1) return markingPoints.length;
-
+function resolveGeneratedMaxMarks(
+  lines: string[],
+  jawapan: string,
+  markingPoints: string[],
+  questionText: string,
+): number {
+  const fromPoints = markingPoints.length >= 1 ? markingPoints.length : undefined;
   const fromJawapan = countDistinctModelAnswerPoints(jawapan);
-  if (fromJawapan >= 1) return fromJawapan;
+  const fromMarkah = parseMarkahFromBlock(lines);
+  const schemeCandidate =
+    fromPoints != null && fromPoints >= 1
+      ? fromPoints
+      : fromJawapan >= 2
+        ? fromJawapan
+        : fromMarkah != null
+          ? fromMarkah
+          : fromJawapan >= 1
+            ? fromJawapan
+            : undefined;
 
-  return parseMarkahFromBlock(lines);
+  return resolveMarksPreferringStructure({
+    questionText,
+    fromScheme: schemeCandidate,
+    isMcq: false,
+  });
 }
 
 function buildQuestionForGradePayload(
@@ -304,12 +325,20 @@ export function parseAiGeneratedOpenEnded(
     const explanationLines = lines.slice(explanationStart);
     const jawapan = extractJawapanFromLines(lines);
     const markingPoints = parseMarkingPointsFromLines(lines);
-    const maxMarks = resolveGeneratedMaxMarks(lines, jawapan, markingPoints);
     const questionText = formatBilingualQuestionStem(questionLines.join("\n"));
     const explanation = explanationLines.join("\n").trim() || null;
     if (!questionText) continue;
 
-    const questionForGrade = buildQuestionForGradePayload(questionText, maxMarks, jawapan, markingPoints);
+    const maxMarks = resolveGeneratedMaxMarks(lines, jawapan, markingPoints, questionText);
+    const questionTextWithMarks = /\(\s*\d+\s*marks?\s*\)|\(\s*\d+\s*markah\s*\)/i.test(questionText)
+      ? questionText
+      : `${questionText} (${maxMarks} mark${maxMarks === 1 ? "" : "s"})`;
+    const questionForGrade = buildQuestionForGradePayload(
+      questionTextWithMarks,
+      maxMarks,
+      jawapan,
+      markingPoints,
+    );
     const rubricIdeas = markingPoints.map((idea, index) => ({
       id: `mp-${index + 1}`,
       idea,
@@ -319,7 +348,7 @@ export function parseAiGeneratedOpenEnded(
     out.push({
       id: out.length + 1,
       sortOrder: block.index,
-      questionText,
+      questionText: questionTextWithMarks,
       questionType: type === "short" ? "short_answer" : "essay",
       difficulty: "mixed",
       options: [],

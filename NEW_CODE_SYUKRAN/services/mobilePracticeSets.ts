@@ -3,6 +3,7 @@ import {
   buildQuestionPayloadForGrade,
   inferMaxScoreFromMarkScheme,
 } from "../utils/markSchemeInference";
+import { resolveMarksPreferringStructure } from "../utils/questionMarkAllocation";
 
 export type PracticeSetSummary = {
   id: number;
@@ -242,7 +243,7 @@ export function stemAlreadyHasMarksAtEnd(questionText: string): boolean {
   return MARKS_AT_END_RE.test((questionText || "").trim());
 }
 
-/** Total marks for display and grading — from mark scheme (checklist), not stem wording. */
+/** Total marks for display and grading — prefer mark scheme, then structure/type analysis. */
 export function resolveQuestionMarks(
   q: PracticeSetQuestion,
   questionForGrade?: string,
@@ -250,15 +251,15 @@ export function resolveQuestionMarks(
   const isMcq =
     (q.options?.length ?? 0) > 0 ||
     /multiple_choice|mcq|choice/i.test(q.questionType ?? "");
-  const fallback = isMcq ? 1 : 5;
+  if (isMcq) return 1;
 
   const gradePayload = buildQuestionPayloadForGrade(
     q.questionText,
     questionForGrade ?? q.questionForGrade,
     q.explanation,
   );
-  const fromScheme = inferMaxScoreFromMarkScheme(gradePayload, fallback);
-  if (fromScheme.source !== "client") {
+  const fromScheme = inferMaxScoreFromMarkScheme(gradePayload, 2);
+  if (fromScheme.source !== "client" && fromScheme.maxScore >= 2) {
     return fromScheme.maxScore;
   }
 
@@ -267,15 +268,29 @@ export function resolveQuestionMarks(
       (sum, row) => sum + (Number.isFinite(row.marks) && row.marks > 0 ? Math.floor(row.marks) : 1),
       0,
     );
-    if (schemeTotal >= 1 && schemeTotal <= 20) return schemeTotal;
+    // Multi-point rubrics win; a single 1-mark row often means under-allocation after merge.
+    if (schemeTotal >= 2 && schemeTotal <= 20) return schemeTotal;
   }
 
   if (typeof q.maxMarks === "number" && Number.isFinite(q.maxMarks)) {
     const n = Math.floor(q.maxMarks);
-    if (n >= 1 && n <= 20) return n;
+    if (n >= 2 && n <= 20) return n;
   }
 
-  return fallback;
+  const thinScheme =
+    fromScheme.source !== "client"
+      ? fromScheme.maxScore
+      : typeof q.maxMarks === "number" && Number.isFinite(q.maxMarks)
+        ? Math.floor(q.maxMarks)
+        : q.rubricIdeas && q.rubricIdeas.length > 0
+          ? 1
+          : null;
+
+  return resolveMarksPreferringStructure({
+    questionText: q.questionText,
+    fromScheme: thinScheme,
+    isMcq: false,
+  });
 }
 
 export { buildQuestionPayloadForGrade };

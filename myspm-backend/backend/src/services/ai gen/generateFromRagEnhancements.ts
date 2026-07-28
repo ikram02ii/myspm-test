@@ -323,7 +323,7 @@ Do NOT use Markah:, Marking points:, or essay-style model answers for MCQ.${scie
   if (isSubjectiveGenerationQuery(query)) {
     const marksGuide = buildPastPaperMarksGuidance(hits);
     parts.push(`
-The user wants subjective (structured) questions. Use Markah: calibrated from past-paper excerpts.
+The user wants subjective (structured) questions. Use Markah: from question demand (explain/compare ≈ 3–4, state N ≈ N, never default all to 1), then matching Marking points; calibrate depth from past-paper excerpts.
 ${marksGuide ? `\n${marksGuide}\n` : ""}`);
   }
 

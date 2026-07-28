@@ -7,7 +7,7 @@ export {
   gradeOpenEndedV3,
   gradeOpenEndedV3 as gradeWithPipelineV2,
   type PipelineResult,
-} from "./v3/openEndedMarkingRouter";
+} from "./agents/openEndedMarkingRouter";
 
 /** @deprecated no-op shim kept for gradeService v1 compatibility */
 export async function extractStudentIdeas(

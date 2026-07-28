@@ -158,14 +158,20 @@ describe("cover threshold measurement after Fix D", () => {
       delta55vs72: passAt(0.55) - passAt(0.72),
     });
 
-    // Soft asserts: measurement script always succeeds; Fix D/B should help A and C.
+    // Soft asserts: measurement script always succeeds.
+    // P0: full-answer fallback is disabled — ungrounded quotes stay rejected.
     const a = rows.find((r) => r.id === "A-base-quantity")!;
-    assert.equal(a["cover@0.72"], true, "Fix D aliases should let Example A cover at 72%");
+    assert.equal(a["cover@0.72"], true, "core/alias cover should let Example A cover at 72%");
     const c = rows.find((r) => r.id === "C-paraphrased-quote")!;
     assert.equal(
+      (c.gateNoFallback as { pass: boolean }).pass,
+      false,
+      "ungrounded paraphrased quote must fail without inventing evidence",
+    );
+    assert.equal(
       (c.gateWithFallback as { pass: boolean }).pass,
-      true,
-      "Fix B should rescue Example C via full-answer fallback",
+      false,
+      "P0: full-answer fallback disabled — with/without flag must both reject ungrounded quotes",
     );
   });
 });

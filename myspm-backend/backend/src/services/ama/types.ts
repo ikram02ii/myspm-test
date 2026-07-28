@@ -223,6 +223,12 @@ export type GradeSubmissionInput = {
   chapterFilter?: string;
   /** Soft ranking boost toward a chapter heading when no strict filter is set. */
   chapterHint?: string;
+  /**
+   * Prior question steps / conversation context for multi-part questions.
+   * Marking uses this so information already established or asked in earlier
+   * parts is NOT penalised as "missing" when grading THIS part's answer.
+   */
+  questionContext?: string;
 };
 
 export type MatchMethod =
@@ -493,8 +499,14 @@ export type GradeSubmissionResult = {
   modelAnswer?: string;
   /** Preferred: one exemplar string per marking point (avoids client re-split bugs). */
   modelAnswerPoints?: string[];
-  /** Preferred: exemplar + marks per credit unit for UI cards. */
-  modelAnswerPointCards?: Array<{ text: string; marks: number }>;
+  /** Preferred: exemplar + marks (+ award status) per credit unit for UI cards. */
+  modelAnswerPointCards?: Array<{
+    text: string;
+    marks: number;
+    awarded?: boolean;
+    rubricId?: string;
+    reason?: string;
+  }>;
   matchedIdeas?: string[];
   missingIdeas?: string[];
   markBreakdown?: MarkBreakdownItem[];

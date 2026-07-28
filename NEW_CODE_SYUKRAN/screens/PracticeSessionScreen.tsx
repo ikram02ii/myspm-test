@@ -228,6 +228,8 @@ function extractModelAnswerFromExplanation(explanation: string | null | undefine
 type ModelMarkPoint = {
   text: string;
   marks: number;
+  awarded?: boolean;
+  reason?: string;
 };
 
 type OpenEndedFeedback = {
@@ -236,6 +238,8 @@ type OpenEndedFeedback = {
   maxScore: number;
   modelAnswerRaw?: string;
   showCalculationLayout: boolean;
+  /** Per-stage ✓/✗ for calculation questions. */
+  calcMarkPoints?: ModelMarkPoint[];
 };
 
 const CALC_MARK_SCHEME_LABEL =
@@ -378,10 +382,20 @@ function parseOpenEndedFeedback(
     feedback?: string;
     modelAnswer?: string;
     modelAnswerPoints?: string[];
-    modelAnswerPointCards?: Array<{ text?: string; marks?: number }>;
+    modelAnswerPointCards?: Array<{
+      text?: string;
+      marks?: number;
+      awarded?: boolean;
+      reason?: string;
+    }>;
     score?: number;
     maxScore?: number;
-    markBreakdown?: Array<{ idea?: string; marks?: number }>;
+    markBreakdown?: Array<{
+      idea?: string;
+      marks?: number;
+      awarded?: boolean;
+      reason?: string;
+    }>;
   } | null | undefined,
   fallbackExplanation?: string | null,
   questionText = "",
@@ -391,10 +405,29 @@ function parseOpenEndedFeedback(
   const max = Number(result?.maxScore);
   const maxScore = Number.isFinite(max) && max > 0 ? Math.round(max) : 1;
   const generatedAnswer = extractModelAnswerFromExplanation(fallbackExplanation);
-  // Always show the model answer (even at full marks). Prefer the backend model
-  // answer; fall back to one extracted from the explanation regardless of score.
   const answerRaw = modelAnswer || generatedAnswer;
   const showCalculationLayout = detectCalculationFeedback(result, answerRaw, questionText);
+
+  const apiCards = Array.isArray(result?.modelAnswerPointCards)
+    ? result!
+        .modelAnswerPointCards!.map((c) => ({
+          text: String(c?.text || "").trim(),
+          marks: Number.isFinite(Number(c?.marks)) && Number(c?.marks) > 0 ? Number(c!.marks) : 1,
+          awarded: typeof c?.awarded === "boolean" ? c.awarded : undefined,
+          reason: typeof c?.reason === "string" ? c.reason : undefined,
+        }))
+        .filter((c) => c.text.length > 0)
+    : [];
+
+  const fromBreakdown =
+    Array.isArray(result?.markBreakdown) && result!.markBreakdown!.length > 0
+      ? result!.markBreakdown!.map((row) => ({
+          text: String(row?.idea || "").trim(),
+          marks: Number.isFinite(Number(row?.marks)) && Number(row?.marks) > 0 ? Number(row!.marks) : 1,
+          awarded: row?.awarded === true,
+          reason: typeof row?.reason === "string" ? row.reason : undefined,
+        })).filter((c) => c.text.length > 0)
+      : [];
 
   if (showCalculationLayout) {
     return {
@@ -403,31 +436,37 @@ function parseOpenEndedFeedback(
       maxScore,
       modelAnswerRaw: answerRaw,
       showCalculationLayout: true,
+      calcMarkPoints: apiCards.length > 0 ? apiCards : fromBreakdown,
     };
   }
-
-  const apiCards = Array.isArray(result?.modelAnswerPointCards)
-    ? result!
-        .modelAnswerPointCards!.map((c) => ({
-          text: String(c?.text || "").trim(),
-          marks: Number.isFinite(Number(c?.marks)) && Number(c?.marks) > 0 ? Number(c!.marks) : 1,
-        }))
-        .filter((c) => c.text.length > 0)
-    : [];
 
   const apiPoints = Array.isArray(result?.modelAnswerPoints)
     ? result!.modelAnswerPoints!.map((p) => String(p || "").trim()).filter(Boolean)
     : [];
 
-  // Prefer structured API cards/points — never trust local text re-split when backend provided them.
+  // Prefer structured API cards — merge award status from breakdown when missing.
   const modelPoints =
     apiCards.length > 0
-      ? apiCards
+      ? apiCards.map((card, i) => ({
+          ...card,
+          awarded:
+            typeof card.awarded === "boolean"
+              ? card.awarded
+              : fromBreakdown[i]?.awarded,
+          reason: card.reason ?? fromBreakdown[i]?.reason,
+        }))
       : apiPoints.length > 0
-        ? apiPoints.map((text) => ({ text, marks: 1 }))
-        : answerRaw
-          ? splitModelAnswerPoints(answerRaw, maxScore)
-          : [];
+        ? apiPoints.map((text, i) => ({
+            text,
+            marks: fromBreakdown[i]?.marks ?? 1,
+            awarded: fromBreakdown[i]?.awarded,
+            reason: fromBreakdown[i]?.reason,
+          }))
+        : fromBreakdown.length > 0
+          ? fromBreakdown
+          : answerRaw
+            ? splitModelAnswerPoints(answerRaw, maxScore)
+            : [];
 
   return {
     feedback: feedback || (modelPoints.length === 0 ? "No feedback returned." : ""),
@@ -1712,6 +1751,43 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
                 {openEndedFeedback.feedback ? (
                   <Text style={styles.explanation}>{openEndedFeedback.feedback}</Text>
                 ) : null}
+                {openEndedFeedback.calcMarkPoints && openEndedFeedback.calcMarkPoints.length > 0 ? (
+                  <View style={styles.modelPointsSection}>
+                    <Text style={styles.modelPointsTitle}>
+                      Marking stages · {openEndedFeedback.maxScore} mark
+                      {openEndedFeedback.maxScore === 1 ? "" : "s"}
+                    </Text>
+                    {openEndedFeedback.calcMarkPoints.map((point, i) => (
+                      <View key={i} style={styles.modelPointRow}>
+                        <View
+                          style={[
+                            styles.modelPointBadge,
+                            typeof point.awarded === "boolean"
+                              ? point.awarded
+                                ? styles.modelPointBadgeOk
+                                : styles.modelPointBadgeBad
+                              : null,
+                          ]}
+                        >
+                          <Text style={styles.modelPointBadgeText}>
+                            {typeof point.awarded === "boolean" ? (point.awarded ? "✓" : "✗") : String(i + 1)}
+                          </Text>
+                        </View>
+                        <View style={styles.modelPointBody}>
+                          <Text style={styles.modelPointMark}>
+                            {formatMarkLabel(point.marks)}
+                            {typeof point.awarded === "boolean"
+                              ? point.awarded
+                                ? " · awarded"
+                                : " · missing"
+                              : ""}
+                          </Text>
+                          <Text style={styles.modelPointText}>{point.text}</Text>
+                        </View>
+                      </View>
+                    ))}
+                  </View>
+                ) : null}
                 {openEndedFeedback.modelAnswerRaw ? (
                   <View style={styles.calcModelSection}>
                     <Text style={styles.calcModelTitle}>Model answer</Text>
@@ -1734,11 +1810,29 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
                     </Text>
                     {openEndedFeedback.modelPoints.map((point, i) => (
                       <View key={i} style={styles.modelPointRow}>
-                        <View style={styles.modelPointBadge}>
-                          <Text style={styles.modelPointBadgeText}>{i + 1}</Text>
+                        <View
+                          style={[
+                            styles.modelPointBadge,
+                            typeof point.awarded === "boolean"
+                              ? point.awarded
+                                ? styles.modelPointBadgeOk
+                                : styles.modelPointBadgeBad
+                              : null,
+                          ]}
+                        >
+                          <Text style={styles.modelPointBadgeText}>
+                            {typeof point.awarded === "boolean" ? (point.awarded ? "✓" : "✗") : String(i + 1)}
+                          </Text>
                         </View>
                         <View style={styles.modelPointBody}>
-                          <Text style={styles.modelPointMark}>{formatMarkLabel(point.marks)}</Text>
+                          <Text style={styles.modelPointMark}>
+                            {formatMarkLabel(point.marks)}
+                            {typeof point.awarded === "boolean"
+                              ? point.awarded
+                                ? " · awarded"
+                                : " · missing"
+                              : ""}
+                          </Text>
                           <Text style={styles.modelPointText}>{point.text}</Text>
                         </View>
                       </View>
@@ -2369,6 +2463,14 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     flexShrink: 0,
     marginTop: 2,
+  },
+  modelPointBadgeOk: {
+    backgroundColor: "rgba(22, 163, 74, 0.15)",
+    borderColor: "rgba(22, 163, 74, 0.45)",
+  },
+  modelPointBadgeBad: {
+    backgroundColor: "rgba(220, 38, 38, 0.12)",
+    borderColor: "rgba(220, 38, 38, 0.4)",
   },
   modelPointBadgeText: {
     fontSize: 12,

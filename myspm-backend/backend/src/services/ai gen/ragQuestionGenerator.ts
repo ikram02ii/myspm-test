@@ -102,7 +102,7 @@ function subjectiveGenerationReminder(query: string, hits: RetrievedChunk[], sub
   const marksGuide = buildPastPaperMarksGuidance(hits);
   return `
 
-The user wants subjective questions. Use Markah: calibrated from past-paper excerpts.
+The user wants subjective questions. Use Markah: from question demand (never default all to 1), calibrated with past-paper excerpts.
 ${marksGuide ? `\n${marksGuide}\n` : ""}`;
 }
 

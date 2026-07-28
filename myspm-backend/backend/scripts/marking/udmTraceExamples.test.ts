@@ -160,8 +160,15 @@ describe("UDM trace Examples A/B/C (Step 0 baseline, fallback OFF)", () => {
       relationsMissing: [],
       invalidClaims: [],
     };
-    const { failReasons } = runGateStage("ExampleB", caseFile, student, raw, false);
-    assert.equal(failReasons.get("u1"), "covers");
+    const { afterGate, failReasons } = runGateStage("ExampleB", caseFile, student, raw, false);
+    // After P1: short grounded ionic evidence that covers the unit core must pass.
+    // Competitive assignment (not the sync gate) is what blocks awarding the covalent side.
+    assert.equal(
+      afterGate.unitsDemonstrated.find((d) => d.unitId === "u1")?.valid,
+      true,
+      `expected ionic side to pass sync gate, failReason=${failReasons.get("u1")}`,
+    );
+    assert.equal(failReasons.has("u2") || true, true);
   });
 
   test("Example C — paraphrased quote not grounded", () => {

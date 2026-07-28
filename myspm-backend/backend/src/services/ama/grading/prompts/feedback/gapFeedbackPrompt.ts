@@ -2,8 +2,8 @@
  * Canonical SPM gap-feedback system + user prompt builders.
  * Prompt text must stay byte-identical to the approved feedback template.
  */
-import type { AnswerLanguage } from "../../gradingTextUtils";
-import type { ModelAnswerVerbFamily } from "../../modelAnswerFeedbackFormatPolicy";
+import type { AnswerLanguage } from "../../shared/gradingTextUtils";
+import type { ModelAnswerVerbFamily } from "../../feedback/modelAnswerFeedbackFormatPolicy";
 import {
   buildFeedbackCanonicalLanguageLine,
   FEEDBACK_LANGUAGE_RULE_FOOTER_LINES,

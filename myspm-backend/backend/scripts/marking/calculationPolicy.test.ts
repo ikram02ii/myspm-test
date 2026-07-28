@@ -206,6 +206,59 @@ describe("calculation ACF policy", () => {
     assert.equal(scored.score, 0);
   });
 
+  test("answer-only final does not earn formula/working marks (hallucinated quotes stripped)", () => {
+    const acf = finalizeCalculationAssessmentCase(
+      baseAcf({
+        question: "Calculate the mass of NaCl produced. (3 marks)",
+        maxScore: 3,
+        subject: "Chemistry",
+      }),
+    );
+    const udm = reconcileCalculationDemonstration({
+      question: acf.question,
+      studentAnswer: "58.5 g",
+      acf,
+      referenceModelAnswer: "58.5 g",
+      udm: {
+        unitsDemonstrated: [
+          // LLM invents formula/working from the model answer — not in student text
+          { unitId: "calc_s1", quote: "Mass = n × Mr", valid: true },
+          { unitId: "calc_s2", quote: "Mass = 1 × 58.5 = 58.5", valid: true },
+          { unitId: "calc_s3", quote: "58.5 g", valid: true },
+        ],
+        relationsDemonstrated: [],
+        unitsMissing: [],
+        relationsMissing: [],
+        invalidClaims: [],
+      },
+    });
+    const scored = scoreFromDemonstration(acf, udm);
+    assert.equal(scored.score, 1, "only final stage should score when working is absent");
+    const awarded = scored.markBreakdown.filter((row) => row.awarded).map((row) => row.rubricId);
+    assert.deepEqual(awarded, ["calc_s3"]);
+  });
+
+  test("misconfigured answer_only on multi-mark ACF scores by stages not full marks", () => {
+    const acf = finalizeCalculationAssessmentCase(
+      baseAcf({
+        question: "Calculate the moles. (3 marks)",
+        maxScore: 3,
+        subject: "Chemistry",
+      }),
+    );
+    // Force a bad policy that should not award full marks for final-only.
+    acf.markRule = { ...acf.markRule, calcPolicy: "answer_only" };
+    const scored = scoreFromDemonstration(acf, {
+      unitsDemonstrated: [{ unitId: "calc_s3", quote: "2 mol", valid: true }],
+      relationsDemonstrated: [],
+      unitsMissing: [],
+      relationsMissing: [],
+      invalidClaims: [],
+    });
+    assert.equal(scored.score, 1);
+    assert.ok(scored.score < acf.maxScore);
+  });
+
   test("physics partial credit: correct method, wrong arithmetic on final", () => {
     const acf = finalizeCalculationAssessmentCase(
       baseAcf({

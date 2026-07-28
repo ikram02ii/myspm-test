@@ -5,19 +5,22 @@
 import assert from "node:assert/strict";
 import { test, describe } from "node:test";
 import {
+  buildStructuredMarkPointCards,
+  formatMarkPointStatusSummary,
   formatPerPointModelAnswerForDisplay,
   resolvePerPointExemplars,
   splitReferenceIntoPointExemplars,
-} from "../../src/services/ama/grading/v3/perPointModelAnswer.ts";
-import type { AssessmentCaseFile } from "../../src/services/ama/grading/v3/types.ts";
+} from "../../src/services/ama/grading/case/perPointModelAnswer.ts";
+import type { AssessmentCaseFile } from "../../src/services/ama/grading/shared/types.ts";
 
-function theoryAcf(units: Array<{ id: string; content: string }>): AssessmentCaseFile {
+function theoryAcf(units: Array<{ id: string; content: string; marks?: number }>): AssessmentCaseFile {
+  const maxScore = units.reduce((s, u) => s + (u.marks ?? 1), 0);
   return {
     v: 3,
     question: "Compare ionic and covalent bonding.",
     subject: "Chemistry",
     form: "Form 5",
-    maxScore: units.length,
+    maxScore,
     intent: {
       category: "compare",
       family: "comparison",
@@ -31,11 +34,11 @@ function theoryAcf(units: Array<{ id: string; content: string }>): AssessmentCas
       type: "fact" as const,
       content: u.content,
       aliases: [],
-      creditWeight: 1,
+      creditWeight: u.marks ?? 1,
       required: false,
     })),
     relations: [],
-    markRule: { kind: "count_distinct_units", maxMarks: units.length, openPool: false },
+    markRule: { kind: "count_distinct_units", maxMarks: maxScore, openPool: false },
     chunkRefs: [],
     contextSource: "llm_fallback",
     referenceModelAnswer:
@@ -75,5 +78,42 @@ describe("perPointModelAnswer", () => {
     const display = formatPerPointModelAnswerForDisplay(rows, acf.question);
     assert.match(display, /^1\./m);
     assert.equal(display.split(/\n\s*\n+/).filter(Boolean).length, 2);
+  });
+
+  test("structured cards carry marks and award status for feedback", () => {
+    const acf = theoryAcf([
+      { id: "u1", content: "Ionic strong electrostatic forces", marks: 1 },
+      { id: "u2", content: "Covalent weak intermolecular forces", marks: 2 },
+    ]);
+    const cards = buildStructuredMarkPointCards({
+      acf,
+      question: acf.question,
+      markBreakdown: [
+        {
+          idea: "Ionic strong electrostatic forces",
+          marks: 1,
+          awarded: true,
+          reason: "ok",
+          rubricId: "u1",
+        },
+        {
+          idea: "Covalent weak intermolecular forces",
+          marks: 2,
+          awarded: false,
+          reason: "missing",
+          rubricId: "u2",
+        },
+      ],
+    });
+    assert.equal(cards.length, 2);
+    assert.equal(cards[0]!.awarded, true);
+    assert.equal(cards[0]!.marks, 1);
+    assert.equal(cards[1]!.awarded, false);
+    assert.equal(cards[1]!.marks, 2);
+
+    const summary = formatMarkPointStatusSummary(cards, "english");
+    assert.match(summary, /✓/);
+    assert.match(summary, /✗/);
+    assert.match(summary, /2 marks/);
   });
 });
