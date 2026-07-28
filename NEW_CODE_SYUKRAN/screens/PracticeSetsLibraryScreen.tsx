@@ -910,6 +910,11 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
       ? " Do not output any Perlu rajah or diagram-needed line inside the questions. Diagram decisions will be made in a second pass after the questions are generated. "
       : " ";
 
+    const physicsDiagramFriendly =
+      /^physics$/i.test(subject.trim()) && aiQuestionType === "mcq"
+        ? ` At least ${Math.max(2, Math.ceil(aiQuestionCount * 0.6))} of the ${aiQuestionCount} questions MUST be diagram-friendly SPM Physics items (ray/lens/mirror, circuit, force/vector, wave tank, heat/cooling curve, motion graph, pulley/spring/apparatus). Prefer stems that refer to a shown diagram or labelled setup. Avoid making the whole set pure numeric calculation with no visual. `
+        : "";
+
     const matrixFormatHint = /^(math|additional math)$/i.test(subject.trim())
       ? " For matrix MCQ options, write each matrix as one token in semicolon row form, e.g. [3 2; 1 4] (rows separated by ;, entries by spaces). "
       : " ";
@@ -918,7 +923,7 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
       const mcqFormatRule = isBmOnlySubject
         ? "Use exact format: Soalan 1, then the BM soalan stem (one or two sentences), then A. B. C. D. options, then Jawapan: (one letter A-D only), then Penjelasan:."
         : "Use exact format: Soalan 1, then EN: and BM: stems on separate lines, then A. B. C. D. options, then Jawapan: (one letter A-D only), then Penjelasan:.";
-      return `Generate ${aiQuestionCount} SPM ${subject} MCQ (A-D) objective questions${topicPart}. ${variationInstructions} ${graphInstructions}${stemLanguageRule}${diagramHint}${matrixFormatHint}${mcqFormatRule} You MUST NOT use Markah or Marking points. Repeat for Soalan 2, 3, etc.`;
+      return `Generate ${aiQuestionCount} SPM ${subject} MCQ (A-D) objective questions${topicPart}. ${variationInstructions} ${graphInstructions}${stemLanguageRule}${diagramHint}${physicsDiagramFriendly}${matrixFormatHint}${mcqFormatRule} You MUST NOT use Markah or Marking points. Repeat for Soalan 2, 3, etc.`;
     }
 
     const subjectiveFormatRule = isBmOnlySubject

@@ -121,7 +121,7 @@ async function run(): Promise<void> {
   const {
     ingestPastPaperPdfHybridToRagDb,
     ingestTextbookPdfHybridToRagDb,
-  } = await import("../src/services/ai gen/ingestHybridToRagDb");
+  } = await import("../src/services/pdf/ingestHybridToRagDb");
 
   await ensureRagSchema();
 

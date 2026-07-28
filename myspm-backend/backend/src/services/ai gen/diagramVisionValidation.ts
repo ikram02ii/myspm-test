@@ -1,4 +1,4 @@
-import { resolveQwenVisionPair, resolveVisionModel } from "./visionPdfExtract";
+import { resolveQwenVisionPair, resolveVisionModel } from "../pdf/visionPdfExtract";
 import {
   buildAgent4TextValidatorSystemPrompt,
   buildDiagramVisionCheckPromptBody,

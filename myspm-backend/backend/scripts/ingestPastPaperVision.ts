@@ -101,7 +101,7 @@ async function run(): Promise<void> {
   }
 
   const { ensureRagSchema } = await import("../src/database/initRagDatabase");
-  const { ingestPastPaperPdfViaVisionToRagDb } = await import("../src/services/ai gen/ingestPastPaperViaVision");
+  const { ingestPastPaperPdfViaVisionToRagDb } = await import("../src/services/pdf/ingestPastPaperViaVision");
 
   await ensureRagSchema();
 

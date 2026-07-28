@@ -6,7 +6,7 @@ import {
   extractImageWithVision,
   toUploadedPageAsset,
   type UploadedPageAsset,
-} from "./visionPdfExtract";
+} from "../pdf/visionPdfExtract";
 
 export type { UploadedPageAsset };
 

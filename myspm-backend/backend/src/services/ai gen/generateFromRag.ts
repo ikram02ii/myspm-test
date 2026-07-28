@@ -5,7 +5,7 @@ import {
   shouldGenerateEducationalDiagrams,
 } from "./educationalDiagramService";
 import { finalizeGeneratedAnswer } from "./generateFromRagEnhancements";
-import type { StructuredQuestionDiagram } from "./structuredDiagramPlanner";
+import type { StructuredQuestionDiagram } from "./structuredDiagramTypes";
 import {
   chunksToGenerationSources,
   formatSourcesSummary,
@@ -226,137 +226,148 @@ function systemPromptForSubject(subject: string | null | undefined): string {
 }
 
 function systemPromptForNoRetrievalFallback(subject: string | null | undefined): string {
+  const subjectLabel = subject?.trim() || "SPM";
   const base = systemPromptForSubject(subject).replace(
     `MANDATORY CONTEXT USE:
 - You MUST use ONLY the provided context excerpts when stating specific facts.
 - If context is insufficient, you MUST state so in one short sentence only — then still complete the requested template.
 `,
-    `No context excerpts are available for this request. Use general Malaysian SPM knowledge and still follow the exact requested output template.
+    `You are generating from your own SPM expertise (no textbook excerpts were supplied for this request). Still follow the exact requested output template.
 `,
   );
   return `${base}
 
-Temporary fallback mode when no knowledge-base chunks are available:
-- Do NOT say that context is missing, insufficient, or unavailable.
-- Do NOT apologise or explain retrieval failure.
-- Still fulfill generation requests using general SPM knowledge.
-- Keep the exact output template requested by the user and the system prompt so the client parser can consume it.
-- Output only the requested question blocks, with no preamble, disclaimer, or notes before Soalan 1.`;
+You are a senior Malaysian SPM examination expert and experienced Form 4/5 ${subjectLabel} teacher / item writer.
+- Write authentic SPM-style practice questions from your expert knowledge of the KSSM syllabus and typical SPM exam style.
+- Do NOT say that context, RAG, syllabus chunks, or sources are missing.
+- Do NOT apologise, disclaim, or explain that this is a fallback.
+- Do NOT output placeholder, dummy, or temporary backup questions.
+- Keep the exact output template so the client parser can consume it.
+- Output only the requested question blocks, with no preamble before Soalan 1.`;
 }
 
-const NO_RETRIEVAL_GENERAL_PROMPT = `You MUST generate Malaysian SPM practice content from general subject knowledge only.
+const SPM_EXPERT_FALLBACK_PROMPT = `You are a senior Malaysian SPM examination expert.
+Generate authentic SPM practice questions from your expert subject knowledge only.
 You MUST return ONLY the final question blocks in the exact requested format.
 You MUST NEVER say you lack context, data, syllabus chunks, sources, or verification.
-You MUST NEVER apologise.
-You MUST NEVER add preambles, notes, warnings, or explanations before Soalan 1.`;
-
-function requestedQuestionCount(query: string): number {
-  const m = query.match(/\b(?:generate|buat|hasilkan)\s+(\d{1,2})\b/i);
-  const n = m ? Number(m[1]) : 5;
-  if (!Number.isFinite(n)) return 5;
-  return Math.max(1, Math.min(20, Math.floor(n)));
-}
-
-function fallbackTopicLabel(query: string): string {
-  const m = query.match(/focused on topic:\s*(.+?)(?:\.\s|$)/i);
-  return (m?.[1] ?? "the requested topic").trim();
-}
+You MUST NEVER apologise or mention fallback / backup / placeholder content.
+You MUST NEVER add preambles, notes, warnings, or explanations before Soalan 1.
+Every soalan must be a real exam-style item a student could practise — never dummy text.`;
 
 function looksParseableMcqAnswer(answer: string): boolean {
   const text = answer.trim();
   return (
-    /(?:^|\n)\s*Soalan\s+1\b/i.test(text) &&
-    /(?:^|\n)\s*A\.\s+/m.test(text) &&
-    /(?:^|\n)\s*B\.\s+/m.test(text) &&
-    /(?:^|\n)\s*C\.\s+/m.test(text) &&
-    /(?:^|\n)\s*D\.\s+/m.test(text) &&
-    /(?:^|\n)\s*Jawapan\s*:\s*[A-D]\b/i.test(text) &&
-    /(?:^|\n)\s*Penjelasan\s*:/i.test(text)
+    /(?:^|\n)\s*(?:Soalan|Question)\s+\d+\b/i.test(text) &&
+    /(?:^|\n)\s*A[\.)]\s+/m.test(text) &&
+    /(?:^|\n)\s*B[\.)]\s+/m.test(text) &&
+    /(?:^|\n)\s*C[\.)]\s+/m.test(text) &&
+    /(?:^|\n)\s*D[\.)]\s+/m.test(text) &&
+    /(?:^|\n)\s*(?:Jawapan|Answer|Correct(?:\s+answer)?)\s*:\s*[A-D]\b/i.test(text)
+  );
+}
+
+function looksUsableMcqAnswer(answer: string): boolean {
+  const text = answer.trim();
+  if (text.length < 80) return false;
+  // Keep LLM text if it looks like an MCQ set even when labels are slightly off.
+  return (
+    /(?:^|\n)\s*(?:Soalan|Question)\s+\d+\b/i.test(text) &&
+    /(?:^|\n)\s*[A-D][\.)]\s+\S+/m.test(text) &&
+    /(?:Jawapan|Answer|Correct)\s*:/i.test(text)
   );
 }
 
 function looksParseableSubjectiveAnswer(answer: string): boolean {
   const text = answer.trim();
   return (
-    /(?:^|\n)\s*Soalan\s+1\b/i.test(text) &&
+    /(?:^|\n)\s*(?:Soalan|Question)\s+\d+\b/i.test(text) &&
     /(?:^|\n)\s*Markah\s*:\s*\d+/i.test(text) &&
-    /(?:^|\n)\s*Jawapan\s*:/i.test(text)
+    /(?:^|\n)\s*(?:Jawapan|Answer)\s*:/i.test(text)
   );
 }
 
-function buildEmergencyMcqFallback(query: string, subject: string | null | undefined): string {
-  const count = requestedQuestionCount(query);
-  const topic = fallbackTopicLabel(query);
-  const subjectLabel = subject?.trim() || "the subject";
-  const bmOnly = isForceBmSubject(subject);
-  const items: string[] = [];
-
-  for (let i = 1; i <= count; i += 1) {
-    const stemBlock = bmOnly
-      ? `Item latihan sandaran sementara ${i} bagi ${subjectLabel} untuk topik ${topic}. Pilihan manakah ialah jawapan placeholder bagi set soalan sandaran ini?`
-      : [
-          `EN: Temporary fallback practice item ${i} for ${subjectLabel} on ${topic}. Which option is the placeholder answer for this backup question set?`,
-          `BM: Item latihan sandaran sementara ${i} bagi ${subjectLabel} untuk topik ${topic}. Pilihan manakah ialah jawapan placeholder bagi set soalan sandaran ini?`,
-        ].join("\n");
-    const options = bmOnly
-      ? ["A. Jawapan placeholder", "B. Pilihan alternatif", "C. Pilihan lain", "D. Pilihan terakhir"]
-      : ["A. Placeholder answer", "B. Alternative placeholder", "C. Another placeholder", "D. Last placeholder"];
-    const explanation = bmOnly
-      ? "Item sandaran sementara kerana tiada petikan pangkalan pengetahuan yang sepadan."
-      : "Temporary fallback item returned because no matching knowledge-base chunks were available.";
-    items.push(
-      [`Soalan ${i}`, stemBlock, ...options, "Jawapan: A", `Penjelasan: ${explanation}`].join("\n"),
-    );
-  }
-
-  return items.join("\n\n");
+function looksUsableSubjectiveAnswer(answer: string): boolean {
+  const text = answer.trim();
+  if (text.length < 80) return false;
+  return (
+    /(?:^|\n)\s*(?:Soalan|Question)\s+\d+\b/i.test(text) &&
+    /(?:Jawapan|Answer|Marking points?|Markah)\s*:/i.test(text)
+  );
 }
 
-function buildEmergencySubjectiveFallback(query: string, subject: string | null | undefined): string {
-  const count = requestedQuestionCount(query);
-  const topic = fallbackTopicLabel(query);
-  const subjectLabel = subject?.trim() || "the subject";
-  const bmOnly = isForceBmSubject(subject);
-  const items: string[] = [];
-
-  for (let i = 1; i <= count; i += 1) {
-    const stemBlock = bmOnly
-      ? `Item berstruktur sandaran sementara ${i} bagi ${subjectLabel} untuk topik ${topic}. Nyatakan satu poin yang berkaitan untuk set soalan sandaran ini.`
-      : [
-          `EN: Temporary fallback structured item ${i} for ${subjectLabel} on ${topic}. State one relevant point for this backup question set.`,
-          `BM: Item berstruktur sandaran sementara ${i} bagi ${subjectLabel} untuk topik ${topic}. Nyatakan satu poin yang berkaitan untuk set soalan sandaran ini.`,
-        ].join("\n");
-    items.push(
-      [
-        `Soalan ${i}`,
-        stemBlock,
-        "Markah: 1",
-        bmOnly
-          ? "Jawapan: Mana-mana poin yang berkaitan dengan topik yang diminta."
-          : "Jawapan: Any simple relevant point for the requested topic.",
-        "Marking points:",
-        bmOnly
-          ? "- Terima satu poin yang berkaitan dengan topik yang diminta."
-          : "- Accept one relevant point linked to the requested topic.",
-      ].join("\n"),
-    );
+function answerLooksUsableForQuery(query: string, answer: string): boolean {
+  if (isMcqGenerationQuery(query)) {
+    return looksParseableMcqAnswer(answer) || looksUsableMcqAnswer(answer);
   }
-
-  return items.join("\n\n");
+  if (isSubjectiveGenerationQuery(query)) {
+    return looksParseableSubjectiveAnswer(answer) || looksUsableSubjectiveAnswer(answer);
+  }
+  return answer.trim().length > 40;
 }
 
-function ensureNoRetrievalParseableAnswer(
+/** LLM-only SPM-expert regenerate — never returns hardcoded placeholder questions. */
+async function generateSpmExpertFallbackAnswer(
+  query: string,
+  subject: string | null | undefined,
+  reason: string,
+): Promise<string> {
+  console.warn("[rag/generate] SPM-expert LLM fallback", {
+    subject: subject ?? null,
+    reason,
+  });
+  return chatCompletion(
+    [
+      {
+        role: "system",
+        content: `${systemPromptForNoRetrievalFallback(subject)}\n\n${SPM_EXPERT_FALLBACK_PROMPT}`,
+      },
+      {
+        role: "user",
+        content: `User request:
+${query}
+
+As an SPM expert, write the full set of authentic practice questions now.
+Follow the appropriate template from the system message (MCQ vs subjective).
+Use general SPM / KSSM knowledge only. Output the final question blocks directly with no preamble.${graphJsonReminder(subject, query)}${mcqFormatReminder(query, subject)}${subjectiveGenerationReminder(query, [], subject)}`,
+      },
+    ],
+    { subject, query: `${query} [spm-expert-fallback]` },
+  );
+}
+
+/**
+ * If the model output is unusable, regenerate once via SPM-expert LLM prompt.
+ * Never invent Temporary / Placeholder dummy questions.
+ */
+async function ensureParseableOrSpmExpertFallback(
   query: string,
   subject: string | null | undefined,
   answer: string,
-): string {
-  if (isMcqGenerationQuery(query)) {
-    return looksParseableMcqAnswer(answer) ? answer : buildEmergencyMcqFallback(query, subject);
+): Promise<string> {
+  if (!isMcqGenerationQuery(query) && !isSubjectiveGenerationQuery(query)) {
+    return answer;
   }
-  if (isSubjectiveGenerationQuery(query)) {
-    return looksParseableSubjectiveAnswer(answer) ? answer : buildEmergencySubjectiveFallback(query, subject);
+  if (answerLooksUsableForQuery(query, answer)) {
+    return answer;
   }
-  return answer;
+  console.warn("[rag/generate] output unusable — regenerating with SPM-expert LLM", {
+    subject: subject ?? null,
+    length: answer.trim().length,
+    preview: answer.trim().slice(0, 240),
+  });
+  const regenerated = await generateSpmExpertFallbackAnswer(
+    query,
+    subject,
+    "unusable-primary-output",
+  );
+  if (answerLooksUsableForQuery(query, regenerated)) {
+    return regenerated;
+  }
+  // Still imperfect — return the expert LLM text rather than placeholder junk.
+  console.warn("[rag/generate] SPM-expert regenerate still imperfect — returning LLM text as-is", {
+    preview: regenerated.trim().slice(0, 240),
+  });
+  return regenerated.trim() || answer;
 }
 
 function normalizeBilingualAnswer(answer: string): string {
@@ -442,6 +453,13 @@ function mcqFormatReminder(query: string, subject?: string | null): string {
 
 Science diagram rule: Do not add any "Perlu rajah" or diagram-needed line inside the MCQ blocks. The app will decide diagram rendering in a second pass after the questions are generated.`
     : "";
+  const physicsDiagramBias = isPhysicsSubject(subject)
+    ? `
+
+Physics diagram-friendly stems (IMPORTANT):
+- At least ~60% of Soalan MUST suit a rajah stimulus (ray/lens/mirror, circuit, force/vector, wave, heat curve, motion graph, pulley/apparatus).
+- Prefer stems that refer to a diagram or labelled setup; do not make the whole set pure calculation with no visual.`
+    : "";
   const mcqLine = isForceBmSubject(subject)
     ? "Soalan 1 → BM stem only (no EN:) → A. B. C. D. → Jawapan: <one letter> → Penjelasan:"
     : "Soalan 1 → EN: / BM: (two lines) → A. B. C. D. → Jawapan: <one letter> → Penjelasan:";
@@ -451,7 +469,7 @@ Science diagram rule: Do not add any "Perlu rajah" or diagram-needed line inside
 The user wants objective MCQ (A–D) questions ONLY. Use the MCQ template from the system message:
 ${mcqLine}
 Do NOT use Markah:, Marking points:, or essay-style model answers for MCQ.
-Output at least one full Soalan block before any other text.${scienceDiagramRule}`;
+Output at least one full Soalan block before any other text.${scienceDiagramRule}${physicsDiagramBias}`;
 }
 
 function subjectiveGenerationReminder(
@@ -701,7 +719,11 @@ async function packageGeneratedAnswer(
     },
     answerRaw,
   );
-  const answer = ensureNoRetrievalParseableAnswer(input.query, input.subject, finalized.answer);
+  const answer = await ensureParseableOrSpmExpertFallback(
+    input.query,
+    input.subject,
+    finalized.answer,
+  );
   return {
     ...extras,
     answer,
@@ -712,16 +734,10 @@ async function packageGeneratedAnswer(
   };
 }
 
-export async function generateWithRag(
+/** Retrieve RAG chunks for a generation query (shared by batch + progressive MCQ). */
+export async function retrieveHitsForRagGeneration(
   input: GenerateRagInput,
-): Promise<GenerateRagResult> {
-  if (
-    input.englishSpeaking === true ||
-    (input.skipRetrieval === true && input.subject?.trim().toLowerCase() === "english")
-  ) {
-    return generateEnglishSpeaking(input);
-  }
-
+): Promise<RetrievedChunk[]> {
   const questionCount = parseQuestionCountFromQuery(input.query);
   const topK = Math.max(input.topK ?? 8, questionCount ?? 0);
   const variationSeed = parseVariationSeedFromQuery(input.query);
@@ -764,19 +780,24 @@ export async function generateWithRag(
     chapters: [...new Set(hits.map((h) => h.chapter ?? "(none)"))].slice(0, 10),
     retrievalQuery: generalSyllabusMode ? "general-sample" : retrievalQuery.slice(0, 160),
   });
+  return hits;
+}
 
+/**
+ * Generate questions from already-retrieved hits (batch `/rag/generate` and progressive MCQ step).
+ * Does not change English-speaking / skipRetrieval behaviour — callers handle those first.
+ */
+export async function generateWithRagFromHits(
+  input: GenerateRagInput,
+  hits: RetrievedChunk[],
+): Promise<GenerateRagResult> {
   if (hits.length === 0) {
-    let answerRaw = await chatCompletion([
-      { role: "system", content: `${systemPromptForNoRetrievalFallback(input.subject)}\n\n${NO_RETRIEVAL_GENERAL_PROMPT}` },
-      {
-        role: "user",
-        content: `User request:
-${input.query}
-
-Follow the appropriate template from the system message (MCQ vs subjective). Use general SPM knowledge only, and output the final question blocks directly with no preamble.${graphJsonReminder(input.subject, input.query)}${mcqFormatReminder(input.query, input.subject)}${subjectiveGenerationReminder(input.query, [], input.subject)}`,
-      },
-    ], { subject: input.subject, query: input.query });
-    answerRaw = ensureNoRetrievalParseableAnswer(input.query, input.subject, answerRaw);
+    let answerRaw = await generateSpmExpertFallbackAnswer(
+      input.query,
+      input.subject,
+      "no-retrieval-hits",
+    );
+    answerRaw = await ensureParseableOrSpmExpertFallback(input.query, input.subject, answerRaw);
     let validatedPipelineRan = false;
     let validatedDiagramsApproved = false;
     let prebuiltImages: GenerateRagResult["generatedImages"] | undefined;
@@ -795,7 +816,7 @@ Follow the appropriate template from the system message (MCQ vs subjective). Use
       validatedDiagramsApproved = pipeline.validation?.approved === true;
       prebuiltImages = pipeline.generatedImages;
       if (isForceBmSubject(input.subject)) {
-        answerRaw = ensureNoRetrievalParseableAnswer(input.query, input.subject, answerRaw);
+        answerRaw = await ensureParseableOrSpmExpertFallback(input.query, input.subject, answerRaw);
       }
     }
 
@@ -811,7 +832,7 @@ Follow the appropriate template from the system message (MCQ vs subjective). Use
     subject: input.subject,
   });
   if (isForceBmSubject(input.subject)) {
-    answerRaw = ensureNoRetrievalParseableAnswer(input.query, input.subject, answerRaw);
+    answerRaw = await ensureParseableOrSpmExpertFallback(input.query, input.subject, answerRaw);
   }
 
   const generationSources = chunksToGenerationSources(hits);
@@ -833,7 +854,7 @@ Follow the appropriate template from the system message (MCQ vs subjective). Use
     validatedDiagramsApproved = pipeline.validation?.approved === true;
     prebuiltImages = pipeline.generatedImages;
     if (isForceBmSubject(input.subject)) {
-      answerRaw = ensureNoRetrievalParseableAnswer(input.query, input.subject, answerRaw);
+      answerRaw = await ensureParseableOrSpmExpertFallback(input.query, input.subject, answerRaw);
     }
     console.info("[rag/generate] validated diagram pipeline", {
       attempts: pipeline.attempts,
@@ -853,4 +874,18 @@ Follow the appropriate template from the system message (MCQ vs subjective). Use
     },
     { prebuiltGeneratedImages: prebuiltImages, validatedPipelineRan, validatedDiagramsApproved },
   );
+}
+
+export async function generateWithRag(
+  input: GenerateRagInput,
+): Promise<GenerateRagResult> {
+  if (
+    input.englishSpeaking === true ||
+    (input.skipRetrieval === true && input.subject?.trim().toLowerCase() === "english")
+  ) {
+    return generateEnglishSpeaking(input);
+  }
+
+  const hits = await retrieveHitsForRagGeneration(input);
+  return generateWithRagFromHits(input, hits);
 }

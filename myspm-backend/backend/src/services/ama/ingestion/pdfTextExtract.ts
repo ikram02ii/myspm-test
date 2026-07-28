@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { PDFParse } from "pdf-parse";
-import { configurePdfJsForNode } from "../../ai gen/pdfJsNodeSetup";
+import { configurePdfJsForNode } from "../../pdf/pdfJsNodeSetup";
 
 export type PdfPage = { pageNumber: number; text: string };
 

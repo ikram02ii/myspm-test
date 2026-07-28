@@ -8,7 +8,7 @@ import {
   isScienceDiagramSubject,
   shouldGenerateEducationalDiagrams,
 } from "./educationalDiagramService";
-import type { StructuredQuestionDiagram } from "./structuredDiagramPlanner";
+import type { StructuredQuestionDiagram } from "./structuredDiagramTypes";
 import {
   buildPastPaperMarksGuidance,
   isMcqGenerationQuery,
@@ -315,9 +315,16 @@ export function buildGenerationReminders(
 
 Science diagram rule: Do not output any Perlu rajah or diagram-needed line inside the questions. Diagram decisions are made in a second pass after the questions are generated.`
       : "";
+    const physicsDiagramBias = /^physics$/i.test(subject?.trim() ?? "")
+      ? `
+
+Physics diagram-friendly stems (IMPORTANT):
+- At least ~60% of Soalan MUST be suitable for a rajah stimulus (ray/lens/mirror, circuit, force/vector, wave, heat curve, motion graph, pulley/apparatus).
+- Prefer stems that refer to a diagram/setup the student must interpret; avoid an all-numeric no-visual set.`
+      : "";
     parts.push(`
 The user wants objective MCQ (A–D) questions ONLY. Use the MCQ template from the system message.
-Do NOT use Markah:, Marking points:, or essay-style model answers for MCQ.${scienceDiagramRule}`);
+Do NOT use Markah:, Marking points:, or essay-style model answers for MCQ.${scienceDiagramRule}${physicsDiagramBias}`);
   }
 
   if (isSubjectiveGenerationQuery(query)) {

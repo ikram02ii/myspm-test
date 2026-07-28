@@ -90,11 +90,20 @@ function mcqFormatReminder(query: string, subject?: string | null): string {
   const mcqLine = isForceBmSubject(subject)
     ? "Soalan 1 → BM stem only (no EN:) → A. B. C. D. → Jawapan: <one letter> → Penjelasan:"
     : "Soalan 1 → EN: / BM: (two lines) → A. B. C. D. → Jawapan: <one letter> → Penjelasan:";
+  const physicsDiagramBias = isPhysicsSubject(subject)
+    ? `
+
+Physics diagram-friendly stems (IMPORTANT):
+- At least ~60% of the set MUST be questions that a student would normally answer WITH a rajah stimulus (ray diagram, lens/mirror setup, circuit, force/vector diagram, wave front, heat/cooling curve, motion graph, simple machine/pulley, or laboratory apparatus).
+- Prefer stems like "Based on the diagram…", "In the circuit shown…", "From the ray diagram…", "The velocity–time graph shows…" — the diagram agent will supply the figure later.
+- Avoid making the entire set pure numeric calculation with no visual setup.
+- Do NOT write "Perlu rajah" lines — a separate agent decides diagrams.`
+    : "";
   return `
 
 The user wants objective MCQ (A–D) ONLY. Use this pattern:
 ${mcqLine}
-Do NOT use Markah:, Marking points:, or Perlu rajah lines.`;
+Do NOT use Markah:, Marking points:, or Perlu rajah lines.${physicsDiagramBias}`;
 }
 
 function subjectiveGenerationReminder(query: string, hits: RetrievedChunk[], subject?: string | null): string {

@@ -82,6 +82,17 @@ function parseJsonObject(raw: string): Record<string, unknown> | null {
   }
 }
 
+function isPhysicsSubject(subject: string | null | undefined): boolean {
+  return /^physics$/i.test(subject?.trim() ?? "");
+}
+
+/** Prefer diagrams for Physics stems that mention a visual setup. */
+function physicsStemLikelyNeedsDiagram(stem: string): boolean {
+  return /\b(circuit|lens|mirror|ray|light|optics|force|vector|pulley|wave|front|ripple|tank|heat|cooling|heating|curve|graph|graf|velocity[- ]?time|distance[- ]?time|speed[- ]?time|apparatus|ammeter|voltmeter|resistor|prism|refraction|reflection|convex|concave|spring|hooke|satellite|orbit|pendulum|ticker|slinky|diagram|rajah|shown|figure|setup|arrangement)\b/i.test(
+    stem,
+  );
+}
+
 export async function classifyDiagramNeedsAgent(params: {
   subject: string;
   query: string;
@@ -96,6 +107,17 @@ export async function classifyDiagramNeedsAgent(params: {
     stem: s.stem.slice(0, 600),
   }));
 
+  const physicsBias = isPhysicsSubject(params.subject)
+    ? [
+        "",
+        "Physics bias (IMPORTANT):",
+        "- Prefer needDiagram=true for lens/mirror/ray, circuit, force/vector, wave tank, heat/cooling curve, motion graph, pulley/spring/apparatus, or any stem that refers to a shown setup/figure.",
+        `- Aim for at least ${Math.max(1, Math.ceil(stems.length * 0.5))} of ${stems.length} questions with needDiagram=true when the stems allow a neutral stimulus.`,
+        "- Pure numeric word problems with no visual setup may stay needDiagram=false.",
+        "- Still never reveal the answer in the diagram.",
+      ].join("\n")
+    : "";
+
   const system = [
     "You are agent 2 in an SPM question pipeline: diagram necessity classifier.",
     "Questions are already finalized. For EACH question decide if a black-and-white textbook diagram would help.",
@@ -107,10 +129,13 @@ export async function classifyDiagramNeedsAgent(params: {
     "- If the diagram itself would give away the answer (e.g. 'Which graph shows cooling?' or 'Identify the labelled organelle X'), set needDiagram=false.",
     "- If the question already fully describes the answer in the stem, a diagram is redundant → needDiagram=false.",
     "- Only set needDiagram=true when the diagram provides neutral context the student needs, WITHOUT resolving the question.",
+    physicsBias,
     "",
     'Return JSON only: {"plans":[{"questionIndex":1,"needDiagram":true|false,"imagePrompt":"..."}]}',
     "imagePrompt: when needDiagram=true, one specific silent line-art prompt describing ONLY the neutral setup (no answer, no highlighted/labelled correct part); else empty string.",
-  ].join("\n");
+  ]
+    .filter((line) => line !== "")
+    .join("\n");
 
   const user = [
     `Subject: ${params.subject}`,
@@ -118,6 +143,26 @@ export async function classifyDiagramNeedsAgent(params: {
     "Remember: draw only the given setup — the diagram must NOT reveal the correct answer.",
     `Questions:\n${JSON.stringify(catalog, null, 2)}`,
   ].join("\n\n");
+
+  const defaultPlans = (): DiagramPlan[] =>
+    stems.map((s) => {
+      const prefer =
+        isPhysicsSubject(params.subject) && physicsStemLikelyNeedsDiagram(s.stem);
+      const imagePrompt = prefer
+        ? buildEducationalDiagramPrompt({
+            subject: params.subject,
+            questionStem: s.stem,
+            userQuery: params.query,
+            imagePrompt: params.imagePrompt,
+          })
+        : "";
+      return {
+        questionIndex: s.questionIndex,
+        stem: s.stem,
+        needDiagram: prefer,
+        imagePrompt: prefer ? imagePrompt : "",
+      };
+    });
 
   try {
     const raw = await chatCompletion(
@@ -165,17 +210,25 @@ export async function classifyDiagramNeedsAgent(params: {
       });
     }
 
-    return [...byIndex.values()].sort((a, b) => a.questionIndex - b.questionIndex);
+    let plans = [...byIndex.values()].sort((a, b) => a.questionIndex - b.questionIndex);
+
+    // Physics safety net: if classifier marked none, force heuristic diagram stems.
+    if (isPhysicsSubject(params.subject) && !plans.some((p) => p.needDiagram)) {
+      const boosted = defaultPlans();
+      if (boosted.some((p) => p.needDiagram)) {
+        console.info("[validated-pipeline] Physics classifier returned 0 diagrams — applying stem heuristics", {
+          forced: boosted.filter((p) => p.needDiagram).map((p) => p.questionIndex),
+        });
+        plans = boosted;
+      }
+    }
+
+    return plans;
   } catch (err) {
     console.warn("[validated-pipeline] diagram classifier failed", {
       error: err instanceof Error ? err.message : String(err),
     });
-    return stems.map((s) => ({
-      questionIndex: s.questionIndex,
-      stem: s.stem,
-      needDiagram: false,
-      imagePrompt: "",
-    }));
+    return defaultPlans();
   }
 }
 

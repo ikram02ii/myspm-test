@@ -1,9 +1,9 @@
 import { readFile } from "node:fs/promises";
 import OSS from "ali-oss";
 import { randomUUID } from "node:crypto";
-import { compressImageForVision, resolveVisionPdfRenderScale } from "../../ai gen/compressImageForVision";
-import { openPdfDocument, renderPdfPageToPng } from "../../ai gen/pdfToPngPages";
-import { resolveQwenVisionPair } from "../../ai gen/visionPdfExtract";
+import { compressImageForVision, resolveVisionPdfRenderScale } from "../../pdf/compressImageForVision";
+import { openPdfDocument, renderPdfPageToPng } from "../../pdf/pdfToPngPages";
+import { resolveQwenVisionPair } from "../../pdf/visionPdfExtract";
 
 /** Best vision model for textbook ingestion — verbatim text + figures + tables. */
 export function resolveTextbookVisionModel(): string {

@@ -2,7 +2,7 @@ import * as dotenv from "dotenv";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 import { readFile } from "node:fs/promises";
-import { classifyAllPagesFromText } from "../src/services/ai gen/pageVisionClassifier";
+import { classifyAllPagesFromText } from "../src/services/pdf/pageVisionClassifier";
 import { extractPdfPages } from "../src/services/rag/ingestion/pdfTextExtract";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));

@@ -291,7 +291,9 @@ function shouldHeuristicallyNeedDiagram(subject: string, stem: string, query: st
   }
 
   if (subjectNorm === "physics" || subjectNorm === "science") {
-    return /\b(circuit|lens|light|ray|mirror|force|pulley|vector|apparatus|pressure|wave)\b/.test(ctx);
+    return /\b(circuit|lens|light|ray|mirror|optics|force|pulley|vector|apparatus|pressure|wave|front|ripple|heat|cooling|heating|curve|graph|graf|velocity|distance[- ]?time|speed[- ]?time|spring|hooke|ammeter|voltmeter|resistor|prism|refraction|reflection|convex|concave|pendulum|ticker|slinky|satellite|orbit|diagram|rajah|shown|figure|setup)\b/.test(
+      ctx,
+    );
   }
 
   if (subjectNorm === "math" || subjectNorm === "additional math") {
