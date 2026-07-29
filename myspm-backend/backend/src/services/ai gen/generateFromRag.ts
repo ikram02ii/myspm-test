@@ -16,12 +16,12 @@ import {
   isMcqGenerationQuery,
   isSubjectiveGenerationQuery,
 } from "../ama/retrieval/pastPaperMarksHints";
-import { buildStrictMarkSchemeGenerationBlock } from "../ama/grading/markSchemeGenerationPolicy";
+import { buildStrictMarkSchemeGenerationBlock } from "../ama/grading/shared/markSchemeGenerationPolicy";
 import {
   buildJawapanVerbFormatRulesForGeneration,
   buildKssmTextbookModelAnswerWordingBlock,
-} from "../ama/grading/modelAnswerFeedbackFormatPolicy";
-import { withStrictGenerationLanguage } from "../ama/grading/gradingMandatoryLanguage";
+} from "../ama/grading/feedback/modelAnswerFeedbackFormatPolicy";
+import { withStrictGenerationLanguage } from "../ama/grading/shared/gradingMandatoryLanguage";
 import { retrieveChunks, retrieveGeneralSyllabusChunks } from "../ama/retrieval/retrievalService";
 import type { RetrievedChunk } from "../ama/types";
 import { buildEnglishSpeakingPdfContext } from "../ama/speaking/englishSpeakingPdfService";
@@ -177,7 +177,7 @@ Soalan 2
 ... (same pattern)
 
 Rules for Markah::
-- First decide Markah from question demand (command word, type, required answer parts): identify/name one ≈ 1; state/list N ≈ N; explain/describe ≈ 3–4; compare/contrast ≈ 4; calculation with working ≈ 2–3. Do NOT default every question to 1.
+- First decide Markah from question demand (command word, type, required answer parts): identify/name one ≈ 1; state/list N ≈ N; explain/describe ≈ 3–4; compare/contrast ≈ 4; calculation = 3 per independent calc ask (single ask = 3; (a)+(b) both calculate = 6) unless the stem prints a different Markah. Do NOT default every question to 1.
 - Then write that many distinct Marking points: (one bullet = one mark; NEVER bundle two independent ideas in one bullet). Markah: MUST equal the bullet count.
 - You MUST calibrate depth from past-paper excerpts when present, NEVER to inflate marks beyond the demand.
 - Marking points MUST be checkable and MUST sum logically to Markah: (SPM mark-scheme style).
@@ -485,7 +485,7 @@ function subjectiveGenerationReminder(
   return `
 
 ${templateLine}
-You MUST assign Markah: from question demand first (command word, type, number of required parts — explain/compare/calculate are usually 2–4, never default all to 1), then write exactly that many distinct, non-redundant marking points. Each mark = one independent scientific idea; you MUST merge semantic duplicates. Use past-paper mark patterns in the excerpts to decide depth, NEVER to inflate marks.
+You MUST think like an SPM examiner: Question → decompose every distinct requirement → allocate whole marks → write marking points → only then write Jawapan. NEVER invent marks from textbook detail the stem did not ask. You MUST assign Markah: from question demand first (command word, type, number of independent parts — identify+roles for N items = 2N whole marks; never fuse name+role into one mark; never default all to 1), then write exactly that many distinct, non-redundant marking points. Each mark = one independently awardable requirement; you MUST NOT merge two stem requirements into one point. Use past-paper mark patterns in the excerpts to decide depth, NEVER to inflate marks.
 ${marksGuide ? `\n${marksGuide}\n` : "\n(No past-paper mark samples in context — you MUST use typical SPM weights: 2 marks for two-idea explain; 3–4 ONLY when three or four genuinely independent ideas are required.)\n"}`;
 }
 

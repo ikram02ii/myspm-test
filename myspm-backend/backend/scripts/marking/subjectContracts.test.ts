@@ -8,23 +8,23 @@ import { dirname, join } from "node:path";
 import { describe, test } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { resolveOpenEndedMarkingAgent } from "../../src/services/ama/grading/v3/agents/resolveMarkingAgent.js";
+import { resolveOpenEndedMarkingAgent } from "../../src/services/ama/grading/agents/resolveMarkingAgent.js";
 import {
   resolveOfficialModelAnswer,
-} from "../../src/services/ama/grading/v3/artifactPolicy.js";
+} from "../../src/services/ama/grading/case/artifactPolicy.js";
 import {
   CALCULATION_STAGE_LABELS,
   GENERIC_CALCULATION_STAGE_LABELS,
   showWorkingStagePlan,
-} from "../../src/services/ama/grading/v3/calculationAcfPolicy.js";
-import { reconcileCalculationDemonstration } from "../../src/services/ama/grading/v3/reconcileCalculationDemonstration.js";
-import { scoreFromDemonstration } from "../../src/services/ama/grading/v3/scoreFromDemonstration.js";
+} from "../../src/services/ama/grading/case/calculationAcfPolicy.js";
+import { reconcileCalculationDemonstration } from "../../src/services/ama/grading/matching/reconcileCalculationDemonstration.js";
+import { scoreFromDemonstration } from "../../src/services/ama/grading/scoring/scoreFromDemonstration.js";
 import type {
   AssessmentCaseFile,
   AssessmentIntent,
   EvidenceUnit,
   UnderstandingDemonstration,
-} from "../../src/services/ama/grading/v3/types.js";
+} from "../../src/services/ama/grading/shared/types.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const bankPath = join(__dirname, "fixtures/contracts.json");
@@ -52,7 +52,7 @@ function theoryIntent(category: string, family: string): AssessmentIntent {
   };
 }
 
-function chem2MarkUnits(): EvidenceUnit[] {
+function chem3MarkUnits(): EvidenceUnit[] {
   return [
     {
       id: "calc_s1",
@@ -65,10 +65,20 @@ function chem2MarkUnits(): EvidenceUnit[] {
     {
       id: "calc_s2",
       type: "stage",
+      content: CALCULATION_STAGE_LABELS.substitution,
+      aliases: [],
+      creditWeight: 1,
+      required: true,
+      supports: ["calc_s1"],
+    },
+    {
+      id: "calc_s3",
+      type: "stage",
       content: CALCULATION_STAGE_LABELS.final,
       aliases: [],
       creditWeight: 1,
       required: true,
+      supports: ["calc_s2"],
     },
   ];
 }
@@ -79,10 +89,10 @@ function baseCalcAcf(overrides: Partial<AssessmentCaseFile>): AssessmentCaseFile
     question: overrides.question ?? "Calculate.",
     subject: overrides.subject ?? "Chemistry",
     form: overrides.form ?? "Form 4",
-    maxScore: overrides.maxScore ?? 2,
+    maxScore: overrides.maxScore ?? 3,
     intent: overrides.intent ?? calcIntent(),
     assessedUnderstanding: "Calculation",
-    units: overrides.units ?? chem2MarkUnits(),
+    units: overrides.units ?? chem3MarkUnits(),
     relations: [],
     markRule: overrides.markRule ?? { kind: "ordered_stages", calcPolicy: "show_working" },
     referenceModelAnswer: overrides.referenceModelAnswer,
@@ -128,7 +138,7 @@ describe("Phase 4 subject marking contracts", () => {
               }
             }
             if (typeof c.expectFinalWeight === "number") {
-              const final = stages.find((s) => /final/i.test(s.label));
+              const final = stages.find((s) => /correct\s+final\s+answer/i.test(s.label));
               assert.ok(final);
               assert.equal(final!.weight, c.expectFinalWeight);
             }
@@ -153,7 +163,8 @@ describe("Phase 4 subject marking contracts", () => {
             });
             if (String(c.intentFamily) === "calculation") {
               acf.intent = calcIntent();
-              acf.units = chem2MarkUnits();
+              acf.units = chem3MarkUnits();
+              acf.maxScore = 3;
               acf.markRule = { kind: "ordered_stages", calcPolicy: "show_working" };
             }
             assert.equal(resolveOpenEndedMarkingAgent(acf), c.expectAgent);
@@ -165,9 +176,9 @@ describe("Phase 4 subject marking contracts", () => {
             const acf = baseCalcAcf({
               question: String(c.question),
               intent: isCalc ? calcIntent() : theoryIntent("state", "recall"),
-              maxScore: isCalc ? 2 : 1,
+              maxScore: isCalc ? 3 : 1,
               units: isCalc
-                ? chem2MarkUnits()
+                ? chem3MarkUnits()
                 : [
                     {
                       id: "u1",

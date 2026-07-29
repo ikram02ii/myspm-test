@@ -1,8 +1,7 @@
 /**
  * Subject-specific calculation domains.
- * Chemistry uses SPM formula → substitution → final rules, verification, and worked model answers.
- * Physics uses SPM data → formula → substitution → calculation → final (final capped at 1 mark).
- * Math / other subjects use generic calculation rules until dedicated profiles are added.
+ * All domains use the same three credit stages: formula → steps of solving/working → final.
+ * Labels and verification differ slightly by subject; stage count does not.
  */
 
 import type { AssessmentCaseFile } from "../shared/types";

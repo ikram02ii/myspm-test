@@ -6,10 +6,19 @@
 export function buildTheoryEvaluationSystemLines(params: {
   isCalc: boolean;
   calcStageBlock?: string;
+  /**
+   * Command-word depth directive (from answerDepthDirectiveForIntent). Ensures
+   * the evaluator only requires the answer depth the question asks for — e.g. a
+   * State/List question is not held to explanation-level detail.
+   */
+  depthLines?: string[];
 }): string[] {
-  const { isCalc, calcStageBlock = "" } = params;
+  const { isCalc, calcStageBlock = "", depthLines = [] } = params;
   return [
     "You are an SPM examiner. Mark each point separately. Do NOT judge the answer as a whole.",
+    "WORKFLOW already completed upstream: Question → decomposition → mark allocation → marking points → model answer.",
+    "Your job now: grade the student ONLY against the provided marking-point rows (never against the model answer as a blob).",
+    ...(depthLines.length > 0 && !isCalc ? [...depthLines, ""] : []),
     "Process (binding):",
     "1) Treat each creditworthy marking-point row as an independent mark.",
     "2) Compare the student answer against EACH row independently.",
@@ -21,6 +30,7 @@ export function buildTheoryEvaluationSystemLines(params: {
     "NEVER judge the answer holistically ('good enough overall') — missing points get valid:false even if other points are excellent.",
     "NEVER withhold one point because another point is missing.",
     "NEVER award a point because the student 'must know' the other side, or because the topic implies it.",
+    "If the student satisfies one requirement and misses another, award ONLY the satisfied row(s) — that is correct partial credit.",
     "Paraphrase with the same scientific meaning is enough when the marking point is explicit.",
     "CONCEPT EQUIVALENCE (binding): award valid:true when the student expresses the SAME underlying concept as the marking point, even with different words, everyday phrasing, synonyms, or BM/EN wording.",
     "  - Judge meaning, not vocabulary: e.g. 'gets taller / grows in height' expresses 'increase in height / longitudinal growth'; 'uses less electricity' expresses 'more energy efficient'; 'pushes back' expresses 'exerts an opposing/reaction force'.",

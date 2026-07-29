@@ -1,8 +1,19 @@
 import type { AssessmentCaseFile, UnderstandingDemonstration } from "../shared/types";
 import { unitDemonstrated } from "./coverageChainScorer";
-import { isCalculationIntent } from "../case/calculationAcfPolicy";
 import { isPhysicsCalculation } from "../case/calculationSubjectPolicy";
-import { findFormulaStageUnitId } from "../extraction/calculationNumericMatch";
+import {
+  calculationPartIdPrefix,
+  findFormulaStageUnitIds,
+} from "../extraction/calculationNumericMatch";
+
+function stageSortKey(id: string): [number, number] {
+  const part = /^calc_p(\d+)_s(\d+)$/.exec(id);
+  if (part) return [Number(part[1]), Number(part[2])];
+  const single = /^calc_s(\d+)$/.exec(id);
+  if (single) return [1, Number(single[1])];
+  const m = /(\d+)\s*$/.exec(id);
+  return [1, m ? Number(m[1]) : Number.POSITIVE_INFINITY];
+}
 
 export function scoreCalculationDemonstration(
   acf: AssessmentCaseFile,
@@ -33,48 +44,39 @@ export function scoreCalculationDemonstration(
     return { score: 0, awardedUnitIds: new Set() };
   }
 
-  // Order the credit-bearing units into formula → working → final sequence.
-  // Calculation ACFs may be either stage-typed (`calc_s1`, `calc_s2`, …) or the
-  // LLM's content units (`u1`, `u2`, …); both encode the sequence in the trailing
-  // id number, so sort on that and fall back to id order.
-  const seqNum = (id: string): number => {
-    const m = /(\d+)\s*$/.exec(id);
-    return m ? Number(m[1]) : Number.POSITIVE_INFINITY;
-  };
   const ordered = [...creditUnits].sort((a, b) => {
-    const na = seqNum(a.id);
-    const nb = seqNum(b.id);
-    if (na !== nb) return na - nb;
+    const [pa, sa] = stageSortKey(a.id);
+    const [pb, sb] = stageSortKey(b.id);
+    if (pa !== pb) return pa - pb;
+    if (sa !== sb) return sa - sb;
     return a.id.localeCompare(b.id);
   });
 
   // Show-working: credit each demonstrated stage (formula, substitution, final).
-  // No bonus for final-only — full marks require formula/working stages.
   const demonstrated = new Set<string>();
   for (const unit of ordered) {
     if (unitDemonstrated(udm, unit.id)) demonstrated.add(unit.id);
   }
 
   const creditMeta = ordered.map((u) => ({ id: u.id, content: u.content }));
-  const formulaStageId = findFormulaStageUnitId(creditMeta);
-  const formulaStage = formulaStageId ? ordered.find((u) => u.id === formulaStageId) : undefined;
-  const formulaExplicitlyWrong =
-    formulaStage != null &&
-    udm.unitsDemonstrated.some((d) => d.unitId === formulaStage.id && d.valid === false);
+  const formulaStageIds = findFormulaStageUnitIds(creditMeta);
 
-  // Written-only policy: each stage — including the formula/equation stage — is
-  // credited ONLY when the student actually demonstrated it. We do NOT infer the
-  // formula/equation mark from later working or a correct final answer: a
-  // balanced equation or stated formula is a distinct artifact the student must
-  // write to earn that mark. (Subject-agnostic; the evaluator/gate still credits
-  // a genuinely written formula, e.g. "v = s/t", on its own.)
-
-  // Physics: wrong formula — no credit for formula or any later stage.
-  if (isPhysicsCalculation(acf) && formulaExplicitlyWrong && formulaStage) {
-    demonstrated.delete(formulaStage.id);
-    const formulaIdx = ordered.findIndex((u) => u.id === formulaStage.id);
-    for (const unit of ordered.slice(formulaIdx + 1)) {
-      demonstrated.delete(unit.id);
+  // Physics: wrong formula — no credit for that formula or later stages in the SAME part.
+  if (isPhysicsCalculation(acf)) {
+    for (const formulaStageId of formulaStageIds) {
+      const formulaStage = ordered.find((u) => u.id === formulaStageId);
+      const formulaExplicitlyWrong =
+        formulaStage != null &&
+        udm.unitsDemonstrated.some((d) => d.unitId === formulaStage.id && d.valid === false);
+      if (!formulaExplicitlyWrong || !formulaStage) continue;
+      demonstrated.delete(formulaStage.id);
+      const partPrefix = calculationPartIdPrefix(formulaStage.id);
+      const formulaIdx = ordered.findIndex((u) => u.id === formulaStage.id);
+      for (const unit of ordered.slice(formulaIdx + 1)) {
+        if (partPrefix && calculationPartIdPrefix(unit.id) !== partPrefix) continue;
+        if (!partPrefix && calculationPartIdPrefix(unit.id)) continue;
+        demonstrated.delete(unit.id);
+      }
     }
   }
 

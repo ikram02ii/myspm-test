@@ -8,8 +8,8 @@ import {
   resolveOfficialModelAnswer,
   resolveStagePlanId,
   officialMarkingPointLabels,
-} from "../../src/services/ama/grading/v3/artifactPolicy.js";
-import type { AssessmentCaseFile, AssessmentIntent } from "../../src/services/ama/grading/v3/types.js";
+} from "../../src/services/ama/grading/case/artifactPolicy.js";
+import type { AssessmentCaseFile, AssessmentIntent } from "../../src/services/ama/grading/shared/types.js";
 
 function calcIntent(): AssessmentIntent {
   return {

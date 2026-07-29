@@ -237,6 +237,71 @@ function peelWorkingEmbeddedInFinal(finalAnswer: string): { working: string; fin
   return { working: "", finalAnswer };
 }
 
+/** Standalone final-answer line: value (+ optional unit), no arithmetic operators. */
+function looksLikeStandaloneFinalLine(line: string): boolean {
+  const t = line.trim();
+  if (!t || !/\d/.test(t)) return false;
+  // Arithmetic / substitution steps stay in Working
+  if (/\d\s*[×x*÷\/]\s*\d/.test(t)) return false;
+  if (/\d\s*[+\-]\s*\d/.test(t)) return false;
+  if (/=/.test(t) && /\d\s*[×x*÷\/*+\-]\s*\d/.test(t)) return false;
+  if (/=/.test(t) && (t.match(/=/g) || []).length >= 2) return false;
+  const afterEq = t.replace(/^[^=]*=\s*/, "").trim();
+  // Reject exponent fragments (e.g. "-3" from m^-3)
+  if (/^-?\d{1,2}$/.test(afterEq)) return false;
+  return /^-?\d+(?:[.,]\d+)?(?:\s*(?:×|x)\s*10\s*\^?\s*[+-]?\d+)?(?:\s*[a-zA-Zµμ°/%²³³·⋅\-¹⁻⁰-⁹]+.*)?$/u.test(
+    afterEq,
+  );
+}
+
+function isWeakFinalAnswer(a: string): boolean {
+  const t = a.trim();
+  if (!t || /^see working\.?$/i.test(t)) return true;
+  if (!/\d/.test(t)) return true;
+  // Lone tiny integer is usually an exponent fragment, not a real final
+  if (/^-?\d{1,2}$/.test(t)) return true;
+  return false;
+}
+
+/** Prefer real magnitudes over exponent tails like m^-3 → -3. */
+function lastSignificantNumber(text: string): string | null {
+  const matches = text.match(/-?\d+(?:[.,]\d+)?(?:\s*(?:×|x)\s*10\s*\^?\s*[+-]?\d+)?/gi);
+  if (!matches?.length) return null;
+  for (let i = matches.length - 1; i >= 0; i -= 1) {
+    const n = matches[i]!.replace(/,/g, "").trim();
+    if (/^-?\d{1,2}$/.test(n)) continue;
+    return n;
+  }
+  return matches[matches.length - 1]!.replace(/,/g, "").trim();
+}
+
+/**
+ * Move a trailing final-answer-with-unit line out of Working into Final.
+ * Working must stay as arithmetic steps only.
+ */
+function peelFinalAnswerOutOfWorking(
+  working: string,
+  finalAnswer: string,
+): { working: string; finalAnswer: string } {
+  let w = working.trim();
+  let a = finalAnswer.trim();
+  if (!w) return { working: w, finalAnswer: a };
+
+  const lines = w.split(/\n/).map((l) => l.trim()).filter(Boolean);
+  if (lines.length < 2) return { working: w, finalAnswer: a };
+
+  const last = lines[lines.length - 1]!;
+  if (!looksLikeStandaloneFinalLine(last)) return { working: w, finalAnswer: a };
+
+  const peeled = lines.slice(0, -1).join("\n").trim();
+  if (!peeled) return { working: w, finalAnswer: a };
+
+  if (isWeakFinalAnswer(a)) {
+    a = last.replace(/^[^=]*=\s*/, "").trim();
+  }
+  return { working: peeled, finalAnswer: a };
+}
+
 function emitLabeled(label: string, body: string): string[] {
   const lines = body.split("\n").map(stripTrailingJunk).filter(Boolean);
   if (lines.length === 0) return [];
@@ -293,7 +358,7 @@ function ensureThreeSections(formula: string, working: string, finalAnswer: stri
     w =
       a && /=/.test(a)
         ? a
-        : "Substitute the given values into the formula and calculate step by step.";
+        : "Substitute the given values into the formula and calculate step by step using +, −, ×, ÷.";
     if (a && /=/.test(a) && w === a) {
       // avoid identical working/final — keep last token as final
       const parts = a.split(/\s*=\s*/);
@@ -304,9 +369,8 @@ function ensureThreeSections(formula: string, working: string, finalAnswer: stri
     }
   }
   if (!a && (f || w)) {
-    // Last number in working as best-effort final
-    const nums = (w || f).match(/-?\d+(?:[.,]\d+)?(?:\s*(?:×|x)\s*10\s*\^?\s*[+-]?\d+)?/gi);
-    a = nums?.length ? nums[nums.length - 1]!.replace(/,/g, "") : "See working.";
+    // Last significant number in working as best-effort final (skip exponent tails)
+    a = lastSignificantNumber(w || f) || "See working.";
   }
 
   // Prefer plain digits without thousand separators in Final answer (easier for students + parsers)
@@ -317,6 +381,9 @@ function ensureThreeSections(formula: string, working: string, finalAnswer: stri
   }
 
   w = dedupeWorkingAgainstFormula(f, w);
+  const peeledFinal = peelFinalAnswerOutOfWorking(w, a);
+  w = peeledFinal.working;
+  a = peeledFinal.finalAnswer;
 
   const out: string[] = [];
   out.push(...emitLabeled(normalizeSectionLabel("Data:"), data));

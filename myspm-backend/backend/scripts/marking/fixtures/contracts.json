@@ -9,20 +9,24 @@
       "kind": "stage_plan",
       "cases": [
         {
-          "id": "chem-1mark-final-only",
+          "id": "chem-1mark-promotes-to-three-stages",
           "maxScore": 1,
           "domain": "chemistry",
-          "expectStageLabels": ["Correct final answer with unit"]
+          "expectStageLabels": [
+            "Correct formula/equation",
+            "Correct steps of solving (+, −, ×, ÷) — not the concluding answer",
+            "Correct final answer with unit"
+          ]
         },
         {
-          "id": "chem-2mark-formula-final",
+          "id": "chem-2mark-promotes-to-three-stages",
           "maxScore": 2,
           "domain": "chemistry",
           "expectStageLabels": [
             "Correct formula/equation",
+            "Correct steps of solving (+, −, ×, ÷) — not the concluding answer",
             "Correct final answer with unit"
-          ],
-          "forbidStageSubstrings": ["substitution"]
+          ]
         },
         {
           "id": "chem-3mark-formula-working-final",
@@ -30,7 +34,7 @@
           "domain": "chemistry",
           "expectStageLabels": [
             "Correct formula/equation",
-            "Correct substitution/working",
+            "Correct steps of solving (+, −, ×, ÷) — not the concluding answer",
             "Correct final answer with unit"
           ]
         }
@@ -43,18 +47,19 @@
       "kind": "stage_plan",
       "cases": [
         {
-          "id": "physics-3mark-formula-sub-final",
+          "id": "physics-3mark-formula-working-final",
           "maxScore": 3,
           "domain": "physics",
-          "expectStageLabelSubstrings": ["formula", "substitution", "final"],
+          "expectStageLabelSubstrings": ["formula", "steps of solving", "final"],
           "forbidStageSubstrings": ["data"],
           "expectFinalWeight": 1
         },
         {
-          "id": "physics-5mark-includes-data",
+          "id": "physics-5mark-extra-on-working",
           "maxScore": 5,
           "domain": "physics",
-          "expectStageLabelSubstrings": ["data", "formula", "substitution", "calculation", "final"],
+          "expectStageLabelSubstrings": ["formula", "steps of solving", "final"],
+          "forbidStageSubstrings": ["data"],
           "expectFinalWeight": 1
         }
       ]
@@ -66,11 +71,12 @@
       "kind": "stage_plan",
       "cases": [
         {
-          "id": "math-2mark-formula-final",
+          "id": "math-2mark-promotes-to-three-stages",
           "maxScore": 2,
           "domain": "general",
           "expectStageLabels": [
             "Correct formula or equation",
+            "Correct steps of solving (+, −, ×, ÷) — not the concluding answer",
             "Correct final answer with appropriate units"
           ]
         }
@@ -107,8 +113,8 @@
         {
           "id": "chem-calc-case-beats-jawapan",
           "isCalculation": true,
-          "question": "EN: Calculate moles.\nMarkah: 2\nJawapan: Prose draft that must not win.\nMarking points:\n- Mark 1: formula\n- Mark 2: final",
-          "caseReference": "Formula: n = m / M\nWorking: n = 58.5 / 58.5 = 1.0\nFinal answer: 2.0 mol",
+          "question": "EN: Calculate moles.\nMarkah: 3\nJawapan: Prose draft that must not win.\nMarking points:\n- Mark 1: formula\n- Mark 2: working\n- Mark 3: final",
+          "caseReference": "Formula: n = m / M\nWorking: n = 58.5 / 58.5 = 1.0\nFinal answer: 1.0 mol",
           "expectSource": "case_structured",
           "expectIncludes": ["Formula:", "Working:", "Final answer:"]
         },
@@ -128,36 +134,38 @@
       "kind": "calc_score",
       "cases": [
         {
-          "id": "chem-2mark-full-working-correct-final",
-          "maxScore": 2,
+          "id": "chem-3mark-full-working-correct-final",
+          "maxScore": 3,
           "question": "Calculate the number of moles in 58.5 g of NaCl. [Mr NaCl = 58.5]",
-          "referenceModelAnswer": "Formula: n = m / M\nFinal answer: 1.0 mol",
+          "referenceModelAnswer": "Formula: n = m / M\nWorking: n = 58.5 / 58.5 = 1.0\nFinal answer: 1.0 mol",
           "studentAnswer": "n = m/M\nn = 58.5/58.5 = 1.0 mol",
           "udm": {
             "unitsDemonstrated": [
               { "unitId": "calc_s1", "quote": "n = m/M", "valid": true },
-              { "unitId": "calc_s2", "quote": "1.0 mol", "valid": true }
+              { "unitId": "calc_s2", "quote": "n = 58.5/58.5 = 1.0", "valid": true },
+              { "unitId": "calc_s3", "quote": "1.0 mol", "valid": true }
             ],
             "unitsMissing": [],
             "invalidClaims": []
           },
-          "expectScore": 2
+          "expectScore": 3
         },
         {
-          "id": "chem-2mark-wrong-final-revokes",
-          "maxScore": 2,
+          "id": "chem-3mark-wrong-final-revokes",
+          "maxScore": 3,
           "question": "Calculate the number of moles in 58.5 g of NaCl. [Mr NaCl = 58.5]",
-          "referenceModelAnswer": "Formula: n = m / M\nFinal answer: 1.0 mol",
+          "referenceModelAnswer": "Formula: n = m / M\nWorking: n = 58.5 / 58.5 = 1.0\nFinal answer: 1.0 mol",
           "studentAnswer": "n = m/M\nn = 2 mol",
           "udm": {
             "unitsDemonstrated": [
               { "unitId": "calc_s1", "quote": "n = m/M", "valid": true },
-              { "unitId": "calc_s2", "quote": "2 mol", "valid": true }
+              { "unitId": "calc_s2", "quote": "n = 58.5/58.5", "valid": true },
+              { "unitId": "calc_s3", "quote": "2 mol", "valid": true }
             ],
             "unitsMissing": [],
             "invalidClaims": []
           },
-          "expectScoreMax": 1,
+          "expectScoreMax": 2,
           "expectFinalAwarded": false
         }
       ]

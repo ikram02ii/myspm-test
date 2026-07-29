@@ -3,7 +3,8 @@
  * Full rubric marking still happens at POST /api/rag/grade.
  */
 
-import { qwenGradingJson } from "../grading/qwenGradingClient";
+import { qwenGradingJson } from "../grading/shared/qwenGradingClient";
+import { detectOcrTopicBleed } from "./ocrTopicBleed";
 
 export type OcrAnswerValidation = {
   passed: boolean;
@@ -33,11 +34,26 @@ export async function validateOcrAnswerAgainstQuestion(params: {
     return { passed: true, topicAligned: true, structureOk: true };
   }
 
+  const bleed = detectOcrTopicBleed({
+    question,
+    studentAnswer: answer,
+    subject: params.subject,
+  });
+  if (bleed.mixed) {
+    return {
+      passed: false,
+      topicAligned: false,
+      structureOk: true,
+      warning: bleed.warning,
+    };
+  }
+
   const system = [
     "Validate whether scanned student working plausibly answers an SPM question.",
     "Return JSON only: { \"passed\": boolean, \"topicAligned\": boolean, \"structureOk\": boolean, \"warning\": string }.",
     "passed: true only if topicAligned AND structureOk are true.",
     "topicAligned: false if the working is clearly a different topic (e.g. rate calculation for a lab-safety question).",
+    "topicAligned: false if the transcription clearly concatenates two unrelated subjects (e.g. kinematics then mole calculations).",
     "structureOk: false if empty, gibberish, or only unrelated labels with no attempt at the question.",
     "warning: one short student-friendly sentence if passed is false; empty string if passed is true.",
     "Do not grade marks — only topical fit and whether the text looks like intentional exam working.",

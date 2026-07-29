@@ -19,10 +19,10 @@ import {
   sumCreditWeights,
   validateAcfTopology,
   validateCalculationAcf,
-} from "../../src/services/ama/grading/v3/calculationAcfPolicy.js";
-import { reconcileCalculationDemonstration } from "../../src/services/ama/grading/v3/reconcileCalculationDemonstration.js";
-import { scoreFromDemonstration } from "../../src/services/ama/grading/v3/scoreFromDemonstration.js";
-import type { AssessmentCaseFile, AssessmentIntent, EvidenceRelation, EvidenceUnit } from "../../src/services/ama/grading/v3/types.js";
+} from "../../src/services/ama/grading/case/calculationAcfPolicy.js";
+import { reconcileCalculationDemonstration } from "../../src/services/ama/grading/matching/reconcileCalculationDemonstration.js";
+import { scoreFromDemonstration } from "../../src/services/ama/grading/scoring/scoreFromDemonstration.js";
+import type { AssessmentCaseFile, AssessmentIntent, EvidenceRelation, EvidenceUnit } from "../../src/services/ama/grading/shared/types.js";
 
 function calcIntent(): AssessmentIntent {
   return {
@@ -53,10 +53,10 @@ function baseAcf(overrides: Partial<AssessmentCaseFile>): AssessmentCaseFile {
 }
 
 const CALC_QUESTIONS = [
-  { q: "Calculate the mass of sodium chloride produced. (1 mark)", marks: 1, policy: "answer_only" as const },
-  { q: "Calculate the average rate of reaction. (2 marks)", marks: 2, policy: "show_working" as const },
-  { q: "Calculate the volume of gas at r.t.p. Show your working. (2 marks)", marks: 2, policy: "show_working" as const },
-  { q: "Hitung kadar tindak balas purata. (3 markah)", marks: 3, policy: "show_working" as const },
+  { q: "Calculate the mass of sodium chloride produced. (1 mark)", marks: 1 },
+  { q: "Calculate the average rate of reaction. (2 marks)", marks: 2 },
+  { q: "Calculate the volume of gas at r.t.p. Show your working. (2 marks)", marks: 2 },
+  { q: "Hitung kadar tindak balas purata. (3 markah)", marks: 3 },
 ];
 
 describe("calculation ACF policy", () => {
@@ -81,35 +81,30 @@ describe("calculation ACF policy", () => {
   });
 
   for (const sample of CALC_QUESTIONS) {
-    test(`chemistry template for ${sample.marks} mark (${sample.policy})`, () => {
+    test(`chemistry template always has 3 stages (requested ${sample.marks} marks)`, () => {
       const policy = inferCalculationPolicy(sample.q, sample.marks, "Chemistry");
-      assert.equal(policy, sample.policy);
+      assert.equal(policy, "show_working");
       const template = buildCalculationTemplate({
         question: sample.q,
         maxScore: sample.marks,
         policy,
         subject: "Chemistry",
       });
+      const expectedMarks = Math.max(3, sample.marks);
       assert.equal(template.markRule.calcDomain, "chemistry");
-      assert.equal(sumCreditWeights(template.units), sample.marks);
+      assert.equal(sumCreditWeights(template.units), expectedMarks);
       assert.equal(template.markRule.openPool, false);
-      assert.equal(template.markRule.calcPolicy, policy);
-      if (sample.policy === "answer_only") {
-        assert.equal(template.units.filter((u) => u.creditWeight > 0).length, 1);
-        assert.equal(template.units[0]?.content, CALCULATION_STAGE_LABELS.final);
-      }
-      if (sample.marks === 3) {
-        const labels = template.units.filter((u) => u.creditWeight > 0).map((u) => u.content);
-        assert.deepEqual(labels, [
-          CALCULATION_STAGE_LABELS.formula,
-          CALCULATION_STAGE_LABELS.substitution,
-          CALCULATION_STAGE_LABELS.final,
-        ]);
-      }
+      assert.equal(template.markRule.calcPolicy, "show_working");
+      const labels = template.units.filter((u) => u.creditWeight > 0).map((u) => u.content);
+      assert.deepEqual(labels, [
+        CALCULATION_STAGE_LABELS.formula,
+        CALCULATION_STAGE_LABELS.substitution,
+        CALCULATION_STAGE_LABELS.final,
+      ]);
     });
   }
 
-  test("physics 2-mark uses show_working with formula + final stages", () => {
+  test("physics always uses formula + steps + final (promotes 2→3)", () => {
     const q = "Calculate the velocity of the object. (2 marks)";
     assert.equal(inferCalculationPolicy(q, 2, "Physics"), "show_working");
     const template = buildCalculationTemplate({
@@ -121,21 +116,22 @@ describe("calculation ACF policy", () => {
     assert.equal(template.markRule.calcDomain, "physics");
     assert.equal(template.markRule.calcPolicy, "show_working");
     const credit = template.units.filter((u) => u.creditWeight > 0);
-    assert.equal(credit.length, 2);
+    assert.equal(credit.length, 3);
     assert.equal(credit[0]?.id, "calc_s1");
     assert.equal(credit[0]?.content, PHYSICS_CALCULATION_STAGE_LABELS.formula);
-    assert.equal(credit[1]?.content, PHYSICS_CALCULATION_STAGE_LABELS.final);
-    assert.equal(credit[1]?.creditWeight, 1);
+    assert.equal(credit[1]?.content, PHYSICS_CALCULATION_STAGE_LABELS.substitution);
+    assert.equal(credit[2]?.content, PHYSICS_CALCULATION_STAGE_LABELS.final);
+    assert.equal(credit[2]?.creditWeight, 1);
+    assert.equal(sumCreditWeights(template.units), 3);
   });
 
-  test("physics 4-mark stage plan: formula + substitution + calculation + final (1 each)", () => {
+  test("physics 4-mark stage plan: formula + working(2) + final", () => {
     const plan = physicsShowWorkingStagePlan(4);
     assert.deepEqual(
       plan.map((s) => ({ label: s.label, weight: s.weight })),
       [
         { label: PHYSICS_CALCULATION_STAGE_LABELS.formula, weight: 1 },
-        { label: PHYSICS_CALCULATION_STAGE_LABELS.substitution, weight: 1 },
-        { label: PHYSICS_CALCULATION_STAGE_LABELS.calculation, weight: 1 },
+        { label: PHYSICS_CALCULATION_STAGE_LABELS.substitution, weight: 2 },
         { label: PHYSICS_CALCULATION_STAGE_LABELS.final, weight: 1 },
       ],
     );
@@ -146,14 +142,16 @@ describe("calculation ACF policy", () => {
       subject: "Physics",
     });
     assert.equal(sumCreditWeights(template.units), 4);
+    assert.equal(template.units.filter((u) => u.creditWeight > 0).length, 3);
     const finalUnit = template.units.find((u) => u.content === PHYSICS_CALCULATION_STAGE_LABELS.final);
     assert.equal(finalUnit?.creditWeight, 1);
   });
 
-  test("physics 5-mark includes data extraction stage", () => {
+  test("physics 5-mark keeps three stages with extra weight on working", () => {
     const plan = physicsShowWorkingStagePlan(5);
-    assert.equal(plan.length, 5);
-    assert.equal(plan[0]?.label, PHYSICS_CALCULATION_STAGE_LABELS.data);
+    assert.equal(plan.length, 3);
+    assert.equal(plan[0]?.label, PHYSICS_CALCULATION_STAGE_LABELS.formula);
+    assert.equal(plan[1]?.weight, 3);
     assert.equal(plan[plan.length - 1]?.weight, 1);
   });
 
@@ -167,7 +165,7 @@ describe("calculation ACF policy", () => {
     );
     assert.equal(acf.markRule.calcDomain, "physics");
     const result = scoreFromDemonstration(acf, {
-      unitsDemonstrated: [{ unitId: "calc_s4", quote: "7.9 km/s", valid: true }],
+      unitsDemonstrated: [{ unitId: "calc_s3", quote: "7.9 km/s", valid: true }],
       relationsDemonstrated: [],
       unitsMissing: [],
       relationsMissing: [],
@@ -193,8 +191,7 @@ describe("calculation ACF policy", () => {
         unitsDemonstrated: [
           { unitId: "calc_s1", quote: "F = mv", valid: false },
           { unitId: "calc_s2", quote: "F = 2 × 5", valid: true },
-          { unitId: "calc_s3", quote: "F = 2 × 5 = 10", valid: true },
-          { unitId: "calc_s4", quote: "10 N", valid: true },
+          { unitId: "calc_s3", quote: "10 N", valid: true },
         ],
         relationsDemonstrated: [],
         unitsMissing: [],
@@ -262,8 +259,8 @@ describe("calculation ACF policy", () => {
   test("physics partial credit: correct method, wrong arithmetic on final", () => {
     const acf = finalizeCalculationAssessmentCase(
       baseAcf({
-        question: "Calculate the force. (4 marks)",
-        maxScore: 4,
+        question: "Calculate the force. (3 marks)",
+        maxScore: 3,
         subject: "Physics",
       }),
     );
@@ -271,8 +268,7 @@ describe("calculation ACF policy", () => {
       unitsDemonstrated: [
         { unitId: "calc_s1", quote: "F = ma", valid: true },
         { unitId: "calc_s2", quote: "F = 2 × 5", valid: true },
-        { unitId: "calc_s3", quote: "F = 2 × 5 = 10", valid: false },
-        { unitId: "calc_s4", quote: "10 N", valid: false },
+        { unitId: "calc_s3", quote: "10 N", valid: false },
       ],
       relationsDemonstrated: [],
       unitsMissing: [],
@@ -310,10 +306,10 @@ describe("calculation ACF policy", () => {
       markRule: { kind: "coverage_chain", maxMarks: 2, openPool: true },
     });
 
-    assert.equal(sumCreditWeights(normalized.units), 2);
+    assert.equal(sumCreditWeights(normalized.units), 3);
     assert.equal(normalized.markRule.openPool, false);
     assert.equal(normalized.markRule.calcPolicy, "show_working");
-    assert.equal(normalized.units.filter((u) => u.creditWeight > 0).length, 2);
+    assert.equal(normalized.units.filter((u) => u.creditWeight > 0).length, 3);
 
     const finalized = finalizeCalculationAssessmentCase(
       baseAcf({
@@ -323,6 +319,7 @@ describe("calculation ACF policy", () => {
         relations: badRelations,
       }),
     );
+    assert.equal(finalized.maxScore, 3);
     assert.equal(validateCalculationAcf(finalized).length, 0);
   });
 
@@ -356,11 +353,13 @@ describe("calculation ACF policy", () => {
     });
 
     const credit = normalized.units.filter((u) => u.creditWeight > 0);
-    assert.equal(credit.length, 2);
+    assert.equal(credit.length, 3);
     assert.equal(credit[0]?.id, "calc_s1");
     assert.equal(credit[1]?.id, "calc_s2");
+    assert.equal(credit[2]?.id, "calc_s3");
     assert.equal(credit[0]?.content, CALCULATION_STAGE_LABELS.formula);
-    assert.equal(credit[1]?.content, CALCULATION_STAGE_LABELS.final);
+    assert.equal(credit[1]?.content, CALCULATION_STAGE_LABELS.substitution);
+    assert.equal(credit[2]?.content, CALCULATION_STAGE_LABELS.final);
   });
 
   test("relation direction fixed when supports present", () => {
@@ -376,11 +375,20 @@ describe("calculation ACF policy", () => {
       {
         id: "calc_s2",
         type: "stage",
-        content: CALCULATION_STAGE_LABELS.final,
+        content: CALCULATION_STAGE_LABELS.substitution,
         aliases: [],
         creditWeight: 1,
         required: false,
         supports: ["calc_s1"],
+      },
+      {
+        id: "calc_s3",
+        type: "stage",
+        content: CALCULATION_STAGE_LABELS.final,
+        aliases: [],
+        creditWeight: 1,
+        required: false,
+        supports: ["calc_s2"],
       },
     ];
     const relations: EvidenceRelation[] = [
@@ -388,17 +396,18 @@ describe("calculation ACF policy", () => {
     ];
 
     const normalized = normalizeCalculationAcf({
-      question: "Calculate X. Show your working. (2 marks)",
-      maxScore: 2,
+      question: "Calculate X. Show your working. (3 marks)",
+      maxScore: 3,
       subject: "Chemistry",
       units,
       relations,
-      markRule: { kind: "ordered_stages", maxMarks: 2, openPool: false, calcPolicy: "show_working" },
+      markRule: { kind: "ordered_stages", maxMarks: 3, openPool: false, calcPolicy: "show_working" },
     });
 
     const issues = validateAcfTopology(
       baseAcf({
-        question: "Calculate X. Show your working. (2 marks)",
+        question: "Calculate X. Show your working. (3 marks)",
+        maxScore: 3,
         units: normalized.units,
         relations: normalized.relations,
         markRule: normalized.markRule,
@@ -408,12 +417,15 @@ describe("calculation ACF policy", () => {
     assert.ok(normalized.relations.some((r) => r.from === "calc_s1" && r.to === "calc_s2"));
   });
 
-  test("answer-only scoring: 1-mark final answer alone earns full marks", () => {
+  test("1-mark stem promotes to 3-stage scheme; final alone earns 1", () => {
     const acf = finalizeCalculationAssessmentCase(
       baseAcf({ question: "Calculate the mass. (1 mark)", maxScore: 1 }),
     );
+    assert.equal(acf.maxScore, 3);
+    assert.equal(acf.markRule.calcPolicy, "show_working");
+    assert.equal(acf.units.filter((u) => u.creditWeight > 0).length, 3);
     const result = scoreFromDemonstration(acf, {
-      unitsDemonstrated: [{ unitId: "calc_final", quote: "58.5 g", valid: true }],
+      unitsDemonstrated: [{ unitId: "calc_s3", quote: "58.5 g", valid: true }],
       relationsDemonstrated: [],
       unitsMissing: [],
       relationsMissing: [],
@@ -499,21 +511,26 @@ describe("calculation ACF policy", () => {
     );
   });
 
-  test("2-mark calculation: formula + final only", () => {
+  test("2-mark calculation promotes to formula + steps + final", () => {
     const acf = finalizeCalculationAssessmentCase(
       baseAcf({ question: "Calculate the mass. (2 marks)", maxScore: 2 }),
     );
+    assert.equal(acf.maxScore, 3);
     assert.deepEqual(
       acf.units.filter((u) => u.creditWeight > 0).map((u) => u.content),
-      [CALCULATION_STAGE_LABELS.formula, CALCULATION_STAGE_LABELS.final],
+      [
+        CALCULATION_STAGE_LABELS.formula,
+        CALCULATION_STAGE_LABELS.substitution,
+        CALCULATION_STAGE_LABELS.final,
+      ],
     );
   });
 
   test("prose definition never gates numeric credit", () => {
     const acf = finalizeCalculationAssessmentCase(
       baseAcf({
-        question: "Calculate the average rate. (1 mark)",
-        maxScore: 1,
+        question: "Calculate the average rate. (3 marks)",
+        maxScore: 3,
         units: [
           {
             id: "def",
@@ -524,9 +541,9 @@ describe("calculation ACF policy", () => {
             required: true,
           },
           ...buildCalculationTemplate({
-            question: "Calculate the average rate. (1 mark)",
-            maxScore: 1,
-            policy: "answer_only",
+            question: "Calculate the average rate. (3 marks)",
+            maxScore: 3,
+            policy: "show_working",
             subject: "Chemistry",
           }).units,
         ],
@@ -534,7 +551,7 @@ describe("calculation ACF policy", () => {
     );
     assert.ok(!acf.relations.some((r) => r.from === "def" && r.requiredForMarks));
     const result = scoreFromDemonstration(acf, {
-      unitsDemonstrated: [{ unitId: "calc_final", quote: "0.04 g/s", valid: true }],
+      unitsDemonstrated: [{ unitId: "calc_s3", quote: "0.04 g/s", valid: true }],
       relationsDemonstrated: [],
       unitsMissing: [{ id: "def", kind: "unit", label: "def", reason: "not stated" }],
       relationsMissing: [],

@@ -7,11 +7,11 @@ import { test, describe } from "node:test";
 import {
   calculationModelAnswerSectionLabels,
   hasCompleteCalculationModelAnswerSections,
-} from "../../src/services/ama/grading/v3/calculationAcfPolicy.ts";
+} from "../../src/services/ama/grading/case/calculationAcfPolicy.ts";
 import {
   calculationModelAnswerLooksDirty,
   normalizeCalculationModelAnswer,
-} from "../../src/services/ama/grading/v3/normalizeCalculationModelAnswer.ts";
+} from "../../src/services/ama/grading/extraction/normalizeCalculationModelAnswer.ts";
 
 describe("calculation model answer three-part layout", () => {
   test("section labels always Formula + Working + Final answer", () => {
@@ -139,5 +139,20 @@ describe("normalizeCalculationModelAnswer", () => {
     const out = normalizeCalculationModelAnswer(raw);
     assert.match(out, /2500000/);
     assert.equal(hasCompleteCalculationModelAnswerSections(out), true);
+  });
+
+  test("peels standalone final answer with unit out of Working", () => {
+    const raw = [
+      "Formula: V = n × Vm",
+      "Working: n = 0.5 mol",
+      "Vm = 22.4 dm³/mol",
+      "V = 0.5 × 22.4 = 11.2",
+      "11.2 dm³",
+      "Final answer: 11.2 dm³",
+    ].join("\n");
+    const out = normalizeCalculationModelAnswer(raw);
+    assert.match(out, /Working:[\s\S]*V = 0\.5 × 22\.4 = 11\.2/i);
+    assert.doesNotMatch(out, /Working:[\s\S]*11\.2 dm³[\s\S]*Final answer/i);
+    assert.match(out, /^Final answer: 11\.2 dm³$/m);
   });
 });

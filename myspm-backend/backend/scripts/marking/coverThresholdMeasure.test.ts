@@ -4,12 +4,12 @@
  */
 import assert from "node:assert/strict";
 import { test, describe } from "node:test";
-import { finalizeAssessmentCase } from "../../src/services/ama/grading/v3/acfFinalizePolicy.ts";
+import { finalizeAssessmentCase } from "../../src/services/ama/grading/case/acfFinalizePolicy.ts";
 import {
   coversAtRatio,
   diagnoseSyncEvidenceGate,
-} from "../../src/services/ama/grading/v3/udmEvidenceGate.ts";
-import type { AssessmentCaseFile, EvidenceUnit } from "../../src/services/ama/grading/v3/types.ts";
+} from "../../src/services/ama/grading/matching/udmEvidenceGate.ts";
+import type { AssessmentCaseFile, EvidenceUnit } from "../../src/services/ama/grading/shared/types.ts";
 
 function baseUnit(id: string, content: string): EvidenceUnit {
   return { id, type: "fact", content, aliases: [], creditWeight: 1, required: false };

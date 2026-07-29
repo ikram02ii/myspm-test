@@ -1,9 +1,10 @@
 /**
- * Marking-agent kind resolution (Phase 2).
+ * Marking-agent kind resolution.
  *
  * Assessment-case intent is the authority for open-ended routing.
- * Optional client `questionType` is a hint for diagnostics only — it must not
- * override a locked case's calculation vs theory family.
+ * That intent is produced from the Question Classification Agent's top-level
+ * type (calculation vs theory/diagram/structured/other) — not stem regex.
+ * Optional client `questionType` is diagnostics only.
  */
 
 import { isCalculationIntent } from "../case/calculationAcfPolicy";
@@ -26,6 +27,12 @@ export type MarkingAgentKind =
 export function resolveOpenEndedMarkingAgent(
   acf: AssessmentCaseFile,
 ): OpenEndedMarkingAgentKind {
+  // Prefer explicit top-level classification when present on the locked case.
+  const top = acf.intent.analysis?.topLevelQuestionType;
+  if (top === "calculation") return "calculation";
+  if (top === "theory" || top === "diagram" || top === "structured" || top === "other") {
+    return "theory";
+  }
   return isCalculationIntent(acf) ? "calculation" : "theory";
 }
 
@@ -35,11 +42,10 @@ export function parseClientQuestionTypeHint(
 ): OpenEndedMarkingAgentKind | null {
   const t = (questionType ?? "").trim().toLowerCase();
   if (!t) return null;
-  // Inline regexes avoid shared RegExp lastIndex surprises across calls.
   if (/calculation|calculate|kiraan|hitung|(?:^|[^a-z])calc(?:[^a-z]|$)/i.test(t)) {
     return "calculation";
   }
-  if (/theory|open_?ended|subjective|recall|explain|describe|compare/i.test(t)) {
+  if (/theory|open_?ended|subjective|recall|explain|describe|compare|diagram|structured/i.test(t)) {
     return "theory";
   }
   return null;

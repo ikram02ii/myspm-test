@@ -3,7 +3,7 @@
  * Does not solve the question or add facts not implied by the transcription.
  */
 
-import { qwenGradingJson } from "../grading/qwenGradingClient";
+import { qwenGradingJson } from "../grading/shared/qwenGradingClient";
 import { parseOcrMathStructure } from "./ocrTextNormalize";
 
 function isEnvOff(name: string): boolean {
@@ -30,11 +30,13 @@ export async function repairOcrTranscription(params: {
     "Rules:",
     "- Fix missing or wrong symbols (subscripts, superscripts in units, =, /, ×).",
     "- Restore labels and calculation steps on separate lines as in typical exam working.",
-    "- Remove stray LaTeX ($, \\frac, \\displaylines) and markdown.",
+    "- Remove stray LaTeX (\\(, \\), \\[, \\], $, \\frac, \\displaylines) and markdown.",
+    "- Write fractions as 1/2 or (1/2), never '1 / (2)' or \\frac.",
+    "- If the transcription clearly concatenates an unrelated second subject (e.g. physics then chemistry moles), keep ONLY the block that matches the question subject and drop the unrelated block.",
     "- Do NOT solve the problem, change numbers, or add science not present in the input.",
     "- Do NOT invent content to match the question if the transcription is clearly about a different topic.",
     "- Keep the same language mix (BM/EN) as the input.",
-    "- Output plain text suitable for a text box (no $ delimiters).",
+    "- Output plain text suitable for a text box (no $ or \\( delimiters).",
   ].join("\n");
 
   const user = [

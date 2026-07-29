@@ -8,6 +8,10 @@ import { formatSpmExamStandardMarkingBlock, formatSufficiencyMarkingBlock } from
 import { formatEvidenceOnlyMarkingBlock, type EvidenceOnlyMarkingOptions } from "./gradingEvidencePolicy";
 import { formatSpmStudentFriendlyRulesBlock } from "./gradingPolicy";
 import { withMandatoryMarkingLanguage, withStrictComplianceLanguage } from "./gradingMandatoryLanguage";
+import {
+  DEFAULT_QWEN_GRADING_MODEL,
+  GRADING_JSON_TEMPERATURE,
+} from "./gradingConfig";
 
 export type QwenGradingConfig = { apiKey: string; baseUrl: string; model: string };
 
@@ -16,7 +20,7 @@ export function resolveQwenGradingConfig(): QwenGradingConfig {
   const baseUrl =
     process.env["QWEN_GRADING_BASE_URL"]?.trim().replace(/\/+$/, "") ||
     process.env["QWEN_OCR_BASE_URL"]?.trim().replace(/\/+$/, "");
-  const model = process.env["QWEN_GRADING_MODEL"]?.trim() || "qwen-plus";
+  const model = process.env["QWEN_GRADING_MODEL"]?.trim() || DEFAULT_QWEN_GRADING_MODEL;
   if (!apiKey || !baseUrl) throw new Error("Qwen grading is not configured.");
   return { apiKey, baseUrl, model };
 }
@@ -26,7 +30,7 @@ export function resolveQwenCalculationModel(): string {
   return (
     process.env["QWEN_CALCULATION_MODEL"]?.trim() ||
     process.env["QWEN_GRADING_MODEL"]?.trim() ||
-    "qwen-plus"
+    DEFAULT_QWEN_GRADING_MODEL
   );
 }
 
@@ -162,7 +166,7 @@ export async function qwenGradingJson(
   const base = resolveQwenGradingConfig();
   const model = options?.model?.trim() || base.model;
   const config: QwenGradingConfig = { ...base, model };
-  const temperature = options?.temperature ?? 0.1;
+  const temperature = options?.temperature ?? GRADING_JSON_TEMPERATURE;
 
   if (isReasoningModel(model)) {
     return qwenGradingJsonStreaming(config, strictSystem, user, temperature);
@@ -218,10 +222,11 @@ export async function qwenCalculationJson(
 const VERIFIER_MODE_BLOCKS: Record<VerifierMode, string> = {
   meaning: [
     "Task: does the student's answer express the required marking-scheme CONCEPT (by meaning, not by exact words)?",
-    "CONCEPT EQUIVALENCE: set awarded=true when the student's wording means the same thing as the rubric concept — synonyms, everyday phrasing, or BM/EN paraphrase all count (e.g. 'gets taller' = 'increase in height / longitudinal growth'; 'uses less electricity' = 'more energy efficient').",
+    "CONCEPT EQUIVALENCE: set awarded=true when the student's wording means the same thing as the rubric concept — synonyms, everyday phrasing, BM/EN paraphrase, and scientifically equivalent expressions all count (e.g. 'gets taller' = 'increase in height / longitudinal growth'; 'uses less electricity' = 'more energy efficient').",
     "Do NOT require the exact rubric term or textbook keyword when the student's phrasing unambiguously carries the same meaning.",
-    "NEVER award=true when the reader must infer, deduce, or add unstated science.",
-    "ALWAYS set awarded=false for vague, generic, related-but-unstated, or prerequisite-only overlap (topic overlap is NOT concept equivalence).",
+    "A clearly-implied reference counts when the student's wording can only reasonably mean this concept in the question's context — but you are judging what they WROTE, not what they could deduce.",
+    "NEVER award=true when the reader must infer, deduce, or add unstated science that the student did not express.",
+    "ALWAYS set awarded=false for vague, generic, related-but-unstated, prerequisite-only overlap, or invented/assumed content (topic overlap is NOT concept equivalence).",
   ].join("\n"),
   membership: [
     "Task: did the student name a valid category member at SPM exam standard?",
@@ -251,9 +256,9 @@ const VERIFIER_MODE_BLOCKS: Record<VerifierMode, string> = {
   equation: [
     "Task: check ALL of the following — ONLY award=true if ALL pass —",
     "(1) all reactants present and correct,",
-    "(2) all products present and correct â€” a missing product = wrong,",
-    "(3) equation is balanced â€” count atoms of each element both sides,",
-    "(4) coefficients correct â€” no fractional coefficients at SPM level unless the question explicitly requires them,",
+    "(2) all products present and correct — a missing product = wrong,",
+    "(3) equation is balanced — count atoms of each element both sides,",
+    "(4) coefficients correct — no fractional coefficients at SPM level unless the question explicitly requires them,",
     "(5) state symbols correct if the rubric includes them.",
     "NEVER award partial credit in this mode.",
     "Reason must identify the specific condition that failed or confirm all conditions passed.",

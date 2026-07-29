@@ -23,19 +23,40 @@ function applySubscript(letter: string, digits: string): string {
   return USE_UNICODE_SUBSCRIPTS ? letter + toSubscriptDigits(digits) : letter + digits;
 }
 
+function formatPlainFraction(num: string, den: string): string {
+  const n = num.trim();
+  const d = den.trim();
+  if (!n || !d) return [n, d].filter(Boolean).join("/");
+  // Simple tokens: 1/2, a/b — avoid awkward "1 / (2)"
+  if (/^[\w.]+$/.test(n) && /^[\w.]+$/.test(d)) return `${n}/${d}`;
+  return `(${n})/(${d})`;
+}
+
 function replaceFractions(text: string): string {
   let out = text;
   let guard = 0;
   while (/\\frac\s*\{/.test(out) && guard < 32) {
     guard += 1;
-    out = out.replace(/\\frac\s*\{([^{}]*)\}\s*\{([^{}]*)\}/g, (_, num, den) => {
-      const n = num.trim();
-      const d = den.trim();
-      if (!n || !d) return `${n} / ${d}`;
-      return `${n} / (${d})`;
-    });
+    out = out.replace(/\\frac\s*\{([^{}]*)\}\s*\{([^{}]*)\}/g, (_, num, den) =>
+      formatPlainFraction(num, den),
+    );
   }
+  // Already-broken OCR forms: "1 / (2)" → "1/2"
+  out = out.replace(/\b(\d+(?:\.\d+)?)\s*\/\s*\(\s*(\d+(?:\.\d+)?)\s*\)/g, "$1/$2");
   return out;
+}
+
+/** Strip \( \), \[ \], $...$ while keeping inner math as plain text. */
+function stripMathDelimiters(text: string): string {
+  let t = text;
+  t = t.replace(/\\\(([\s\S]*?)\\\)/g, "$1");
+  t = t.replace(/\\\[([\s\S]*?)\\\]/g, "$1");
+  t = t.replace(/\$\$([\s\S]*?)\$\$/g, "$1");
+  t = t.replace(/\$([^$\n]+)\$/g, "$1");
+  // Leftover bare delimiters
+  t = t.replace(/\\[()\[\]]/g, "");
+  t = t.replace(/(^|[^\\])\$+/g, "$1");
+  return t;
 }
 
 function unwrapLatexWrappers(text: string): string {
@@ -47,6 +68,7 @@ function unwrapLatexWrappers(text: string): string {
 
   t = t.replace(/\\displaylines\s*\{([\s\S]*)\}/g, "$1");
   t = t.replace(/\\begin\{[^{}]*\}/g, "").replace(/\\end\{[^{}]*\}/g, "");
+  t = stripMathDelimiters(t);
 
   return t;
 }
@@ -136,6 +158,8 @@ export function normalizeOcrExtractedText(raw: string): string {
   t = replaceChemAndMathSymbols(t);
   t = replaceSubscriptsAndSuperscripts(t);
   t = stripRemainingLatexCommands(t);
+  t = stripMathDelimiters(t);
+  t = replaceFractions(t);
   return cleanupPlainText(t);
 }
 
@@ -151,12 +175,14 @@ export const OCR_EXTRACTION_PROMPT = [
   "- If the image shows a question at the top and an answer below, transcribe ONLY the answer/working area.",
   "- NEVER output bilingual question stems (lines starting with EN: or BM:), Soalan text, or the question sentence in Malay/English.",
   "- Skip question numbers, Soalan labels, EN:/BM: question stems, and (N marks) in question headers.",
-  "- One step per line, in the same order as the student's writing.",
-  "- Do NOT use LaTeX, \\displaylines, markdown, or code fences.",
+  "- One step / equation per line, in the same order as the student's writing.",
+  "- Do NOT use LaTeX, \\(, \\), \\[, \\], $, \\frac, \\displaylines, markdown, or code fences.",
+  "- Write math as plain text: V = u + at, a = 2 m/s², S = (1/2)at^2.",
+  "- Fractions: use slash form like 1/2 or (1/2), never \\frac or '1 / (2)'.",
+  "- Powers: use ^ (e.g. 10^2). Multiplication: × or x as shown.",
   "- Chemical formulas: write with subscripts in the text (e.g. C2H5OH, CH3COOH, H2SO4) — not C_{2}H_{5}OH.",
-  "- Fractions: use a slash, e.g. mass / (12 + 3 + 32 + 1), or put numerator and denominator on separate lines.",
-  "- Use = for equals; use × or x for multiplication as shown.",
-  "- Keep units with numbers (mol, g, cm, etc.).",
+  "- Keep units with numbers (mol, g, cm, m/s, etc.).",
   "- Copy numbers exactly; do not solve or add steps not in the image.",
+  "- Transcribe ONLY what is visible in THIS image. Do not invent or append working from another subject or question.",
   "- No commentary before or after the transcription.",
 ].join("\n");

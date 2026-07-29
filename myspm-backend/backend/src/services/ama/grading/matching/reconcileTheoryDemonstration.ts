@@ -64,6 +64,12 @@ function revokeUnsupportedCredits(
     if (!grounded) {
       return { ...d, valid: false };
     }
+    // Semantically-verified awards keep their mark on grounding alone. The LLM
+    // meaning verifier already confirmed the concept is present; a low token
+    // overlap is expected for a valid paraphrase and must not revoke it.
+    if (d.semanticallyVerified) {
+      return d;
+    }
     if (!studentShowsUnitEvidence(quote, unit)) {
       return { ...d, valid: false };
     }

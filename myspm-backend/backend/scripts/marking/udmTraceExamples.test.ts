@@ -6,13 +6,13 @@
  */
 import assert from "node:assert/strict";
 import { test, describe } from "node:test";
-import { diagnoseSyncEvidenceGate } from "../../src/services/ama/grading/v3/udmEvidenceGate.ts";
+import { diagnoseSyncEvidenceGate } from "../../src/services/ama/grading/matching/udmEvidenceGate.ts";
 import {
   logUdmTraceStage,
   snapshotUdmTicks,
   type UdmTickFailReason,
-} from "../../src/services/ama/grading/v3/udmTickTrace.ts";
-import type { AssessmentCaseFile, EvidenceUnit, UnderstandingDemonstration } from "../../src/services/ama/grading/v3/types.ts";
+} from "../../src/services/ama/grading/shared/udmTickTrace.ts";
+import type { AssessmentCaseFile, EvidenceUnit, UnderstandingDemonstration } from "../../src/services/ama/grading/shared/types.ts";
 
 function unit(id: string, content: string, aliases: string[] = []): EvidenceUnit {
   return {

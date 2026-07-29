@@ -9,18 +9,18 @@ import {
 import {
   analyzeQuestion,
   suggestMaxMarksFromQuestionStructure,
-} from "../ama/grading/questionAnalysisService";
+} from "../ama/grading/shared/questionAnalysisService";
 import {
   buildAssessmentCasePackage,
   evidenceUnitsToRubricIdeas,
   saveGeneratedAssessmentCase,
-} from "../ama/grading/v3/assessmentCaseService";
+} from "../ama/grading/case/assessmentCaseService";
 import {
   buildCandidateChunkPool,
   mergeChunksExcerpt,
   questionDraftContextChunks,
   resolveGroundingChunksForQuestion,
-} from "../ama/grading/v3/groundingChunks";
+} from "../ama/grading/case/groundingChunks";
 import type { RetrievedChunk, RubricIdea } from "../ama/types";
 import { getRetrievalContext, storeRetrievalContext } from "./openEndedGenerationContext";
 
@@ -107,7 +107,7 @@ function stripTrailingMarkAllocation(text: string): string {
 function normalizeOpenEndedQuestionText(questionTextRaw: string, maxMarks: number): string | null {
   const trimmed = stripTrailingMarkAllocation(questionTextRaw.trim());
   if (!trimmed) return null;
-  const safe = Math.max(1, Math.min(6, Math.floor(maxMarks)));
+  const safe = Math.max(1, Math.min(12, Math.floor(maxMarks)));
   return `${trimmed} (${safe} mark${safe === 1 ? "" : "s"})`;
 }
 
@@ -127,8 +127,8 @@ async function generateOneOpenEndedQuestionDraft(params: {
     'Schema: { "questionText": string, "maxMarks": number }',
     "Generate exactly one question per response.",
     "questionText must include mark allocation at the end, e.g. '(2 marks)' — the server may recalibrate marks from question structure.",
-    "maxMarks should reflect demand: identify/name one ≈ 1; state/list two ≈ 2; explain/describe ≈ 3–4; compare ≈ 4; calculation with working ≈ 2–3.",
-    "maxMarks must be an integer from 1 to 6.",
+    "maxMarks should reflect demand: identify/name one ≈ 1; state/list two ≈ 2; explain/describe ≈ 3–4; compare ≈ 4; calculation = 3 per independent calc ask (e.g. (a)+(b) both calculate → 6) unless printed otherwise.",
+    "maxMarks must be an integer from 1 to 12.",
     "The question must be short and answerable in a few sentences.",
     "Use SPM Form 4/5 depth only.",
     "Do not repeat or closely paraphrase any prior question stem listed in the user message.",
@@ -192,7 +192,7 @@ async function generateOneOpenEndedQuestionDraft(params: {
   const maxMarks = Math.max(
     1,
     Math.min(
-      6,
+      12,
       Number.isFinite(llmMarks) && llmMarks >= 2 ? Math.max(llmMarks, structural) : structural,
     ),
   );
@@ -227,12 +227,14 @@ async function finalizeOpenEndedQuestion(params: {
     chapterFilter: params.input.chapterFilter?.trim() || undefined,
     chapterHint: params.input.chapterHint?.trim() || undefined,
   });
+  // Examiner decomposition may raise maxScore to match independent marking points.
+  const maxMarks = Math.max(1, acf.maxScore || params.maxMarks);
   const modelAnswer = acf.referenceModelAnswer || "A concise correct answer based on the expected understanding.";
   const stored = await saveGeneratedAssessmentCase({
     question: params.questionText,
     subject: params.input.subject,
     form: params.form,
-    maxScore: params.maxMarks,
+    maxScore: maxMarks,
     acf,
     sourceRef,
   });
@@ -246,7 +248,7 @@ async function finalizeOpenEndedQuestion(params: {
     options: [],
     correctAnswer: "",
     explanation: `Model answer: ${modelAnswer}\n\nMarking points:\n${displayIdeas.map((idea) => `- (${idea.marks}m) ${idea.idea}`).join("\n")}`,
-    maxMarks: params.maxMarks,
+    maxMarks,
     questionForGrade: params.questionText,
     modelAnswer,
     rubricId: stored.caseId,

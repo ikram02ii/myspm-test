@@ -4,8 +4,6 @@
  */
 export {
   runOpenEndedMarking,
-  gradeOpenEndedV3,
-  gradeOpenEndedV3 as gradeWithPipelineV2,
   type PipelineResult,
 } from "./agents/openEndedMarkingRouter";
 

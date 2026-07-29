@@ -337,13 +337,11 @@ function validateCalculationUsable(acf: AssessmentCaseFile): boolean {
   const credit = acf.units.filter((u) => u.creditWeight > 0);
   if (sumCreditWeights(acf.units) !== acf.maxScore) return false;
   if (!credit.every((u) => u.id === "calc_final" || /^calc_s\d+$/.test(u.id))) return false;
-  if (acf.markRule.calcPolicy === "show_working") {
-    const domain = resolveCalculationDomain(acf.subject);
-    const expected = showWorkingStagePlan(acf.maxScore, domain).length;
-    if (credit.length !== expected) return false;
-  }
-  if (acf.markRule.calcPolicy === "answer_only" && acf.maxScore >= 2) return false;
-  if (acf.markRule.calcPolicy === "answer_only" && credit.length !== 1) return false;
+  // All calculations must use the fixed three-stage show_working scheme.
+  if (acf.markRule.calcPolicy !== "show_working") return false;
+  const domain = resolveCalculationDomain(acf.subject);
+  const expected = showWorkingStagePlan(acf.maxScore, domain).length;
+  if (credit.length !== expected) return false;
   return true;
 }
 

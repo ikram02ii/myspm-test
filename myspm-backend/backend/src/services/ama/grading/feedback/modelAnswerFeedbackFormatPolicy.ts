@@ -95,7 +95,7 @@ function defaultRules(maxScore: number): string[] {
     "Each point MUST be clear enough for a Form 4/5 student to learn from (not a cryptic fragment).",
     "Use KSSM textbook phrasing a Form 4/5 student would copy from their notes.",
     "Aim for about 18–35 words per marking point unless the stem is a pure calculation.",
-    "Calculations: Formula → Working (clear substitutions) → Final answer with unit.",
+    "Calculations: Formula → Working (arithmetic steps only: +, −, ×, ÷) → Final answer with unit (separate mark).",
   ];
 }
 

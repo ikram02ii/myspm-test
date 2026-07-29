@@ -12,6 +12,11 @@ import type {
   DiagramType,
 } from "../../types";
 import { formatDiagramContextRubricOnlyPreamble } from "../shared/gradingPolicy";
+import {
+  DEFAULT_QWEN_GRADING_MODEL,
+  DEFAULT_QWEN_VISION_MAX_TOKENS,
+  DEFAULT_QWEN_VISION_MODEL,
+} from "../shared/gradingConfig";
 
 function messageContentToString(content: unknown): string {
   if (typeof content === "string") return content;
@@ -43,7 +48,7 @@ function resolveQwenConfig(): { apiKey: string; baseUrl: string; model: string }
     process.env["QWEN_GRADING_BASE_URL"]?.trim().replace(/\/+$/, "") ||
     process.env["QWEN_OCR_BASE_URL"]?.trim().replace(/\/+$/, "");
   const model =
-    process.env["QWEN_GRADING_MODEL"]?.trim() || process.env["QWEN_MODEL"]?.trim() || "qwen-plus";
+    process.env["QWEN_GRADING_MODEL"]?.trim() || process.env["QWEN_MODEL"]?.trim() || DEFAULT_QWEN_GRADING_MODEL;
 
   if (!apiKey || !baseUrl) {
     throw new Error("Qwen grading is not configured (set QWEN_GRADING_API_KEY/BASE_URL or reuse QWEN_OCR_*).");
@@ -386,7 +391,7 @@ function buildDiagramSystemPromptForSubject(subject?: string): string {
     "- For label letters in the figure, ALWAYS populate `labels[]` with the letter as `id` and the biological/physical/chemical term as `refersTo`.",
     "- For graphs: populate `axes` (with units), and `dataPoints` if discrete points are shown; otherwise leave `dataPoints` out and put trend descriptions into `observations`.",
     "- For circuits: list components in `keyValues` (e.g. R1, V, I) with units.",
-    "- If you are unsure, lower the per-label or overall `confidence` and add a note to `ambiguities` â€” DO NOT guess.",
+    "- If you are unsure, lower the per-label or overall `confidence` and add a note to `ambiguities` — DO NOT guess.",
     "- If the visual is irrelevant to the question, return `{ \"diagramType\": \"other\", \"summary\": \"No relevant diagram context.\", \"labels\": [], \"observations\": [], \"confidence\": 0.1 }`.",
     "- In `summary`, `observations`, and `ambiguities`, use short plain language Form 4/5 students can read (no university-style phrasing).",
   ];
@@ -428,8 +433,8 @@ async function generateDiagramContextWithQwen(params: {
   const configuredVisionModel =
     process.env["QWEN_VISION_MODEL"]?.trim() ||
     process.env["QWEN_GRADING_VISION_MODEL"]?.trim() ||
-    "qwen-vl-plus";
-  const fallbackVisionModel = process.env["QWEN_VISION_FALLBACK_MODEL"]?.trim() || "qwen-vl-plus";
+    DEFAULT_QWEN_VISION_MODEL;
+  const fallbackVisionModel = process.env["QWEN_VISION_FALLBACK_MODEL"]?.trim() || DEFAULT_QWEN_VISION_MODEL;
 
   const imageRef = params.imageUrl?.trim() || (params.imageBase64 ? normalizeDiagramDataUrl(params.imageBase64) : "");
   if (!imageRef) {
@@ -442,7 +447,10 @@ async function generateDiagramContextWithQwen(params: {
   }
 
   const maxTokensRaw = Number(process.env["QWEN_VISION_MAX_TOKENS"]?.trim());
-  const maxTokens = Number.isFinite(maxTokensRaw) && maxTokensRaw > 0 ? Math.floor(maxTokensRaw) : 900;
+  const maxTokens =
+    Number.isFinite(maxTokensRaw) && maxTokensRaw > 0
+      ? Math.floor(maxTokensRaw)
+      : DEFAULT_QWEN_VISION_MAX_TOKENS;
 
   let lastError: string | null = null;
   const startedAt = Date.now();

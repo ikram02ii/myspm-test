@@ -3,7 +3,7 @@
  */
 import type { ContextAuditResult, MarkBreakdownItem, QuestionAnalysis } from "../../types";
 import { studentAnswerCoversIdea } from "../matching/gradingFairness";
-import { inferMaxScoreFromMarkScheme } from "../analysis/markSchemeInference";
+import { inferMaxScoreFromMarkScheme } from "../case/markSchemeInference";
 
 export type RetrievalConfidence = "high" | "medium" | "low";
 

@@ -62,7 +62,7 @@ export function comparisonStructureBlocksAward(
 
 /**
  * Reserved: post-matcher revoke when causal language is missing on a mechanism row.
- * Not yet wired into live v3 reconcile — unfinished product logic.
+ * Not yet wired into live reconciliation — unfinished product logic.
  */
 export function causalStructureBlocksAward(
   rubric: RubricIdea,
@@ -75,7 +75,7 @@ export function causalStructureBlocksAward(
 
 /**
  * Reserved: post-matcher revoke for comparison entity ambiguity on paired rows.
- * Not yet wired into live v3 reconcile — unfinished product logic.
+ * Not yet wired into live reconciliation — unfinished product logic.
  */
 export function comparisonAmbiguityBlocksAward(
   rubric: RubricIdea,

@@ -162,6 +162,33 @@ export type QuestionUnderstandingDepth =
 
 export type QuestionGradingStrictness = "strict" | "moderate" | "flexible";
 
+/**
+ * Optional theory-subtype semantic intent (from command-word / stem helpers).
+ * Top-level calc↔theory routing is owned by Question Classification Agent
+ * (`topLevelQuestionType`), not this field.
+ */
+export type SemanticAssessmentIntent =
+  | "comparison"
+  | "explanation"
+  | "definition"
+  | "process"
+  | "calculation"
+  | "application"
+  | "recall"
+  | "description"
+  | "general";
+
+/**
+ * Top-level question lane from the dedicated Question Classification Agent.
+ * This is the ONLY authority for calculation vs theory routing.
+ */
+export type TopLevelQuestionType =
+  | "calculation"
+  | "theory"
+  | "diagram"
+  | "structured"
+  | "other";
+
 export type QuestionAnalysis = {
   subject: string;
   topicKeywords: string[];
@@ -187,6 +214,20 @@ export type QuestionAnalysis = {
   requiresExamples?: boolean;
   /** How strict marking should be for wording/evidence interpretation. */
   gradingStrictness?: QuestionGradingStrictness;
+  /**
+   * LLM-read assessment intent from the full stem (theory subtyping signal).
+   * Absent when the subtype classifier did not run.
+   */
+  llmSemanticIntent?: SemanticAssessmentIntent;
+  /**
+   * Top-level lane from Question Classification Agent (calculation | theory | …).
+   * When set, calc↔theory routing MUST trust this and ignore stem regex heuristics.
+   */
+  topLevelQuestionType?: TopLevelQuestionType;
+  /** Classifier confidence 0–1 for topLevelQuestionType. */
+  topLevelConfidence?: number;
+  /** Short examiner-style rationale for topLevelQuestionType. */
+  topLevelReasoning?: string;
 };
 
 export type GradeSubmissionInput = {

@@ -1,13 +1,14 @@
 /**
  * gradeSubmission orchestration: maxScore prep → vision facts → retrieval/audit
- * → v3 pipeline or legacy v1 → persist. Does not own scoring rules.
+ * → evidence pipeline (default) or legacy pipeline (opt-in via RAG_GRADE_PIPELINE)
+ * → persist. Owns pipeline selection and result assembly, not scoring rules.
  */
 import { randomUUID } from "node:crypto";
 import { ragDb, ragGradingResultsTable } from "../../../lib/ragDb";
 import { auditRetrievedContext } from "../retrieval/contextAuditService";
 import { buildGradingContextFromChunks, retrieveChunks } from "../retrieval/retrievalService";
-import { gradeWithPipelineV2, extractStudentIdeas } from "./gradePipelineService";
-import { analyzeQuestion } from "./analysis/questionAnalysisService";
+import { runOpenEndedMarking, extractStudentIdeas } from "./gradePipelineService";
+import { analyzeQuestion } from "./shared/questionAnalysisService";
 import type {
   DiagramContext,
   GradeSubmissionInput,
@@ -26,7 +27,8 @@ import {
   buildEnrichedRetrievalQuery,
 } from "./extraction/diagramFactExtraction";
 import { gradingNeedsVisionExtract } from "./shared/gradingPolicy";
-import { hasEmbeddedMarkScheme } from "./analysis/markSchemeInference";
+import { hasEmbeddedMarkScheme } from "./case/markSchemeInference";
+import { recommendWholeMarkCountForStem } from "./extraction/markingPointDecomposition";
 import {
   gradeWithLegacyPipeline,
   isMcqLetterOnlyExplanationRequest,
@@ -69,7 +71,20 @@ export async function gradeSubmission(input: GradeSubmissionInput): Promise<Grad
         maxScoreAdjustedReason: "MCQ letter-only explanation; maxScore inference skipped.",
       }
     : inferAdjustedMaxScore(question, clientMaxScore, questionAnalysis);
-  const maxScore = scoreAdjustment.adjustedMaxScore;
+  let maxScore = scoreAdjustment.adjustedMaxScore;
+
+  // Whole-mark allocation for identify+role/explain stems: raise under-budget maxScore
+  // when no locked rubric / embedded scheme. Prevents fusing name+role into one mark
+  // (this product has no 0.5 marks — half of a fused unit would score zero).
+  if (!savedRubricSkipInfer && !hasEmbeddedMarkScheme(question)) {
+    const recommended = recommendWholeMarkCountForStem(question, questionAnalysis);
+    if (recommended != null && recommended > maxScore) {
+      scoreAdjustment.maxScoreAdjustedReason =
+        `Raised to ${recommended} whole marks for identify+elaboration stem (name + role/function per item; no half-marks).`;
+      scoreAdjustment.adjustedMaxScore = recommended;
+      maxScore = recommended;
+    }
+  }
 
   // Vision: extract visual facts only. Never awards marks.
   // Skip VL when an image is decorative (attached) but the stem does not need the figure —
@@ -190,7 +205,7 @@ export async function gradeSubmission(input: GradeSubmissionInput): Promise<Grad
   const pipelineEnv = (process.env["RAG_GRADE_PIPELINE"] || "v3").trim().toLowerCase();
   const useEvidencePipeline = !["v1", "legacy", "off", "false", "0"].includes(pipelineEnv);
   if (useEvidencePipeline) {
-    const gradedV2 = await gradeWithPipelineV2({
+    const gradedV2 = await runOpenEndedMarking({
       ...input,
       question,
       studentAnswer,
@@ -205,7 +220,7 @@ export async function gradeSubmission(input: GradeSubmissionInput): Promise<Grad
     });
     console.info("[rag][grade] stage timing", {
       submissionId,
-      stage: "pipeline_v2_complete",
+      stage: "evidence_pipeline_complete",
       elapsedMs: Date.now() - gradeStartedAt,
       selfContainedScheme,
     });

@@ -16,17 +16,17 @@ import {
   coversCoreConcept,
   deriveCoreConcept,
   studentCoversUnitCore,
-} from "../../src/services/ama/grading/v3/coreConceptMatch.ts";
+} from "../../src/services/ama/grading/matching/coreConceptMatch.ts";
 import {
   isEnumerationStem,
   isFixedSetRecallStem,
-} from "../../src/services/ama/grading/v3/acfFinalizePolicy.ts";
+} from "../../src/services/ama/grading/case/acfFinalizePolicy.ts";
 import type {
   AssessmentCaseFile,
   AssessmentIntentCategory,
   AssessmentIntentFamily,
   EvidenceUnit,
-} from "../../src/services/ama/grading/v3/types.ts";
+} from "../../src/services/ama/grading/shared/types.ts";
 
 function unit(partial: Partial<EvidenceUnit> & { content: string }): EvidenceUnit {
   return {

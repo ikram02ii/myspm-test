@@ -43,7 +43,7 @@ async function main(): Promise<void> {
   }
 
   const { createRubricsFromTextbookChunks } = await import(
-    "../../src/services/ama/grading/v3/textbookChunkAssessmentService.js"
+    "../../src/services/ama/grading/case/textbookChunkAssessmentService.js"
   );
 
   const result = await createRubricsFromTextbookChunks({

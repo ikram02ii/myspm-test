@@ -15,7 +15,7 @@ import {
   studentAnswerCoversIdea,
   studentExpressesRubricMeaning,
 } from "../matching/gradingFairness";
-import { analyzeQuestion } from "../analysis/questionAnalysisService";
+import { analyzeQuestion } from "../shared/questionAnalysisService";
 import {
   isComparisonDifferenceQuestion,
   studentAnswerMentionsAllComparisonSubjects,

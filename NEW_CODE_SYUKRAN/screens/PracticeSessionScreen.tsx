@@ -1265,17 +1265,16 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
       setOcrError(null);
       const stem = (q?.questionForGrade ?? q?.questionText ?? "").trim();
       const result = await uploadScanImageWithAiTutor(photoUri, {
-        mode: "extract",
+        mode: "full",
         subject: routeSubject ?? "Biology",
         question: stem || undefined,
       });
       const text = (result?.text ?? "").trim();
-      if (result.validationWarning) {
-        setOcrError(result.validationWarning);
-        return;
-      }
       if (!text) {
-        setOcrError("No text found in the image. Try a clearer photo of your written answer.");
+        setOcrError(
+          result.validationWarning ||
+            "No text found in the image. Try a clearer photo of your written answer.",
+        );
         return;
       }
       if (stem && ocrLooksLikeQuestionStem(text, stem)) {
@@ -1287,7 +1286,8 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
       setOpenEndedAnswer(text);
       setShowFeedback(false);
       setOpenEndedFeedback(null);
-      setOcrError(null);
+      // Keep text so the student can edit; still surface topic/quality warnings.
+      setOcrError(result.validationWarning ?? null);
     } catch (e) {
       const raw = e instanceof Error ? e.message : "OCR failed. Check your connection and try again.";
       setOcrError(
@@ -1799,9 +1799,6 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
               </>
             ) : (
               <>
-                {openEndedFeedback.feedback ? (
-                  <Text style={styles.explanation}>{openEndedFeedback.feedback}</Text>
-                ) : null}
                 {openEndedFeedback.modelPoints.length > 0 ? (
                   <View style={styles.modelPointsSection}>
                     <Text style={styles.modelPointsTitle}>

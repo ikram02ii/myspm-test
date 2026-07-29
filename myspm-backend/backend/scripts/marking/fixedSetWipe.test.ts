@@ -4,8 +4,8 @@
  */
 import assert from "node:assert/strict";
 import { test, describe } from "node:test";
-import { scoreFromDemonstration } from "../../src/services/ama/grading/v3/scoreFromDemonstration.ts";
-import type { AssessmentCaseFile, UnderstandingDemonstration } from "../../src/services/ama/grading/v3/types.ts";
+import { scoreFromDemonstration } from "../../src/services/ama/grading/scoring/scoreFromDemonstration.ts";
+import type { AssessmentCaseFile, UnderstandingDemonstration } from "../../src/services/ama/grading/shared/types.ts";
 
 function fixedSetAcf(): AssessmentCaseFile {
   return {

@@ -24,11 +24,11 @@ export function quoteLooksLikeFormula(quote: string): boolean {
   return false;
 }
 
-/** True when the quote shows substituted values or arithmetic working. */
+/** True when the quote shows substituted values or arithmetic working (+, −, ×, ÷). */
 export function quoteLooksLikeSubstitution(quote: string): boolean {
   const q = quote.trim();
   if (!/\d/.test(q)) return false;
-  return /[=×x\*\/]/.test(q) || /\d\s*[+\-]\s*\d/.test(q);
+  return /[=×x\*\/÷]/.test(q) || /\d\s*[+\-]\s*\d/.test(q);
 }
 
 export function extractUnitTokens(text: string): string[] {
@@ -160,30 +160,53 @@ export function studentAnswerMatchesReference(
 }
 
 export function findFinalStageUnitId(creditUnitIds: Array<{ id: string; content: string }>): string | null {
-  const final = creditUnitIds.find(
-    (u) =>
-      u.id === "calc_final" ||
-      u.content === CALCULATION_STAGE_LABELS.final ||
-      u.content === GENERIC_CALCULATION_STAGE_LABELS.final ||
-      u.content === PHYSICS_CALCULATION_STAGE_LABELS.final ||
-      u.content.toLowerCase().includes("final answer"),
-  );
-  return final?.id ?? creditUnitIds[creditUnitIds.length - 1]?.id ?? null;
+  return findFinalStageUnitIds(creditUnitIds)[0] ?? null;
+}
+
+export function findFinalStageUnitIds(
+  creditUnitIds: Array<{ id: string; content: string }>,
+): string[] {
+  const finals = creditUnitIds.filter((u) => {
+    const c = u.content.toLowerCase();
+    if (u.id === "calc_final") return true;
+    if (/_s\d+$/.test(u.id) && /\bfinal\s+answer\b/i.test(c)) return true;
+    if (u.content === CALCULATION_STAGE_LABELS.final) return true;
+    if (u.content === GENERIC_CALCULATION_STAGE_LABELS.final) return true;
+    if (u.content === PHYSICS_CALCULATION_STAGE_LABELS.final) return true;
+    if (/\bnot\s+the\s+(?:final|concluding)\b/i.test(c)) return false;
+    return /\bcorrect\s+final\s+answer\b/i.test(c) || /\bfinal\s+answer\b/i.test(c);
+  });
+  if (finals.length > 0) return finals.map((u) => u.id);
+  const last = creditUnitIds[creditUnitIds.length - 1];
+  return last ? [last.id] : [];
 }
 
 export function findFormulaStageUnitId(
   creditUnits: Array<{ id: string; content: string }>,
 ): string | null {
-  const formula = creditUnits.find(
-    (u) =>
-      u.content === CALCULATION_STAGE_LABELS.formula ||
-      u.content === GENERIC_CALCULATION_STAGE_LABELS.formula ||
-      u.content === PHYSICS_CALCULATION_STAGE_LABELS.formula ||
-      u.content.toLowerCase().includes("formula") ||
-      u.content.toLowerCase().includes("equation") ||
-      u.content.toLowerCase().includes("method"),
-  );
-  return formula?.id ?? creditUnits[0]?.id ?? null;
+  return findFormulaStageUnitIds(creditUnits)[0] ?? null;
+}
+
+export function findFormulaStageUnitIds(
+  creditUnits: Array<{ id: string; content: string }>,
+): string[] {
+  return creditUnits
+    .filter(
+      (u) =>
+        u.content === CALCULATION_STAGE_LABELS.formula ||
+        u.content === GENERIC_CALCULATION_STAGE_LABELS.formula ||
+        u.content === PHYSICS_CALCULATION_STAGE_LABELS.formula ||
+        /\bformula\b/i.test(u.content) ||
+        /\bequation\b/i.test(u.content) ||
+        /\bmethod\b/i.test(u.content),
+    )
+    .map((u) => u.id);
+}
+
+/** Part prefix for multi-part ids (`calc_p2_s1` → `calc_p2`); null for single-part. */
+export function calculationPartIdPrefix(unitId: string): string | null {
+  const m = /^(calc_p\d+)_/.exec(unitId);
+  return m?.[1] ?? null;
 }
 
 export function findSubstitutionStageUnitId(
@@ -195,8 +218,10 @@ export function findSubstitutionStageUnitId(
       u.content === GENERIC_CALCULATION_STAGE_LABELS.substitution ||
       u.content === PHYSICS_CALCULATION_STAGE_LABELS.substitution ||
       u.content.toLowerCase().includes("substitution") ||
+      u.content.toLowerCase().includes("steps of solving") ||
       (u.content.toLowerCase().includes("working") &&
-        !u.content.toLowerCase().includes("calculation working")),
+        !u.content.toLowerCase().includes("calculation working") &&
+        !u.content.toLowerCase().includes("final")),
   );
   return sub?.id ?? null;
 }

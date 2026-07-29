@@ -25,7 +25,7 @@ import {
 } from "../case/artifactPolicy";
 import { generateGapFeedback } from "../feedback/generateGapFeedback";
 import { localizeModelAnswerForStudent } from "../feedback/localizeModelAnswer";
-import { hasEmbeddedMarkScheme } from "../analysis/markSchemeInference";
+import { hasEmbeddedMarkScheme } from "../case/markSchemeInference";
 import { normalizeCalculationModelAnswer } from "../extraction/normalizeCalculationModelAnswer";
 import {
   buildStructuredMarkPointCards,

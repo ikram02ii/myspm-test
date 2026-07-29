@@ -155,13 +155,25 @@ export function studentAddressesUnitExclusively(
   return exclusive.some((t) => tokenInAnswer(ansTokens, t));
 }
 
-export type DemonstratedTick = { unitId: string; quote: string; valid: boolean };
+export type DemonstratedTick = {
+  unitId: string;
+  quote: string;
+  valid: boolean;
+  /** Award confirmed by the semantic meaning verifier — exempt from token competition. */
+  semanticallyVerified?: boolean;
+};
 
 /**
  * Root multi-point assignment (subject-agnostic):
- * 1) Quote must be literally present in the student answer.
- * 2) Quote must cover the candidate unit better than every other credit unit.
- * 3) One quote credits at most one unit; one unit keeps its best quote only.
+ * 1) Quote must be literally present in the student answer (deterministic grounding).
+ * 2) One quote credits at most one unit; one unit keeps its best quote only (dedup).
+ * 3) Token-only awards must additionally cover the candidate unit better than every
+ *    other credit unit (competitive assignment) — this is the lexical safety gate.
+ *
+ * Semantically-verified awards (confirmed by the LLM meaning verifier) bypass the
+ * token competition in step 3: a genuine paraphrase legitimately has low lexical
+ * overlap, so re-imposing a token threshold here would re-reject the very answers
+ * the semantic pass rescued. They still pass grounding (1) and de-duplication (2).
  *
  * This replaces hardcoded "do not award covalent/methane/…" lists.
  */
@@ -173,7 +185,7 @@ export function assignDemonstrationsCompetitively(params: {
   const { studentAnswer, creditUnits, demonstrated } = params;
   if (creditUnits.length === 0) return demonstrated;
 
-  type Candidate = { unitId: string; quote: string; score: number };
+  type Candidate = { unitId: string; quote: string; score: number; semantic: boolean };
   const candidates: Candidate[] = [];
 
   for (const d of demonstrated) {
@@ -185,6 +197,12 @@ export function assignDemonstrationsCompetitively(params: {
     // Evidence must be a grounded contiguous span — never invent from the full blob.
     if (!quote || !quoteStrictlyGroundedInStudentAnswer(quote, studentAnswer)) continue;
     const clause = quote;
+
+    // Semantic awards: grounding + de-duplication only, no token competition.
+    if (d.semanticallyVerified) {
+      candidates.push({ unitId: unit.id, quote: clause.slice(0, 400), score: 1, semantic: true });
+      continue;
+    }
 
     const score = coverRatioAgainstUnit(clause, unit);
     if (score < 0.2) continue;
@@ -202,10 +220,11 @@ export function assignDemonstrationsCompetitively(params: {
       if (!studentAddressesUnitExclusively(clause, unit, creditUnits)) continue;
     }
 
-    candidates.push({ unitId: unit.id, quote: clause.slice(0, 400), score });
+    candidates.push({ unitId: unit.id, quote: clause.slice(0, 400), score, semantic: false });
   }
 
-  candidates.sort((a, b) => b.score - a.score);
+  // Semantic awards rank first (they are already concept-verified), then by token cover.
+  candidates.sort((a, b) => Number(b.semantic) - Number(a.semantic) || b.score - a.score);
   const usedUnits = new Set<string>();
   const usedQuotes = new Set<string>();
   const winners = new Map<string, DemonstratedTick>();
@@ -216,7 +235,12 @@ export function assignDemonstrationsCompetitively(params: {
     if (creditUnits.length >= 2 && usedQuotes.has(qKey)) continue;
     usedUnits.add(c.unitId);
     usedQuotes.add(qKey);
-    winners.set(c.unitId, { unitId: c.unitId, quote: c.quote, valid: true });
+    winners.set(c.unitId, {
+      unitId: c.unitId,
+      quote: c.quote,
+      valid: true,
+      ...(c.semantic ? { semanticallyVerified: true } : {}),
+    });
   }
 
   // Preserve original rows but force validity from competitive winners only.

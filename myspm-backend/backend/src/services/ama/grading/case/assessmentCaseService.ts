@@ -23,7 +23,7 @@ function normalizeQuestion(text: string): string {
 }
 
 /** Bump when ACF build/routing semantics change so stale cached cases are not reused. */
-const ACF_CACHE_VERSION = "p1-clause-scan-v1";
+const ACF_CACHE_VERSION = "p3-top-level-qclassify-v1";
 
 function questionHash(subject: string, form: string, maxScore: number, question: string): string {
   const base = `${ACF_CACHE_VERSION}|${subject.toLowerCase()}|${form.toLowerCase()}|${maxScore}|${normalizeQuestion(question)}`;

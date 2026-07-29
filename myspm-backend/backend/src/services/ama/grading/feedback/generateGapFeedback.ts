@@ -17,7 +17,7 @@ import {
   reconcileFeedbackToMarkingTruth,
   shouldUseDeterministicFeedback,
 } from "./feedbackTruthPolicy";
-import { hasEmbeddedMarkScheme } from "../analysis/markSchemeInference";
+import { hasEmbeddedMarkScheme } from "../case/markSchemeInference";
 import type { AssessmentCaseFile, GradingContext, UnderstandingDemonstration } from "../shared/types";
 
 export type {

@@ -107,10 +107,10 @@ async function gradeOne(
   try {
     const { gradeSubmission } = await import("../src/services/ama/grading/gradeService.js");
     const { getOrCreateAssessmentCase } = await import(
-      "../src/services/ama/grading/v3/assessmentCaseService.js"
+      "../src/services/ama/grading/case/assessmentCaseService.js"
     );
     const { splitModelAnswerIntoPoints } = await import(
-      "../src/services/ama/grading/v3/splitModelAnswerPoints.js"
+      "../src/services/ama/grading/extraction/splitModelAnswerPoints.js"
     );
 
     const stored = await getOrCreateAssessmentCase({

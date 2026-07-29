@@ -9,9 +9,9 @@ import {
   isNonResponsiveStudentAnswer,
   reconcileFeedbackToMarkingTruth,
   shouldUseDeterministicFeedback,
-} from "../../src/services/ama/grading/v3/feedbackTruthPolicy.ts";
-import { splitModelAnswerIntoPoints } from "../../src/services/ama/grading/v3/splitModelAnswerPoints.ts";
-import { formatMarkSchemePointsAsModelAnswer } from "../../src/services/ama/grading/modelAnswerFeedbackFormatPolicy.ts";
+} from "../../src/services/ama/grading/feedback/feedbackTruthPolicy.ts";
+import { splitModelAnswerIntoPoints } from "../../src/services/ama/grading/extraction/splitModelAnswerPoints.ts";
+import { formatMarkSchemePointsAsModelAnswer } from "../../src/services/ama/grading/feedback/modelAnswerFeedbackFormatPolicy.ts";
 
 describe("feedbackTruthPolicy (any subject)", () => {
   test("classifies many non-responsive shapes", () => {

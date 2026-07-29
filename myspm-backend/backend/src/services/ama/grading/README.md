@@ -14,25 +14,31 @@ Open-ended marking for `POST /api/rag/grade`.
 
 | Folder | Owns |
 |--------|------|
-| [`analysis/`](./analysis/) | Question type, intent, embedded scheme, calc-structure detect |
-| [`case/`](./case/) | Assessment case (ACF), model answer, grounding |
+| [`agents/`](./agents/) | Question Classification Agent, theory/calc agents, intent mapping |
+| [`case/`](./case/) | Assessment case (ACF), embedded schemes, model answer, grounding |
+| [`extraction/`](./extraction/) | Examiner decompose, marking-point split, diagram facts |
 | [`evaluation/`](./evaluation/) | LLM tick proposals (theory / calc) |
 | [`matching/`](./matching/) | Clause scan, evidence gate, competitive assign, reconcile |
 | [`scoring/`](./scoring/) | Score from validated demonstration |
-| [`agents/`](./agents/) | Theory / calculation agents |
 | [`validators/`](./validators/) | Post-score guards |
 | [`feedback/`](./feedback/) | Gap feedback, model-answer display |
 | [`prompts/`](./prompts/) | LLM prompt text |
-| [`shared/`](./shared/) | Types, Qwen client, decision logs |
-| [`legacy/`](./legacy/) | Legacy pipeline (`RAG_GRADE_PIPELINE=legacy`) |
-| [`v3/`](./v3/) | Compat re-exports only — do not add logic here |
+| [`shared/`](./shared/) | Types, stem helpers, Qwen client, config, decision logs |
+| [`legacy/`](./legacy/) | Legacy pipeline (opt-in via `RAG_GRADE_PIPELINE`) |
 
-## Marking flow
+## Pipelines
+
+Two pipelines exist, selected by `RAG_GRADE_PIPELINE`:
+
+- **Evidence pipeline** (default): the current agent/evidence-gate flow below.
+- **Legacy pipeline**: opt in with `RAG_GRADE_PIPELINE=v1|legacy|off|false|0`.
+
+## Marking flow (evidence pipeline)
 
 ```text
 Student answer + question
-  → analysis (intent; scheme-first if Jawapan / Marking points exist)
-  → case (one credit unit per mark from scheme when embedded)
+  → Question Classification Agent (calculation | theory | diagram | structured | other)
+  → case (intent + credit units; scheme-first if Jawapan / Marking points exist)
   → theory or calculation agent
       → LLM proposes evidence ticks
       → clause scan merges grounded spans (theory; reduces under-marking)

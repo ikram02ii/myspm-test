@@ -11,9 +11,13 @@ export const MUST_RETURN_JSON_MODEL_ANSWER =
 export const RETURN_JSON_MODEL_ANSWER =
   'Return JSON only: { "modelAnswer": string }';
 
-/** Question-type LLM classifier (identical historical wording, including trailing period). */
+/** Question-type LLM classifiers (theory subtype + top-level agent schemas). */
 export const RETURN_JSON_QUESTION_TYPE =
   'Return JSON only: { "questionType": string }.';
+
+/** Top-level Question Classification Agent output (binding). */
+export const RETURN_JSON_TOP_LEVEL_QUESTION_TYPE =
+  'Return JSON only: { "questionType": "calculation" | "theory" | "diagram" | "structured" | "other", "confidence": 0-1, "reasoning": "short explanation" }.';
 
 /** Calculation chunk question generation (identical historical wording). */
 export const RETURN_JSON_QUESTION_TEXT =

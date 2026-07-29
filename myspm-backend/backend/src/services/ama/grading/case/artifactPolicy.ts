@@ -1,5 +1,5 @@
 /**
- * Artifact ownership for Marking Agent v3.
+ * Artifact ownership for the open-ended marking agents.
  *
  * Single place that decides which source wins for:
  * - official model answer
@@ -9,7 +9,7 @@
  * Presentation (localize / UI) and generation Jawapan must yield to these rules.
  */
 
-import { extractJawapanText } from "../analysis/markSchemeInference";
+import { extractJawapanText } from "../case/markSchemeInference";
 import { formatMarkSchemePointsAsModelAnswer } from "../feedback/modelAnswerFeedbackFormatPolicy";
 import {
   inferCalculationPolicy,

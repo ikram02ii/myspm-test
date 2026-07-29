@@ -18,6 +18,8 @@ export function buildCalculationEvaluationSystemLines(params: {
     "Evaluate ONLY the credit stages listed below. Do NOT invent extra stages (e.g. do not require substitution when it is not listed).",
     "A stage earns valid:true ONLY when the student wrote that stage. The quote MUST be copied from the student answer (substring), never from the worked exemplar.",
     "If the student only wrote a final number with no formula/equation and no arithmetic working, credit ONLY the final stage (valid:true) and list formula/working stages in unitsMissing.",
+    "Working/steps stage: award when the student shows substitution or arithmetic (+, −, ×, ÷). Do NOT require them to also write the final answer with unit for this mark — that is the separate final stage.",
+    "Final answer stage: award ONLY for stating the correct concluding value with unit (separate 1 mark). Do not merge final into working.",
     "NEVER invent formula or working quotes that the student did not write.",
     "NEVER withhold Formula/Working because the student's wording or layout differs from the worked exemplar.",
     "Do NOT credit prose definitions.",

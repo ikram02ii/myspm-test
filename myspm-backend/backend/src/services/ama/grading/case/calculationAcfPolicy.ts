@@ -13,6 +13,12 @@ import {
   resolveCalculationDomain,
   type CalculationDomain,
 } from "./calculationSubjectPolicy";
+import {
+  allocateMarksAcrossParts,
+  calculationPartLabels,
+  countIndependentCalculationAsks,
+  recommendCalculationMaxScore,
+} from "./calculationPartDetect";
 
 export type { CalculationDomain } from "./calculationSubjectPolicy";
 export {
@@ -22,6 +28,14 @@ export {
   isPhysicsCalculationSubject,
   resolveCalculationDomain,
 } from "./calculationSubjectPolicy";
+export {
+  allocateMarksAcrossParts,
+  calculationPartLabels,
+  countIndependentCalculationAsks,
+  parseParenMarksFromQuestion,
+  recommendCalculationMaxScore,
+  splitCalculationStemParts,
+} from "./calculationPartDetect";
 
 export type AcfValidationIssue = {
   code: string;
@@ -32,25 +46,42 @@ export type AcfValidationIssue = {
 
 export type CalculationAcfPolicy = "answer_only" | "show_working";
 
-/** SPM Chemistry calculation mark stages (1 mark each when maxScore is 3). */
+/** Every calculation always uses exactly these three credit stages. */
+export const CALCULATION_REQUIRED_STAGE_COUNT = 3;
+
+/** Clamp calculation mark totals to at least 3 × independent calc asks. */
+export function effectiveCalculationMaxScore(maxScore: number, partCount = 1): number {
+  const n = Number.isFinite(maxScore) ? Math.floor(maxScore) : CALCULATION_REQUIRED_STAGE_COUNT;
+  const floor = Math.max(1, Math.floor(partCount)) * CALCULATION_REQUIRED_STAGE_COUNT;
+  return Math.max(floor, n);
+}
+
+/** Resolve Markah for a calculation stem: printed marks or N×3 independent asks. */
+export function resolveCalculationMaxScore(question: string, requestedMax: number): number {
+  const recommended = recommendCalculationMaxScore(question, requestedMax);
+  const parts = countIndependentCalculationAsks(question);
+  return effectiveCalculationMaxScore(recommended, parts);
+}
+
+/** SPM Chemistry calculation mark stages (always formula → working → final). */
 export const CALCULATION_STAGE_LABELS = {
   formula: "Correct formula/equation",
-  substitution: "Correct substitution/working",
+  substitution: "Correct steps of solving (+, −, ×, ÷) — not the concluding answer",
   final: "Correct final answer with unit",
 } as const;
 
 /** Generic calculation stages (Math, etc.). */
 export const GENERIC_CALCULATION_STAGE_LABELS = {
   formula: "Correct formula or equation",
-  substitution: "Correct substitution/working",
+  substitution: "Correct steps of solving (+, −, ×, ÷) — not the concluding answer",
   final: "Correct final answer with appropriate units",
 } as const;
 
-/** SPM Physics calculation mark stages (final step capped at 1 mark). */
+/** SPM Physics calculation mark stages (same three-stage shape as chemistry). */
 export const PHYSICS_CALCULATION_STAGE_LABELS = {
   data: "Correct data extraction and SI unit conversion",
   formula: "Correct formula or equation stated",
-  substitution: "Correct substitution with units",
+  substitution: "Correct steps of solving (+, −, ×, ÷) — not the concluding answer",
   calculation: "Correct calculation working shown",
   final: "Correct final answer with SI unit",
 } as const;
@@ -82,114 +113,130 @@ export function isProseDefinitionUnit(unit: EvidenceUnit): boolean {
 
 export function inferCalculationPolicy(
   question: string,
-  maxScore = 2,
+  _maxScore = 3,
   _subject?: string,
 ): CalculationAcfPolicy {
-  if (maxScore <= 1) return "answer_only";
-  // SPM: 2+ marks expect formula/working/final stages (Chemistry, Physics, etc.).
+  // All calculation questions use formula → steps of solving → final answer.
   void question;
   return "show_working";
 }
 
-/**
- * SPM Physics: data (when 5+ marks) → formula → substitution → calculation → final (max 1).
- * Extra marks beyond five go to the calculation-working stage.
- */
-export function physicsShowWorkingStagePlan(
-  maxScore: number,
-): Array<{ label: string; weight: number }> {
-  const final = { label: PHYSICS_CALCULATION_STAGE_LABELS.final, weight: 1 };
-  if (maxScore <= 1) return [final];
-  if (maxScore === 2) {
-    return [
-      { label: PHYSICS_CALCULATION_STAGE_LABELS.formula, weight: 1 },
-      final,
-    ];
-  }
+export type CalculationStagePlanItem = {
+  label: string;
+  weight: number;
+  partIndex: number;
+  stageKey: "formula" | "substitution" | "final";
+};
 
-  const stages: Array<{ label: string; weight: number }> = [];
-  let remaining = maxScore - 1;
-
-  if (maxScore >= 5) {
-    stages.push({ label: PHYSICS_CALCULATION_STAGE_LABELS.data, weight: 1 });
-    remaining -= 1;
-  }
-
-  stages.push({ label: PHYSICS_CALCULATION_STAGE_LABELS.formula, weight: 1 });
-  remaining -= 1;
-
-  if (maxScore >= 3) {
-    stages.push({ label: PHYSICS_CALCULATION_STAGE_LABELS.substitution, weight: 1 });
-    remaining -= 1;
-  }
-
-  if (remaining > 0) {
-    stages.push({ label: PHYSICS_CALCULATION_STAGE_LABELS.calculation, weight: remaining });
-  }
-
-  stages.push(final);
-  return stages;
+function labelsForDomain(domain: CalculationDomain): {
+  formula: string;
+  substitution: string;
+  final: string;
+} {
+  if (domain === "chemistry") return CALCULATION_STAGE_LABELS;
+  if (domain === "physics") return PHYSICS_CALCULATION_STAGE_LABELS;
+  return GENERIC_CALCULATION_STAGE_LABELS;
 }
 
-/** Credit-bearing stages for show-working calculations (weights sum to maxScore). */
-export function showWorkingStagePlan(
-  maxScore: number,
-  domain: CalculationDomain = "general",
-): Array<{ label: string; weight: number }> {
-  if (domain === "physics") {
-    return physicsShowWorkingStagePlan(maxScore);
-  }
-
-  if (domain === "chemistry") {
-    if (maxScore <= 1) {
-      return [{ label: CALCULATION_STAGE_LABELS.final, weight: 1 }];
-    }
-    if (maxScore === 2) {
-      return [
-        { label: CALCULATION_STAGE_LABELS.formula, weight: 1 },
-        { label: CALCULATION_STAGE_LABELS.final, weight: 1 },
-      ];
-    }
-    // Final answer is its own single mark (value + unit). Any marks beyond
-    // formula + final accrue to the substitution/working stage — a correct final
-    // must never absorb working marks (mirrors the Physics plan).
-    const extraOnWorking = Math.max(0, maxScore - 3);
+function stagesForPartMarks(
+  partMarks: number,
+  labels: { formula: string; substitution: string; final: string },
+  partPrefix: string,
+  partIndex: number,
+): CalculationStagePlanItem[] {
+  const prefix = partPrefix ? `${partPrefix} ` : "";
+  if (partMarks >= 3) {
     return [
-      { label: CALCULATION_STAGE_LABELS.formula, weight: 1 },
-      { label: CALCULATION_STAGE_LABELS.substitution, weight: 1 + extraOnWorking },
-      { label: CALCULATION_STAGE_LABELS.final, weight: 1 },
+      { label: `${prefix}${labels.formula}`, weight: 1, partIndex, stageKey: "formula" },
+      {
+        label: `${prefix}${labels.substitution}`,
+        weight: partMarks - 2,
+        partIndex,
+        stageKey: "substitution",
+      },
+      { label: `${prefix}${labels.final}`, weight: 1, partIndex, stageKey: "final" },
     ];
   }
-
-  if (maxScore <= 1) {
-    return [{ label: GENERIC_CALCULATION_STAGE_LABELS.final, weight: 1 }];
-  }
-  if (maxScore === 2) {
+  if (partMarks === 2) {
     return [
-      { label: GENERIC_CALCULATION_STAGE_LABELS.formula, weight: 1 },
-      { label: GENERIC_CALCULATION_STAGE_LABELS.final, weight: 1 },
+      { label: `${prefix}${labels.formula}`, weight: 1, partIndex, stageKey: "formula" },
+      { label: `${prefix}${labels.final}`, weight: 1, partIndex, stageKey: "final" },
     ];
   }
-  const extraOnWorking = Math.max(0, maxScore - 3);
   return [
-    { label: GENERIC_CALCULATION_STAGE_LABELS.formula, weight: 1 },
-    { label: GENERIC_CALCULATION_STAGE_LABELS.substitution, weight: 1 + extraOnWorking },
-    { label: GENERIC_CALCULATION_STAGE_LABELS.final, weight: 1 },
+    {
+      label: `${prefix}${labels.final}`,
+      weight: Math.max(1, partMarks),
+      partIndex,
+      stageKey: "final",
+    },
   ];
 }
 
+function threeStagePlan(
+  maxScore: number,
+  labels: { formula: string; substitution: string; final: string },
+  partCount = 1,
+  partLabels: string[] = [""],
+): CalculationStagePlanItem[] {
+  const parts = Math.max(1, Math.floor(partCount));
+  const marks = effectiveCalculationMaxScore(maxScore, parts);
+  const perPart = allocateMarksAcrossParts(marks, parts);
+  const out: CalculationStagePlanItem[] = [];
+  for (let i = 0; i < parts; i += 1) {
+    const prefix = partLabels[i] ?? (parts > 1 ? `(${String.fromCharCode(97 + i)})` : "");
+    out.push(...stagesForPartMarks(perPart[i]!, labels, prefix, i));
+  }
+  return out;
+}
+
 /**
- * Single source of truth for LLM prompts: only the stages that earn marks for this maxScore.
- * Never list substitution/working as a credit stage when maxScore is 2.
+ * Physics calculation stages — formula → steps → final per independent ask.
+ */
+export function physicsShowWorkingStagePlan(
+  maxScore: number,
+  partCount = 1,
+  partLabels: string[] = [""],
+): CalculationStagePlanItem[] {
+  return threeStagePlan(maxScore, PHYSICS_CALCULATION_STAGE_LABELS, partCount, partLabels);
+}
+
+/** Credit-bearing stages — 3 per independent calc ask (weights sum to maxScore). */
+export function showWorkingStagePlan(
+  maxScore: number,
+  domain: CalculationDomain = "general",
+  partCount = 1,
+  partLabels: string[] = [""],
+): CalculationStagePlanItem[] {
+  return threeStagePlan(maxScore, labelsForDomain(domain), partCount, partLabels);
+}
+
+/** Stage plan from the question stem (detects multi-part calc asks). */
+export function buildCalculationStagePlan(params: {
+  question: string;
+  maxScore: number;
+  domain: CalculationDomain;
+}): CalculationStagePlanItem[] {
+  const partCount = countIndependentCalculationAsks(params.question);
+  const partLabels = calculationPartLabels(params.question);
+  return showWorkingStagePlan(params.maxScore, params.domain, partCount, partLabels);
+}
+
+/**
+ * Single source of truth for LLM prompts: always formula → steps of solving → final.
  */
 export function buildCalculationStagePromptLines(params: {
   maxScore: number;
   domain: CalculationDomain;
   policy: CalculationAcfPolicy;
   creditUnits?: Array<{ content: string; creditWeight: number }>;
+  question?: string;
 }): string[] {
-  const { maxScore, domain, policy } = params;
+  const partCount = params.question ? countIndependentCalculationAsks(params.question) : 1;
+  const maxScore = effectiveCalculationMaxScore(params.maxScore, partCount);
+  const { domain, policy } = params;
   if (policy === "answer_only") {
+    // Legacy path — prefer show_working three-stage schemes for all new cases.
     const finalLabel =
       params.creditUnits?.[0]?.content ??
       (domain === "chemistry"
@@ -207,32 +254,35 @@ export function buildCalculationStagePromptLines(params: {
   const stages =
     params.creditUnits && params.creditUnits.length > 0
       ? params.creditUnits.map((u) => ({ label: u.content, weight: u.creditWeight }))
-      : showWorkingStagePlan(maxScore, domain);
+      : params.question
+        ? buildCalculationStagePlan({ question: params.question, maxScore, domain })
+        : showWorkingStagePlan(maxScore, domain, partCount);
 
   const subject =
     domain === "chemistry" ? "CHEMISTRY" : domain === "physics" ? "PHYSICS" : "GENERAL";
 
   const lines = [
-    `${subject} calculation — ${maxScore} mark${maxScore === 1 ? "" : "s"}: credit ONLY these ${stages.length} stage(s). NEVER invent extra stages.`,
+    `${subject} calculation — ${partCount > 1 ? `${partCount} parts × ` : ""}${CALCULATION_REQUIRED_STAGE_COUNT} stages per ask (${maxScore} mark${maxScore === 1 ? "" : "s"}): credit ONLY these stages. NEVER invent extra stages.`,
     ...stages.map(
       (s, i) =>
         `${i + 1}) ${s.label} (${s.weight} mark${s.weight === 1 ? "" : "s"}) — credit only when clearly shown.`,
     ),
   ];
 
-  if (domain === "physics") {
+  lines.push(
+    "Wrong formula is a major error — do not credit later stages of the SAME part when the equation is wrong.",
+    "Working/steps stage: credit ONLY substitution and arithmetic (+, −, ×, ÷). Do NOT require the final answer with unit here.",
+    "Final answer stage is a SEPARATE mark — stating the concluding value with unit. Working must not absorb that mark.",
+    "Final answer alone without earlier stages earns ONLY the final stage (partial marks).",
+    "Unit belongs inside the final-answer stage — NEVER treat unit as a separate mark.",
+  );
+  if (partCount > 1) {
     lines.push(
-      "Wrong formula is a major error — do not credit later stages when the equation is wrong.",
-      "Final answer alone earns at most the final stage mark(s).",
+      "Multi-part: mark each part's formula / working / final independently. Do not require part (b) to restate part (a).",
     );
-  } else {
-    lines.push(
-      "Final answer alone without an earlier required stage earns ONLY the final stage (partial marks).",
-      "Unit belongs inside the final-answer stage — NEVER treat unit as a separate mark.",
-    );
-    if (domain === "chemistry") {
-      lines.push("Treat 75% and 0.75 as equivalent for substitution when that stage exists.");
-    }
+  }
+  if (domain === "chemistry") {
+    lines.push("Treat 75% and 0.75 as equivalent for substitution when that stage exists.");
   }
 
   return lines;
@@ -276,15 +326,18 @@ export function calculationModelAnswerSectionLabels(
   return [...CALCULATION_WORKED_EXEMPLAR_SECTIONS];
 }
 
-/** Generation prompt: calc Markah must match SPM stage count. */
+/** Generation prompt: calc Markah = 3 per independent calc ask (printed marks win). */
 export function buildCalculationMarkSchemeGenerationBlock(): string {
   return [
     "CALCULATION QUESTIONS (Chemistry / Physics / Math — binding):",
-    "- Markah MUST equal the number of calculation stages below — NEVER invent extra theory marks.",
-    "- Chemistry / Math: 1 mark → final answer only; 2 marks → formula + final answer with unit; 3 marks → formula + substitution/working + final answer with unit.",
-    "- Physics: follow data (when needed) → formula → substitution → calculation → final (final capped at 1 mark).",
+    "- Each INDEPENDENT calculation ask (e.g. (a) find acceleration, (b) find distance) gets formula + steps of solving + final answer = 3 marks.",
+    "- Single-ask calculation: Markah = 3. Two independent calc parts: Markah = 6 (unless the stem prints a different total — then use the printed Markah).",
+    "- Stages per ask MUST be: (1) formula/equation, (2) steps of solving (+, −, ×, ÷ only — NOT the concluding answer), (3) final answer with unit (SEPARATE 1 mark).",
+    "- For multi-part, list marking points grouped by part: (a) formula, (a) working, (a) final, (b) formula, (b) working, (b) final.",
+    "- Working/steps marking point MUST NOT include or require writing the final answer — that is its own mark.",
+    "- Do NOT create 1-mark answer-only or 2-mark formula+final schemes for a full calc ask.",
     "- Unit is part of the final-answer mark — NEVER a separate Markah bullet.",
-    "- Marking points: MUST list exactly those stages (one bullet per stage).",
+    "- Markah: MUST equal the bullet count.",
   ].join("\n");
 }
 
@@ -491,7 +544,8 @@ export function buildCalculationTemplate(params: {
   policy: CalculationAcfPolicy;
   subject?: string;
 }): { units: EvidenceUnit[]; relations: EvidenceRelation[]; markRule: MarkRule } {
-  const maxScore = params.maxScore;
+  const partCount = countIndependentCalculationAsks(params.question);
+  const maxScore = effectiveCalculationMaxScore(params.maxScore, partCount);
   const domain = resolveCalculationDomain(params.subject ?? "");
   const finalLabel =
     domain === "chemistry"
@@ -500,6 +554,7 @@ export function buildCalculationTemplate(params: {
         ? PHYSICS_CALCULATION_STAGE_LABELS.final
         : GENERIC_CALCULATION_STAGE_LABELS.final;
 
+  // Prefer three-stage show_working for all calculations; answer_only kept for legacy only.
   if (params.policy === "answer_only") {
     return {
       units: [
@@ -523,32 +578,49 @@ export function buildCalculationTemplate(params: {
     };
   }
 
-  const stagePlan = showWorkingStagePlan(maxScore, domain);
+  const stagePlan = buildCalculationStagePlan({
+    question: params.question,
+    maxScore,
+    domain,
+  });
   const units: EvidenceUnit[] = [];
   const relations: EvidenceRelation[] = [];
 
+  // Stage index within each part (1-based) for stable ids: calc_s1.. or calc_p1_s1..
+  const stageIndexInPart = new Map<number, number>();
+  let prevIdInPart: string | null = null;
+  let prevPartIndex = -1;
+
   for (let i = 0; i < stagePlan.length; i += 1) {
-    const id = `calc_s${i + 1}`;
-    const prevId = i > 0 ? `calc_s${i}` : null;
     const step = stagePlan[i]!;
+    if (step.partIndex !== prevPartIndex) {
+      prevIdInPart = null;
+      prevPartIndex = step.partIndex;
+    }
+    const localIdx = (stageIndexInPart.get(step.partIndex) ?? 0) + 1;
+    stageIndexInPart.set(step.partIndex, localIdx);
+
+    const id =
+      partCount > 1 ? `calc_p${step.partIndex + 1}_s${localIdx}` : `calc_s${localIdx}`;
     units.push({
       id,
       type: "stage",
       content: step.label,
       aliases: [],
       creditWeight: step.weight,
-      required: i === 0,
-      supports: prevId ? [prevId] : undefined,
+      required: localIdx === 1,
+      supports: prevIdInPart ? [prevIdInPart] : undefined,
     });
-    if (prevId) {
+    if (prevIdInPart) {
       relations.push({
-        id: `calc_r${i}`,
+        id: partCount > 1 ? `calc_p${step.partIndex + 1}_r${localIdx - 1}` : `calc_r${localIdx - 1}`,
         type: "sequence_next",
-        from: prevId,
+        from: prevIdInPart,
         to: id,
         requiredForMarks: true,
       });
     }
+    prevIdInPart = id;
   }
 
   return {
@@ -564,14 +636,20 @@ export function buildCalculationTemplate(params: {
   };
 }
 
+function isCalcTemplateUnitId(id: string): boolean {
+  return id === "calc_final" || /^calc_s\d+$/.test(id) || /^calc_p\d+_s\d+$/.test(id);
+}
+
 export function normalizeCalculationAcf(
   acf: Pick<AssessmentCaseFile, "question" | "maxScore" | "subject" | "units" | "relations" | "markRule">,
 ): Pick<AssessmentCaseFile, "units" | "relations" | "markRule"> {
   const domain = resolveCalculationDomain(acf.subject);
-  const policy = inferCalculationPolicy(acf.question, acf.maxScore, acf.subject);
+  const partCount = countIndependentCalculationAsks(acf.question);
+  const maxScore = effectiveCalculationMaxScore(acf.maxScore, partCount);
+  const policy = inferCalculationPolicy(acf.question, maxScore, acf.subject);
   const template = buildCalculationTemplate({
     question: acf.question,
-    maxScore: acf.maxScore,
+    maxScore,
     policy,
     subject: acf.subject,
   });
@@ -581,25 +659,30 @@ export function normalizeCalculationAcf(
 
   const creditAfterDemotion = units.filter((u) => u.creditWeight > 0);
   const weightSum = sumCreditWeights(units);
-  const usesCalcTemplateIds = creditAfterDemotion.every(
-    (u) => u.id === "calc_final" || /^calc_s\d+$/.test(u.id),
-  );
+  const usesCalcTemplateIds = creditAfterDemotion.every((u) => isCalcTemplateUnitId(u.id));
   const hasProseGating = relations.some(
     (r) =>
       r.requiredForMarks &&
       units.some((u) => u.id === r.from && isProseDefinitionUnit(u)),
   );
 
-  const expectedStageCount = showWorkingStagePlan(acf.maxScore, domain).length;
+  const expectedStageCount = buildCalculationStagePlan({
+    question: acf.question,
+    maxScore,
+    domain,
+  }).length;
   const tooManyWeightedSteps =
     policy === "show_working"
       ? creditAfterDemotion.length > expectedStageCount
       : creditAfterDemotion.length > 1;
+  const wrongStageCount =
+    policy === "show_working" && creditAfterDemotion.length !== expectedStageCount;
 
   if (
-    weightSum !== acf.maxScore ||
+    weightSum !== maxScore ||
     hasProseGating ||
     tooManyWeightedSteps ||
+    wrongStageCount ||
     !usesCalcTemplateIds ||
     (policy === "answer_only" && creditAfterDemotion.length !== 1)
   ) {
@@ -611,16 +694,16 @@ export function normalizeCalculationAcf(
     return {
       units: demoteProseDefinitions(units),
       relations,
-      markRule: { ...template.markRule, maxMarks: acf.maxScore },
+      markRule: { ...template.markRule, maxMarks: maxScore },
     };
   }
 
-  units = mergeCreditUnitsToMaxScore(units, acf.maxScore);
+  units = mergeCreditUnitsToMaxScore(units, maxScore);
   relations = fixRelationDirection(units, relations);
 
   const markRule: MarkRule = {
     kind: policy === "answer_only" ? "count_distinct_units" : "ordered_stages",
-    maxMarks: acf.maxScore,
+    maxMarks: maxScore,
     openPool: false,
     calcPolicy: policy,
     calcDomain: domain,
@@ -633,11 +716,13 @@ export function finalizeCalculationAssessmentCase(acf: AssessmentCaseFile): Asse
   if (!isCalculationIntent(acf)) return acf;
 
   const domain = resolveCalculationDomain(acf.subject);
-  const normalized = normalizeCalculationAcf(acf);
+  const maxScore = resolveCalculationMaxScore(acf.question, acf.maxScore);
+  const normalized = normalizeCalculationAcf({ ...acf, maxScore });
 
   const next: AssessmentCaseFile = {
     ...acf,
     ...normalized,
+    maxScore,
     assessedUnderstanding:
       normalized.markRule.calcPolicy === "answer_only"
         ? (domain === "chemistry"
@@ -645,7 +730,7 @@ export function finalizeCalculationAssessmentCase(acf: AssessmentCaseFile): Asse
             : domain === "physics"
               ? PHYSICS_CALCULATION_STAGE_LABELS.final
               : GENERIC_CALCULATION_STAGE_LABELS.final) + "."
-        : showWorkingStagePlan(acf.maxScore, domain)
+        : buildCalculationStagePlan({ question: acf.question, maxScore, domain })
             .map((s) => s.label)
             .join("; ") + ".",
   };
@@ -657,15 +742,16 @@ export function finalizeCalculationAssessmentCase(acf: AssessmentCaseFile): Asse
   if (hardFailures.length > 0) {
     const template = buildCalculationTemplate({
       question: acf.question,
-      maxScore: acf.maxScore,
-      policy: inferCalculationPolicy(acf.question, acf.maxScore, acf.subject),
+      maxScore,
+      policy: inferCalculationPolicy(acf.question, maxScore, acf.subject),
       subject: acf.subject,
     });
     return {
       ...next,
+      maxScore,
       units: [...next.units.filter((u) => u.creditWeight === 0 && isProseDefinitionUnit(u)), ...template.units],
       relations: template.relations,
-      markRule: { ...template.markRule, maxMarks: acf.maxScore },
+      markRule: { ...template.markRule, maxMarks: maxScore },
     };
   }
 

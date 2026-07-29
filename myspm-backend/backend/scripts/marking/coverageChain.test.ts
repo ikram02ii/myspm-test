@@ -4,13 +4,13 @@
  */
 import assert from "node:assert/strict";
 import { test, describe } from "node:test";
-import type { AssessmentCaseFile, UnderstandingDemonstration } from "../../src/services/ama/grading/v3/types.js";
+import type { AssessmentCaseFile, UnderstandingDemonstration } from "../../src/services/ama/grading/shared/types.js";
 import {
   findChainRootUnitIds,
   scoreCoverageChain,
   unitDemonstrated,
-} from "../../src/services/ama/grading/v3/coverageChainScorer.js";
-import { scoreFromDemonstration } from "../../src/services/ama/grading/v3/scoreFromDemonstration.js";
+} from "../../src/services/ama/grading/scoring/coverageChainScorer.js";
+import { scoreFromDemonstration } from "../../src/services/ama/grading/scoring/scoreFromDemonstration.js";
 
 function makeChainAcf(overrides?: Partial<AssessmentCaseFile>): AssessmentCaseFile {
   return {

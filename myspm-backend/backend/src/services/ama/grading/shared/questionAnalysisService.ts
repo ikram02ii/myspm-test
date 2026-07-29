@@ -1,12 +1,13 @@
 /**
  * Deterministic question analysis for SPM grading (command words, demand shape,
- * suggested marks). No LLM â€” keeps behaviour stable across subjects.
+ * suggested marks). No LLM — keeps behaviour stable across subjects.
  */
 
 import { hasCompoundAndDemand } from "../shared/gradingChecks";
 import { hasTwoDistinctDemandsJoinedByAnd } from "../shared/gradingPolicy";
-import { textHasCalculationStructure } from "./calculationStructureDetect";
-import { inferMaxScoreFromMarkScheme } from "./markSchemeInference";
+import { recommendWholeMarkCountForStem } from "../extraction/markingPointDecomposition";
+import { recommendCalculationMaxScore } from "../case/calculationPartDetect";
+import { inferMaxScoreFromMarkScheme } from "../case/markSchemeInference";
 import type {
   DemandType,
   EquationType,
@@ -197,8 +198,7 @@ const DEMAND_DETECTORS: { type: DemandType; re: RegExp }[] = [
     type: "comparison",
     re: /\b(compare|differences?\s+between|similarities?\s+between|similarities?\s+and\s+differences?|differences?\s+and\s+similarities?|bandingkan|perbezaan\s+antara|persamaan\s+antara|persamaan\s+dan\s+perbezaan|perbezaan|persamaan|differentiate|distinguish|bezakan)\b/i,
   },
-  // Calculation demand is NOT inferred from loose verbs (determine / find the / tentukan).
-  // See textHasCalculationStructure() — applied after demand detectors.
+  // Calculation demand is owned by the Question Classification Agent (not stem regex).
   {
     type: "example",
     re: /\b(give\s+an\s+example|state\s+one\s+example|state\s+an\s+example|name\s+one|give\s+one|berikan\s+contoh|nyatakan\s+satu\s+contoh|namakan\s+satu)\b/i,
@@ -227,11 +227,8 @@ function detectDemandTypes(q: string): { demandType: DemandType; compoundDemandT
   for (const { type, re } of DEMAND_DETECTORS) {
     if (re.test(s)) found.push(type);
   }
-  // Calculation only from structural evidence (numbers, equations, stage labels) — not verbs.
-  // Append (do not override explain/compare/essay primary demand).
-  if (textHasCalculationStructure(q) && !found.includes("calculation")) {
-    found.push("calculation");
-  }
+  // Calculation demand is NOT inferred from stem structure / numbers / equations.
+  // Top-level Question Classification Agent owns calculation routing.
   if (found.length === 0) return { demandType: "recall", compoundDemandTypes: ["recall"] };
   return { demandType: found[0], compoundDemandTypes: [...new Set(found)] };
 }
@@ -260,7 +257,8 @@ function classifyQuestionType(q: string, commandWord: CommandWord): QuestionAnal
     /\bpersamaan\s+dan\s+perbezaan\b/i.test(s) ||
     /\bdifferences?\s+and\s+similarities?\b/i.test(s)
   ) return "compare_contrast";
-  if (textHasCalculationStructure(q)) return "calculation";
+  // Do NOT classify calculation from numbers/equations/structure — the dedicated
+  // Question Classification Agent owns the calculation lane.
   const asksForExample =
     /\b(give\s+(an?\s+)?example|name\s+an?\s+example|state\s+an?\s+example|berikan\s+contoh|beri\s+contoh)\b/i.test(s) ||
     (commandWord === "give" && /\bexample|contoh\b/i.test(s));
@@ -304,9 +302,9 @@ function suggestedMaxFromStem(
   return suggestMaxMarksFromQuestionStructure(q, analysis);
 }
 
-function suggestedMaxFromStemSimple(analysis: Pick<QuestionAnalysis, "commandWord" | "questionType">): number {
+function suggestedMaxFromStemSimple(analysis: Pick<QuestionAnalysis, "commandWord" | "questionType" | "topLevelQuestionType">): number {
   if (analysis.questionType === "mcq") return 1;
-  if (analysis.questionType === "calculation") return 3;
+  if (analysis.topLevelQuestionType === "calculation" || analysis.commandWord === "calculate") return 3;
   if (analysis.questionType === "compare_contrast") return 4;
   if (analysis.commandWord === "explain" || analysis.commandWord === "discuss") return 4;
   if (analysis.commandWord === "describe") return 3;
@@ -335,11 +333,25 @@ export function suggestMaxMarksFromQuestionStructure(
 
   if (resolved.questionType === "mcq") return 1;
 
+  // Identify/name/list + role/function/explain: whole marks only (name + elaboration
+  // per item). MUST run before the "two + state → 2" / bare "identify → 1" shortcuts,
+  // which otherwise fuse name+role into one mark and award 0 when the student names only.
+  {
+    const { demandType, compoundDemandTypes } = detectDemandTypes(q);
+    const wholeMarkPlan = recommendWholeMarkCountForStem(q, {
+      commandWord: resolved.commandWord,
+      isCompoundQuestion: resolved.isCompoundQuestion,
+      demandType,
+      compoundDemandTypes,
+    });
+    if (wholeMarkPlan != null) return wholeMarkPlan;
+  }
+
   const evolutionLike =
     /\b(evolution\s+of|development\s+of|history\s+of|sequence\s+of|from\s+.+\s+to\s+.+)\b/i.test(s) &&
     /\b(dalton|thomson|rutherford|bohr|model|stage|scientist|teori|teori atom)\b/i.test(s);
 
-  // Explicit item counts in the stem ("State three…", "List two…")
+  // Explicit item counts in the stem ("State three…", "List two…") — pure recall only.
   if (/\b(five|5|lima)\s+(reason|point|factor|example|item|perbezaan|persamaan)/i.test(s)) return 5;
   if (/\b(four|4|empat)\b/.test(s) && /\b(state|give|list|name|nyatakan|senaraikan|bandingkan)/i.test(s)) {
     return 4;
@@ -364,8 +376,7 @@ export function suggestMaxMarksFromQuestionStructure(
 
   if (evolutionLike) return 4;
   if (resolved.questionType === "calculation") {
-    if (/\b(show|working|kerja|langkah)\b/i.test(s)) return 3;
-    return 2;
+    return recommendCalculationMaxScore(q);
   }
   if (resolved.questionType === "sequence_order") return 3;
   if (resolved.questionType === "compare_contrast") return 4;
@@ -415,12 +426,12 @@ export function analyzeQuestion(question: string, subject?: string | null): Ques
 
   let expectedAnswerStyle = "Short SPM-style points matching the command word.";
   if (questionType === "structure_description") expectedAnswerStyle = "Name visible structures/parts; causal links optional unless the stem asks for adaptation.";
-  if (questionType === "cause_effect") expectedAnswerStyle = "Linked explanation (because / so that / to â€¦) with science ideas.";
+  if (questionType === "cause_effect") expectedAnswerStyle = "Linked explanation (because / so that / to …) with science ideas.";
   if (questionType === "open_ended_example") expectedAnswerStyle = "Valid category example plus matching use/function where asked.";
   if (questionType === "compare_contrast") expectedAnswerStyle = "Paired similarities and differences.";
   if (questionType === "sequence_order") {
     expectedAnswerStyle =
-      "Stages or levels in the correct order only (e.g. cell â†’ tissue â†’ organ â†’ system â†’ organism). Wrong order = wrong even if all names are present.";
+      "Stages or levels in the correct order only (e.g. cell → tissue → organ → system → organism). Wrong order = wrong even if all names are present.";
   }
 
   return {

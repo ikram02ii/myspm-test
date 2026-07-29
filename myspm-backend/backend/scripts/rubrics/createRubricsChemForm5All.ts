@@ -39,7 +39,7 @@ async function main(): Promise<void> {
   assertRagDatabaseEnv();
 
   const { createRubricsFromTextbookChunks } = await import(
-    "../../src/services/ama/grading/v3/textbookChunkAssessmentService.js"
+    "../../src/services/ama/grading/case/textbookChunkAssessmentService.js"
   );
 
   const batchSize = Math.max(1, Math.min(BATCH_CAP, argNum("maxChunks", BATCH_CAP)));
@@ -61,7 +61,7 @@ async function main(): Promise<void> {
 
   if (dryRun) {
     const { listTextbookChunksForRubricGeneration } = await import(
-      "../../src/services/ama/grading/v3/textbookChunkAssessmentService.js"
+      "../../src/services/ama/grading/case/textbookChunkAssessmentService.js"
     );
     const { textbook, chunks } = await listTextbookChunksForRubricGeneration({
       subject: SUBJECT,

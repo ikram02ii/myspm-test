@@ -7,7 +7,7 @@ import { test, describe } from "node:test";
 import {
   inferCalculationPolicy,
   isCalculationIntent,
-} from "../../src/services/ama/grading/v3/calculationAcfPolicy.js";
+} from "../../src/services/ama/grading/case/calculationAcfPolicy.js";
 import {
   applyVerificationToAcf,
   computeEmpiricalFormulaFromComposition,
@@ -15,8 +15,8 @@ import {
   parseEmpiricalCompositionQuestion,
   reverseCheckEmpiricalFormula,
   verifyCalculationReferenceAnswer,
-} from "../../src/services/ama/grading/v3/calculationAnswerVerification.js";
-import type { AssessmentCaseFile, AssessmentIntent } from "../../src/services/ama/grading/v3/types.js";
+} from "../../src/services/ama/grading/matching/calculationAnswerVerification.js";
+import type { AssessmentCaseFile, AssessmentIntent } from "../../src/services/ama/grading/shared/types.js";
 
 const EMPIRICAL_QUESTION =
   "Determine the empirical formula of a compound containing 60% carbon, 13.3% hydrogen and 26.7% oxygen. " +
@@ -107,14 +107,14 @@ describe("calculation answer verification", () => {
     assert.equal(pending.verificationNote, "Composition mismatch");
   });
 
-  test("verification applies to all calculation intent questions (answer_only and show_working)", () => {
+  test("verification applies to all calculation intent questions (always show_working)", () => {
     for (const sample of ALL_CALC_STEMS) {
       const policy = inferCalculationPolicy(sample, 2, "Chemistry");
-      assert.ok(policy === "answer_only" || policy === "show_working", sample);
+      assert.equal(policy, "show_working", sample);
 
       const acf = {
         intent: calcIntent(),
-        markRule: { kind: "count_distinct_units" as const, maxMarks: 2, calcPolicy: policy },
+        markRule: { kind: "ordered_stages" as const, maxMarks: 3, calcPolicy: policy },
       };
       assert.equal(isCalculationIntent(acf), true, sample);
     }

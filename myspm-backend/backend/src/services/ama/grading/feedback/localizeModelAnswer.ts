@@ -135,6 +135,8 @@ async function rewriteModelAnswer(params: {
             "- PLAIN TEXT ONLY: no LaTeX, no markdown, no \\\\, no \\frac, no \\[1ex].",
             "- Use real newlines between Formula: / Working: / Final answer: — never write the characters backslash-n.",
             "- Do NOT repeat Formula content inside Working.",
+            "- Working = substitution and arithmetic steps (+, −, ×, ÷) ONLY — do NOT put the concluding final answer with unit under Working.",
+            "- Final answer is a SEPARATE section/mark (value + unit only).",
           ].join("\n")
         : buildModelAnswerQualityRulesBlock(params.maxScore, params.question),
       looksLikeCalcModel ? "" : buildKssmTextbookModelAnswerWordingBlock(),
@@ -159,7 +161,7 @@ async function rewriteModelAnswer(params: {
             `Calculation model answer for ${params.maxScore} mark(s): you MUST use ALL of these section labels, each on its own line:`,
             ...calcSections.map((l) => `- ${l}`),
             "Separate sections with newlines. NEVER omit Formula: or Working:.",
-            "Unit belongs in Final answer — not a separate section or mark.",
+            "Working = arithmetic steps only; Final answer = value with unit (separate mark) — never merge them.",
           ].join("\n")
         : buildModelAnswerVerbFormatRulesBlock(params.maxScore, params.question),
     ]
@@ -312,7 +314,7 @@ export async function localizeModelAnswerForStudent(params: {
   }
 
   if (process.env.NODE_ENV === "development") {
-    console.warn("[grade:v3] model answer polish fell back to reference", {
+    console.warn("[grade] model answer polish fell back to reference", {
       targetLanguage: language,
       referencePreview: reference.slice(0, 120),
       localizedPreview: localized?.slice(0, 120),

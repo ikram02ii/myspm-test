@@ -10,6 +10,7 @@ import {
   snapshotUdmTicks,
 } from "../shared/udmTickTrace";
 import { buildTheoryEvaluationSystemLines } from "../prompts/theory/evaluateUnderstandingPrompt";
+import { answerDepthDirectiveForIntent } from "../agents/classifyIntent";
 import type { AssessmentCaseFile, MissingGap, UnderstandingDemonstration } from "../shared/types";
 
 export function parseUnderstandingDemonstration(
@@ -122,7 +123,11 @@ export async function evaluateUnderstanding(params: {
     : "";
 
   const system = withMandatoryMarkingLanguage(
-    buildTheoryEvaluationSystemLines({ isCalc, calcStageBlock }).join("\n"),
+    buildTheoryEvaluationSystemLines({
+      isCalc,
+      calcStageBlock,
+      depthLines: isCalc ? [] : answerDepthDirectiveForIntent(params.acf.intent),
+    }).join("\n"),
   );
 
   const questionContext = params.questionContext?.trim();

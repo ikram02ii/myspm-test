@@ -73,7 +73,7 @@ function workedAnswerStructureHint(maxScore: number, question: string, subject: 
 function fallbackModelAnswer(verifiedFinalAnswer: string): string {
   return [
     "Formula: (use the syllabus formula for this question)",
-    "Working: Substitute the given values from the question and calculate.",
+    "Working: Substitute the given values and show +, −, ×, ÷ steps (not the final answer).",
     `Final answer: ${verifiedFinalAnswer}`,
   ].join("\n");
 }
@@ -96,13 +96,12 @@ function buildWorkedModelAnswerSystem(params: {
     "",
     "Section rules:",
     "- Formula: general symbolic relationship OR conversion factor only (e.g. ρ = m/V or 1 km = 1000 m). No substituted question numbers in Formula.",
-    "- Working: clearly substitute EVERY given value and show each numeric step so a student can follow the method (not a bare Final answer).",
-    "- Final answer: verified value with correct unit — digits only, no thousand commas (write 2500000 not 2,500,000).",
-    "- PLAIN TEXT ONLY: never LaTeX, never \\frac, never \\text{}, never [ ] math mode.",
+    "- Working: ONLY the solving steps — substitute values and show arithmetic (+, −, ×, ÷). Intermediate results OK. Do NOT put the concluding final answer with unit here.",
+    "- Final answer: SEPARATE 1-mark section — verified value WITH correct unit only (digits only, no thousand commas: write 2500000 not 2,500,000).",
     "- You MUST label sections exactly: Formula: / Working: / Final answer: — never number them as '1.' '2.' only.",
     "- One line per given quantity in Working when listing given data.",
     "- Use ÷ for division; do not use step numbers (1., 2.)",
-    "- Working MUST be long enough to show the calculation path; NEVER skip to a lone final number.",
+    "- Working MUST show the calculation path with operators; NEVER copy the Final answer line into Working.",
     "",
     "PLAIN TEXT ONLY (binding):",
     "- NEVER use LaTeX (no \\frac, \\V, \\times, \\\\, \\[1ex], $...$).",
@@ -114,7 +113,7 @@ function buildWorkedModelAnswerSystem(params: {
     "Final answer: 11.2 dm³",
     "",
     params.strictRetry
-      ? "RETRY: Your previous answer was incomplete. You MUST output Formula, Working, AND Final answer with non-empty content under each label. Working MUST show substitutions."
+      ? "RETRY: Your previous answer was incomplete. You MUST output Formula, Working, AND Final answer with non-empty content under each label. Working = arithmetic steps only; Final answer = value+unit separately."
       : "",
     "Required mark stages (scoring info):",
     workedAnswerStructureHint(params.maxScore, params.question, params.subject),

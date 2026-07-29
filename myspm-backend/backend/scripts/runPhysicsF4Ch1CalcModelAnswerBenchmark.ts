@@ -163,13 +163,13 @@ async function evaluateOne(q: BankQuestion): Promise<Row> {
   try {
     const { gradeSubmission } = await import("../src/services/ama/grading/gradeService.js");
     const { getOrCreateAssessmentCase } = await import(
-      "../src/services/ama/grading/v3/assessmentCaseService.js"
+      "../src/services/ama/grading/case/assessmentCaseService.js"
     );
     const { hasCompleteCalculationModelAnswerSections } = await import(
-      "../src/services/ama/grading/v3/calculationAcfPolicy.js"
+      "../src/services/ama/grading/case/calculationAcfPolicy.js"
     );
     const { calculationModelAnswerLooksDirty, normalizeCalculationModelAnswer } = await import(
-      "../src/services/ama/grading/v3/normalizeCalculationModelAnswer.js"
+      "../src/services/ama/grading/extraction/normalizeCalculationModelAnswer.js"
     );
 
     const stored = await getOrCreateAssessmentCase({

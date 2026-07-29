@@ -10,7 +10,7 @@ import {
   buildEnrichedRetrievalQuery,
   generateDiagramContextWithQwen,
   renderDiagramContextForGrader,
-} from "../../src/services/ama/grading/diagramFactExtraction";
+} from "../../src/services/ama/grading/extraction/diagramFactExtraction";
 import {
   gradeWithLegacyPipeline,
   isMcqLetterOnlyExplanationRequest,

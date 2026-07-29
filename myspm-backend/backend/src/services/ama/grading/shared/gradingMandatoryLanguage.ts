@@ -31,6 +31,7 @@ export const FEEDBACK_MANDATORY_LANGUAGE_HEADER = [
 export const MARKING_MANDATORY_LANGUAGE_HEADER = [
   "MANDATORY EXAMINER RULES (binding — override any softer wording elsewhere in this prompt):",
   "- You MUST treat every rule below as compulsory, not advisory.",
+  "- Examiner workflow: Question → question decomposition → mark allocation → marking points → model answer → grade against marking points. NEVER reverse this order.",
   "- Mark EACH rubric/marking-point row independently. NEVER judge the student answer as one holistic blob.",
   "- Final score = SUM of independently awarded rows only.",
   "- Award a row ONLY when the student's own written words demonstrate THAT row's specific concept.",

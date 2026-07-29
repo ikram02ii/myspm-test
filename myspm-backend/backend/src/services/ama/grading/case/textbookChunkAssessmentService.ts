@@ -5,7 +5,7 @@
 import { and, asc, eq, ilike, inArray } from "drizzle-orm";
 import { chatCompletion } from "../../../ai gen/llmProvider";
 import { ragDb, ragRubricsTable, ragTextbookChunksTable, ragTextbooksTable } from "../../../../lib/ragDb";
-import { analyzeQuestion } from "../analysis/questionAnalysisService";
+import { analyzeQuestion } from "../shared/questionAnalysisService";
 import { isLowQualityChunk } from "../../retrieval/retrievalService";
 import {
   buildAssessmentCasePackage,
@@ -47,7 +47,7 @@ export type CreateRubricsFromTextbookChunksInput = {
   maxChunks?: number;
   /** Skip first N chunks after ordering by chunk_index */
   offset?: number;
-  /** Default marks per generated question (1â€“3) */
+  /** Default marks per generated question (1–3) */
   maxMarks?: number;
   /** Parallel LLM calls (default 2) */
   concurrency?: number;
@@ -213,7 +213,7 @@ async function generateQuestionFromChunk(params: {
     RETURN_JSON_QUESTION_TEXT_AND_MODEL_ANSWER,
     "questionText must end with mark allocation, e.g. '(2 marks)' or '(2 markah)'.",
     `maxMarks for the question must be ${maxMarks}.`,
-    "Ask only about facts and concepts present in the excerpt â€” do not require outside knowledge.",
+    "Ask only about facts and concepts present in the excerpt — do not require outside knowledge.",
     "Use explain, describe, state, or why as appropriate to the excerpt (not MCQ).",
     "modelAnswer: concise answer an examiner would expect (~maxMarks short points).",
   ].join("\n");

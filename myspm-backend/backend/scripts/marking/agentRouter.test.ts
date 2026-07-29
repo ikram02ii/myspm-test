@@ -7,8 +7,8 @@ import { describe, test } from "node:test";
 import {
   parseClientQuestionTypeHint,
   resolveOpenEndedMarkingAgent,
-} from "../../src/services/ama/grading/v3/agents/resolveMarkingAgent.js";
-import type { AssessmentCaseFile, AssessmentIntent } from "../../src/services/ama/grading/v3/types.js";
+} from "../../src/services/ama/grading/agents/resolveMarkingAgent.js";
+import type { AssessmentCaseFile, AssessmentIntent } from "../../src/services/ama/grading/shared/types.js";
 
 function intent(partial: Partial<AssessmentIntent> & Pick<AssessmentIntent, "category" | "family">): AssessmentIntent {
   return {
@@ -49,6 +49,44 @@ describe("resolveOpenEndedMarkingAgent", () => {
   test("routes recall intent to theory agent", () => {
     assert.equal(
       resolveOpenEndedMarkingAgent(acf(intent({ category: "state", family: "recall" }))),
+      "theory",
+    );
+  });
+
+  test("routes calculation topLevel on analysis to calculation agent", () => {
+    assert.equal(
+      resolveOpenEndedMarkingAgent(
+        acf(
+          intent({
+            category: "calculate",
+            family: "calculation",
+            analysis: {
+              questionType: "calculation",
+              demandType: "calculation",
+              topLevelQuestionType: "calculation",
+            } as AssessmentIntent["analysis"],
+          }),
+        ),
+      ),
+      "calculation",
+    );
+  });
+
+  test("routes theory topLevel even if family wrongly calculation", () => {
+    assert.equal(
+      resolveOpenEndedMarkingAgent(
+        acf(
+          intent({
+            category: "calculate",
+            family: "calculation",
+            analysis: {
+              questionType: "calculation",
+              demandType: "calculation",
+              topLevelQuestionType: "theory",
+            } as AssessmentIntent["analysis"],
+          }),
+        ),
+      ),
       "theory",
     );
   });

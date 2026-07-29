@@ -4,14 +4,14 @@
  */
 import assert from "node:assert/strict";
 import { test, describe } from "node:test";
-import { diagnoseSyncEvidenceGate } from "../../src/services/ama/grading/v3/udmEvidenceGate.ts";
-import { reconcileUnderstandingDemonstration } from "../../src/services/ama/grading/v3/reconcileTheoryDemonstration.ts";
-import { scoreFromDemonstration } from "../../src/services/ama/grading/v3/scoreFromDemonstration.ts";
+import { diagnoseSyncEvidenceGate } from "../../src/services/ama/grading/matching/udmEvidenceGate.ts";
+import { reconcileUnderstandingDemonstration } from "../../src/services/ama/grading/matching/reconcileTheoryDemonstration.ts";
+import { scoreFromDemonstration } from "../../src/services/ama/grading/scoring/scoreFromDemonstration.ts";
 import type {
   AssessmentCaseFile,
   EvidenceUnit,
   UnderstandingDemonstration,
-} from "../../src/services/ama/grading/v3/types.ts";
+} from "../../src/services/ama/grading/shared/types.ts";
 
 function unit(id: string, content: string, aliases: string[], coreConcept?: string): EvidenceUnit {
   return {

@@ -109,6 +109,77 @@ export type AssessmentIntent = {
   analysis: QuestionAnalysis;
 };
 
+/**
+ * One dimension of a comparison question: a single concept/axis on which the
+ * compared entities are contrasted, together with the requirement each entity
+ * must satisfy and the marks the dimension carries.
+ *
+ * Produced by the rubric builder so the grading engine can evaluate each entity
+ * and dimension independently, instead of inferring contrast from contrast-word
+ * regexes over rubric text.
+ */
+export type ComparisonDimension = {
+  /** The concept being compared (e.g. "charge carriers", "melting point"). */
+  dimension: string;
+  /** What the first entity must express to satisfy this dimension. */
+  entityARequirement: string;
+  /** What the second entity must express to satisfy this dimension. */
+  entityBRequirement: string;
+  /** Marks carried by this comparison dimension. */
+  marks: number;
+};
+
+/**
+ * First-class comparison structure for comparison-family questions.
+ *
+ * Additive and optional: the atomic `EvidenceUnit[]` remain the scoring
+ * substrate (one credit unit per contrasted side), so grading and partial
+ * credit are unchanged when this is absent. When present it makes the compared
+ * entities and dimensions explicit for evaluation, transparency, and audit.
+ */
+export type ComparisonModel = {
+  /** The entities the question asks the student to compare. */
+  entities: string[];
+  dimensions: ComparisonDimension[];
+};
+
+/**
+ * Examiner-style question decomposition (produced BEFORE units / model answer).
+ * The question alone drives requirements and mark allocation; textbook must not invent marks.
+ */
+export type ExaminerRequirement = {
+  id: string;
+  /** Stem fragment / clause this requirement comes from. */
+  stemFragment: string;
+  commandWord: string;
+  /** What the student must answer for this requirement. */
+  whatIsAsked: string;
+};
+
+export type ExaminerMarkingPointPlan = {
+  id: string;
+  requirementId: string;
+  /**
+   * Structural demand kind: fact_recall | reason_mechanism | contrast |
+   * importance_application | definition | calculation_stage | general
+   */
+  demandKind: string;
+  /** One assessable requirement — NOT a full model-answer sentence. */
+  assessableRequirement: string;
+  /** Short phrase a student must express to earn this mark. */
+  coreConcept: string;
+  /** Whole marks for this point (usually 1; no half-marks). */
+  marks: number;
+};
+
+export type ExaminerQuestionDecomposition = {
+  requirements: ExaminerRequirement[];
+  markingPoints: ExaminerMarkingPointPlan[];
+  recommendedMaxScore: number;
+  /** Short examiner rationale for the split (audit / prompts). */
+  examinerRationale: string;
+};
+
 export type AssessmentCaseFile = {
   v: 3;
   question: string;
@@ -121,6 +192,17 @@ export type AssessmentCaseFile = {
   relations: EvidenceRelation[];
   markRule: MarkRule;
   referenceModelAnswer?: string;
+  /**
+   * Structured comparison model for comparison-family questions.
+   * Optional/additive — atomic `units` remain the scoring substrate; this makes
+   * the compared entities and dimensions explicit for the grading engine.
+   */
+  comparison?: ComparisonModel;
+  /**
+   * Examiner question decomposition that produced the marking points.
+   * Question → decomposition → mark allocation → units → model answer → grading.
+   */
+  decomposition?: ExaminerQuestionDecomposition;
   chunkRefs: string[];
   contextSource: "textbook" | "llm_fallback" | "embedded_mark_scheme";
   /** ISO timestamp when calculation reference answer passed independent verification. */
@@ -142,6 +224,16 @@ export type DemonstratedUnit = {
   unitId: string;
   quote: string;
   valid: boolean;
+  /**
+   * True when this award was confirmed by the semantic meaning verifier
+   * (the LLM concept check) rather than by deterministic token overlap.
+   *
+   * The downstream deterministic gates still apply grounding, de-duplication,
+   * and score caps to these awards, but they MUST NOT revoke a
+   * semantically-verified award merely because it has low lexical overlap with
+   * the marking point — accepting valid paraphrases is precisely the intent.
+   */
+  semanticallyVerified?: boolean;
 };
 
 export type DemonstratedRelation = {

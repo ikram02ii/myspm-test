@@ -5,11 +5,12 @@
 
 import { answersAgree } from "./calculationAnswerVerification";
 import {
+  calculationPartIdPrefix,
   detectUnitMismatch,
   extractComparableFinalAnswer,
   findCalculationStageUnitId,
-  findFinalStageUnitId,
-  findFormulaStageUnitId,
+  findFinalStageUnitIds,
+  findFormulaStageUnitIds,
   findSubstitutionStageUnitId,
   quoteLooksLikeFormula,
   quoteLooksLikeSubstitution,
@@ -51,8 +52,11 @@ function invalidateDownstreamStages(
   const fromIdx = creditUnits.findIndex((u) => u.id === fromUnitId);
   if (fromIdx < 0) return udm;
 
+  const partPrefix = calculationPartIdPrefix(fromUnitId);
   let result = udm;
   for (const unit of creditUnits.slice(fromIdx + 1)) {
+    if (partPrefix && calculationPartIdPrefix(unit.id) !== partPrefix) continue;
+    if (!partPrefix && calculationPartIdPrefix(unit.id)) continue;
     const demo = result.unitsDemonstrated.find((d) => d.unitId === unit.id && d.valid);
     if (demo) {
       result = invalidateUnit(result, unit.id, demo.quote, reason);
@@ -139,8 +143,8 @@ export function reconcileCalculationDemonstration(params: {
     .filter((u) => u.creditWeight > 0)
     .map((u) => ({ id: u.id, content: u.content }));
 
-  const finalId = findFinalStageUnitId(creditUnits);
-  const formulaId = findFormulaStageUnitId(creditUnits);
+  const finalIds = findFinalStageUnitIds(creditUnits);
+  const formulaIds = findFormulaStageUnitIds(creditUnits);
   const substitutionId = findSubstitutionStageUnitId(creditUnits);
   const calculationId = findCalculationStageUnitId(creditUnits);
   const showWorking = params.acf.markRule.calcPolicy === "show_working";
@@ -157,7 +161,7 @@ export function reconcileCalculationDemonstration(params: {
       if (!d.valid) return d;
       const quote = (d.quote || "").trim();
       if (!quote) {
-        const isFinal = finalId != null && d.unitId === finalId;
+        const isFinal = finalIds.includes(d.unitId);
         if (!isFinal) {
           logCalcStageDecision({
             decision: "deduct",
@@ -183,9 +187,10 @@ export function reconcileCalculationDemonstration(params: {
   }
 
   // --- Final answer vs reference ---
-  if (reference && finalId) {
-    const finalDemo = udm.unitsDemonstrated.find((d) => d.unitId === finalId && d.valid);
-    if (finalDemo) {
+  if (reference && finalIds.length > 0) {
+    for (const finalId of finalIds) {
+      const finalDemo = udm.unitsDemonstrated.find((d) => d.unitId === finalId && d.valid);
+      if (!finalDemo) continue;
       const candidate = finalDemo.quote.trim() || params.studentAnswer.trim();
       if (
         !studentAnswerMatchesReference(candidate, reference, { question: params.question })
@@ -208,25 +213,27 @@ export function reconcileCalculationDemonstration(params: {
   // --- Stage shape validation (LLM often credits bare numbers as "formula") ---
   // Validate against BOTH the quote and the full student answer: a grounded quote
   // that is just the final number still must not earn the formula/working mark.
-  if (showWorking && formulaId) {
-    const formulaDemo = udm.unitsDemonstrated.find((d) => d.unitId === formulaId && d.valid);
-    if (
-      formulaDemo &&
-      !quoteLooksLikeFormula(formulaDemo.quote) &&
-      !quoteLooksLikeFormula(params.studentAnswer)
-    ) {
-      udm = invalidateUnit(
-        udm,
-        formulaId,
-        formulaDemo.quote,
-        "No formula or equation shown — a bare number does not earn the formula mark.",
-      );
-      logCalcStageDecision({
-        decision: "deduct",
-        unitId: formulaId,
-        reason: "missing_formula_shape",
-        quotePreview: (formulaDemo.quote || "").slice(0, 120),
-      });
+  if (showWorking) {
+    for (const formulaId of formulaIds) {
+      const formulaDemo = udm.unitsDemonstrated.find((d) => d.unitId === formulaId && d.valid);
+      if (
+        formulaDemo &&
+        !quoteLooksLikeFormula(formulaDemo.quote) &&
+        !quoteLooksLikeFormula(params.studentAnswer)
+      ) {
+        udm = invalidateUnit(
+          udm,
+          formulaId,
+          formulaDemo.quote,
+          "No formula or equation shown — a bare number does not earn the formula mark.",
+        );
+        logCalcStageDecision({
+          decision: "deduct",
+          unitId: formulaId,
+          reason: "missing_formula_shape",
+          quotePreview: (formulaDemo.quote || "").slice(0, 120),
+        });
+      }
     }
   }
 
@@ -272,40 +279,47 @@ export function reconcileCalculationDemonstration(params: {
     }
   }
 
-  // Physics: wrong formula invalidates all downstream stages.
-  if (showWorking && physicsCalc && formulaId && formulaMarkedWrong(udm, formulaId)) {
-    udm = invalidateDownstreamStages(
-      udm,
-      creditUnits,
-      formulaId,
-      "Wrong formula — substitution, calculation, and final cannot be credited.",
-    );
-  }
-
-  // --- Wrong final credited without reference: scan invalidClaims from LLM + strip orphan final ---
-  if (!reference && finalId) {
-    const finalDemo = udm.unitsDemonstrated.find((d) => d.unitId === finalId && d.valid);
-    if (finalDemo && udm.invalidClaims.some((c) => /wrong|incorrect|mismatch/i.test(c.reason))) {
-      udm = invalidateUnit(udm, finalId, finalDemo.quote, "Calculation error noted in the answer.");
+  // Physics: wrong formula invalidates downstream stages of the SAME part only.
+  if (showWorking && physicsCalc) {
+    for (const formulaId of formulaIds) {
+      if (!formulaMarkedWrong(udm, formulaId)) continue;
+      udm = invalidateDownstreamStages(
+        udm,
+        creditUnits,
+        formulaId,
+        "Wrong formula — substitution, calculation, and final cannot be credited.",
+      );
     }
   }
 
-  if (reference && finalId) {
-    udm = ensureCorrectFinalCredited({
-      question: params.question,
-      studentAnswer: params.studentAnswer,
-      finalId,
-      reference,
-      udm,
-    });
-    const finalOk = udm.unitsDemonstrated.some((d) => d.unitId === finalId && d.valid);
-    logCalcStageDecision({
-      decision: finalOk ? "award" : "deduct",
-      unitId: finalId,
-      reason: finalOk ? "final_matches_reference" : "final_mismatch_or_missing",
-      policy: showWorking ? "show_working" : "answer_only",
-      maxScore: params.acf.maxScore,
-    });
+  // --- Wrong final credited without reference: scan invalidClaims from LLM + strip orphan final ---
+  if (!reference) {
+    for (const finalId of finalIds) {
+      const finalDemo = udm.unitsDemonstrated.find((d) => d.unitId === finalId && d.valid);
+      if (finalDemo && udm.invalidClaims.some((c) => /wrong|incorrect|mismatch/i.test(c.reason))) {
+        udm = invalidateUnit(udm, finalId, finalDemo.quote, "Calculation error noted in the answer.");
+      }
+    }
+  }
+
+  if (reference && finalIds.length > 0) {
+    for (const finalId of finalIds) {
+      udm = ensureCorrectFinalCredited({
+        question: params.question,
+        studentAnswer: params.studentAnswer,
+        finalId,
+        reference,
+        udm,
+      });
+      const finalOk = udm.unitsDemonstrated.some((d) => d.unitId === finalId && d.valid);
+      logCalcStageDecision({
+        decision: finalOk ? "award" : "deduct",
+        unitId: finalId,
+        reason: finalOk ? "final_matches_reference" : "final_mismatch_or_missing",
+        policy: showWorking ? "show_working" : "answer_only",
+        maxScore: params.acf.maxScore,
+      });
+    }
   }
 
   return udm;

@@ -25,9 +25,12 @@ import { isCalculationIntent } from "../case/calculationAcfPolicy";
 import { cosineSimilarity, embedTexts } from "../../retrieval/embeddingsService";
 import type { AssessmentCaseFile, EvidenceUnit, MissingGap, UnderstandingDemonstration } from "../shared/types";
 import type { UdmTickFailReason } from "../shared/udmTickTrace";
+import { DEFAULT_UDM_COVER_HIT_RATIO } from "../shared/gradingConfig";
 
 /** Cover threshold for studentAnswerCoversIdea proxy used by this gate (hit ratio). */
-export const UDM_COVER_HIT_RATIO = Number(process.env.GRADE_UDM_COVER_RATIO || "0.72");
+export const UDM_COVER_HIT_RATIO = Number(
+  process.env.GRADE_UDM_COVER_RATIO || String(DEFAULT_UDM_COVER_HIT_RATIO),
+);
 
 /** Strict contiguous grounding only — token-ratio grounding invents links. */
 export function quoteGroundedInStudentAnswer(quote: string, studentAnswer: string): boolean {
@@ -309,7 +312,16 @@ async function recoverSemanticAwards(params: {
 
     if (outcome.status !== "awarded") continue;
 
-    rows.set(unit.id, { unitId: unit.id, quote: candidate.slice(0, 400), valid: true });
+    // Mark as semantically verified so the downstream deterministic gates
+    // (competitive assignment, reconcile revoke, score clamp) keep this award on
+    // grounding + de-duplication alone and do NOT re-reject the paraphrase for
+    // low token overlap.
+    rows.set(unit.id, {
+      unitId: unit.id,
+      quote: candidate.slice(0, 400),
+      valid: true,
+      semanticallyVerified: true,
+    });
     usedClauseKeys.add(normalizeAnswerText(candidate));
     matchedLabels.push(unit.content);
     failReasons.delete(unit.id);

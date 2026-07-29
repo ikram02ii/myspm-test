@@ -7,10 +7,10 @@ import type { DiagramContext } from "../../types";
 import { formatEvidenceOnlyMarkingBlock, type EvidenceOnlyMarkingOptions } from "./gradingEvidencePolicy";
 /**
  * Shared instructions so AI marking, rubrics, and related LLM outputs stay at
- * Malaysian SPM Form 4/5 reading level â€” short, clear, school-friendly wording.
+ * Malaysian SPM Form 4/5 reading level — short, clear, school-friendly wording.
  */
 export const SPM_STUDENT_FRIENDLY_RULES_HEADER =
-  "STUDENT LANGUAGE LEVEL (Malaysian SPM Form 4/5 â€” all text students will read):";
+  "STUDENT LANGUAGE LEVEL (Malaysian SPM Form 4/5 — all text students will read):";
 
 export const SPM_STUDENT_FRIENDLY_RULES_LINES = [
   "- Write for 16–17-year-old SPM students, not university lecturers.",
@@ -24,8 +24,8 @@ export const SPM_STUDENT_FRIENDLY_RULES_LINES = [
   "- MODEL ANSWER: KSSM SPM textbook wording — write like a good Form 4/5 student's notes, not examiner or A-Level prose. Depth MUST follow the command word: State/Identify/List/Name → exactly N complete short bullets (~8–18 words each); Explain/Describe/Discuss/Why/How → exactly N full reasoning sentences (~25–45 words, because/so/therefore); Compare/Differentiate → exactly N clear both-sided contrasts (~20–40 words). The model answer MUST directly answer the stem. Calculations: Formula → Working → Final answer with unit.",
   "- Never use advanced jargon unless it is standard in KSSM SPM textbooks for this topic (e.g. avoid 'homeostatic dysregulation' if 'maintains body temperature' is the SPM-level idea).",
   "- In JSON, every learner-facing string (feedback, modelAnswer, strengths, improvements, markBreakdown[].reason) must follow these rules.",
-  "- LANGUAGE FAIRNESS: BM/English mix, chemical formulae, common names, and trade names count when they clearly express the same SPM mark point â€” never penalize notation or language choice alone.",
-  "- EXAM STANDARD (marking only): Award by marking-scheme CONCEPTS â€” not model-answer wording. State/Name: a correct keyword is enough. Explain/Describe: each correct idea counts; paraphrases OK. Reject vague/generic answers even if loosely related.",
+  "- LANGUAGE FAIRNESS: BM/English mix, chemical formulae, common names, and trade names count when they clearly express the same SPM mark point — never penalize notation or language choice alone.",
+  "- EXAM STANDARD (marking only): Award by marking-scheme CONCEPTS — not model-answer wording. State/Name: a correct keyword is enough. Explain/Describe: each correct idea counts; paraphrases OK. Reject vague/generic answers even if loosely related.",
   "- CRITICAL EVIDENCE: Credit only concepts explicitly written in the student's answer. Quote their exact phrase before each mark. Never infer unstated ideas or copy from the model answer into feedback.",
   "- FEEDBACK BOUNDARY: Never penalize in feedback for a missing idea unless that idea is an explicit individual marking point that was not awarded.",
   "- DIAGRAMS/FIGURES: Use attached or referenced figures only to understand the question and rubric. Never treat the figure as proof the student knows a label, structure, value, or process unless they wrote it.",
@@ -81,17 +81,17 @@ function stripPeriodicTableMentions(question: string): string {
 }
 
 export const VISUAL_FIGURE_REVOKE_REASON =
-  "Marks require the scientific point in your written words â€” describing or pointing at the diagram/figure is not credited.";
+  "Marks require the scientific point in your written words — describing or pointing at the diagram/figure is not credited.";
 
 export const DIAGRAM_IMAGE_EVIDENCE_LINES = [
   "DIAGRAM / IMAGE / FIGURE QUESTIONS (mandatory when the stem or an attached figure applies):",
   "1. Use the diagram, labelled figure, graph, table, microscopy image, flowchart, apparatus drawing, or chemical/biological structure ONLY to understand the question and to shape expected rubric points.",
-  "2. The diagram must NEVER be treated as evidence that the student knows a concept â€” vision labels, arrows, and summaries are not the student's answer.",
+  "2. The diagram must NEVER be treated as evidence that the student knows a concept — vision labels, arrows, and summaries are not the student's answer.",
   "3. Award marks ONLY for concepts explicitly stated or clearly conveyed in the student's written answer text (typed or OCR).",
   "4. Do NOT infer structure names, functions, labels, relationships, processes, values read from a graph, or scientific terms from the figure if they are absent from the student's response.",
   "5. If the student only points at or describes the figure without naming the required term/mechanism/value in words, withhold the mark.",
-  "6. For label-the-diagram tasks: credit a label only when the student wrote that name/term in their answer (BM/EN synonyms OK) â€” not because the figure shows it.",
-  "7. For graph/table reading: credit a value/trend only when the student stated it in their answer â€” do not award for a correct read you see on the figure alone.",
+  "6. For label-the-diagram tasks: credit a label only when the student wrote that name/term in their answer (BM/EN synonyms OK) — not because the figure shows it.",
+  "7. For graph/table reading: credit a value/trend only when the student stated it in their answer — do not award for a correct read you see on the figure alone.",
 ] as const;
 
 export function questionReferencesVisual(question: string): boolean {
@@ -132,10 +132,10 @@ export function formatDiagramImageEvidenceBlock(): string {
   return DIAGRAM_IMAGE_EVIDENCE_LINES.join("\n");
 }
 
-/** Shown next to structured diagram JSON â€” clarifies role for the grader/verifier. */
+/** Shown next to structured diagram JSON — clarifies role for the grader/verifier. */
 export function formatDiagramContextRubricOnlyPreamble(confidence?: number): string {
   const lines = [
-    "ATTACHED FIGURE (rubric context only â€” NOT student evidence):",
+    "ATTACHED FIGURE (rubric context only — NOT student evidence):",
     "- Use this block to know what the question refers to and what mark points are reasonable.",
     "- Do NOT award marks because a label, structure, or value appears here unless the student wrote it in their answer.",
     "- Do NOT copy names, functions, or relationships from this block into matchedIdeas unless the same wording appears in the student answer.",
@@ -163,7 +163,7 @@ function normalizeStem(question: string): string {
     .trim();
 }
 
-/** Stem ties the answer to a given diagram, text, experiment, or named target â†’ closed set from that source. */
+/** Stem ties the answer to a given diagram, text, experiment, or named target → closed set from that source. */
 export function isStrictContextBindingQuestion(question: string): boolean {
   const q = normalizeStem(question);
   return (
@@ -421,12 +421,12 @@ export function buildCategoryRubricPromptInstructions(question: string): string[
   const lines: string[] = [];
   if (strict) {
     lines.push(
-      "CONTEXT-BOUND STEM: the question refers to a specific diagram, text, passage, table, or experiment. Use that source to shape expected rubric points only. Marks still require the student to state each point in their written answer â€” the diagram/figure is never evidence of what the student knows.",
+      "CONTEXT-BOUND STEM: the question refers to a specific diagram, text, passage, table, or experiment. Use that source to shape expected rubric points only. Marks still require the student to state each point in their written answer — the diagram/figure is never evidence of what the student knows.",
     );
   }
   if (open) {
     const intro = strict
-      ? "The stem is context-bound, so answers must fit that source â€” still do not require one arbitrary example phrase copied only from retrieval snippets."
+      ? "The stem is context-bound, so answers must fit that source — still do not require one arbitrary example phrase copied only from retrieval snippets."
       : "OPEN-CATEGORY STEM: the question invites examples, uses, functions, properties, advantages, disadvantages, suggestions, or applications without naming one fixed item.";
     lines.push(
       [
@@ -435,7 +435,7 @@ export function buildCategoryRubricPromptInstructions(question: string): string[
         '- Prefer GENERAL criteria rows (e.g. "scientifically valid example of the requested category", "correct matching use/function/property for the student\'s example", "valid advantage/disadvantage relevant to the question").',
         "- Do NOT create separate rubric rows that each demand one specific example taken only from retrieved context (treat retrieval as illustration, not a closed answer list).",
         "- Only treat the answer set as CLOSED if the stem is context-bound (diagram/text/experiment above) OR the question names a specific item students must use.",
-        '- If the stem asks for BOTH an example AND a use/function (or equivalent), split marks into at least two ideas: (1) valid example in the category, (2) scientifically correct use/function that matches the student\'s chosen example â€” use linkedToId on the use row pointing at the example row id when helpful.',
+        '- If the stem asks for BOTH an example AND a use/function (or equivalent), split marks into at least two ideas: (1) valid example in the category, (2) scientifically correct use/function that matches the student\'s chosen example — use linkedToId on the use row pointing at the example row id when helpful.',
       ].join("\n"),
     );
   }
@@ -451,8 +451,8 @@ function tokenCount(s: string): number {
 }
 
 /**
- * Two marking demands joined by "and" / "dan" (e.g. preamble + "state â€¦ and explain â€¦").
- * Uses the last "and"/"dan" so stems like "Table 1 â€¦ State the hypothesis and explain" still match.
+ * Two marking demands joined by "and" / "dan" (e.g. preamble + "state … and explain …").
+ * Uses the last "and"/"dan" so stems like "Table 1 … State the hypothesis and explain" still match.
  */
 export function hasTwoDistinctDemandsJoinedByAnd(question: string): boolean {
   const t = normalizeStem(question);
@@ -476,9 +476,9 @@ export function hasTwoDistinctDemandsJoinedByAnd(question: string): boolean {
  * SPM marking standard: marks follow the syllabus / marking scheme, not loose scientific relatedness.
  */
 
-/** Concept-based marking (command-word aware) â€” used across grading and borderline verify. */
+/** Concept-based marking (command-word aware) — used across grading and borderline verify. */
 export const SPM_CONCEPT_BASED_MARKING_LINES = [
-  "You are an SPM examiner. Mark from MARKING SCHEME CONCEPTS â€” not by matching the wording of a model answer.",
+  "You are an SPM examiner. Mark from MARKING SCHEME CONCEPTS — not by matching the wording of a model answer.",
   "",
   "Before assigning marks:",
   "1) Identify the command word (State, Name, Explain, Describe, Compare, Calculate, etc.).",

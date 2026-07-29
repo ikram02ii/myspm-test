@@ -1,10 +1,9 @@
 /**
- * Generic calculation-structure detection (subject-agnostic).
+ * Calculation-structure helpers for EMBEDDED MARK SCHEMES only
+ * (Formula / Working / Final stage labels in Jawapan / Marking points).
  *
- * Calculation mode is triggered by structural signals only:
- * formulas / equations, numeric givens, math operations, staged working labels,
- * and expected numeric outputs — never by topic keywords or loose verbs like
- * "determine" / "find the".
+ * NOT used for question-type routing. Calc↔theory routing is owned exclusively
+ * by the Question Classification Agent (`questionClassificationAgent.ts`).
  */
 
 /** Worked-answer / scheme stage labels (format markers, not topic words). */
@@ -22,7 +21,7 @@ export function isCalculationStagePoint(point: string): boolean {
     .trim();
   if (!t) return false;
   if (STAGE_LABEL_RE.test(t)) return true;
-  return /^(?:correct\s+)?(?:formula(?:\s*\/\s*equation)?|formula\s+or\s+equation|equation|substitution(?:\s*\/\s*working)?|working|final\s+answer)\b/i.test(
+  return /^(?:correct\s+)?(?:formula(?:\s*\/\s*equation)?|formula\s+or\s+equation|equation|steps?\s+of\s+solving|substitution(?:\s*\/\s*working)?|working|final\s+answer)\b/i.test(
     t,
   );
 }
@@ -82,8 +81,8 @@ export function embeddedSchemeLooksLikeCalculation(points: string[]): boolean {
 }
 
 /**
- * Decide whether the full grade payload (stem + scheme) should use the calculation agent.
- * Scheme structure wins over stem wording when an embedded scheme is present.
+ * Decide whether embedded scheme points look like calculation stages.
+ * Used when building ACF units from Jawapan — NOT for stem type routing.
  */
 export function shouldUseCalculationMarking(params: {
   question: string;
@@ -93,5 +92,7 @@ export function shouldUseCalculationMarking(params: {
   if (points.length >= 1) {
     return embeddedSchemeLooksLikeCalculation(points);
   }
-  return textHasCalculationStructure(params.question);
+  // Stem alone must not force calculation — Question Classification Agent owns that.
+  void params.question;
+  return false;
 }

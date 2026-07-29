@@ -11,12 +11,18 @@ import {
   classifyAssessmentIntent,
   defaultMarkRuleKind,
   intentGuidanceForLlm,
-} from "../analysis/classifyIntent";
+  COMMAND_WORD_DEPTH_POLICY_LINES,
+} from "../agents/classifyIntent";
+import {
+  decomposeQuestionAsExaminer,
+  formatExaminerDecompositionForPrompt,
+  unitsFromExaminerDecomposition,
+} from "../extraction/examinerQuestionDecomposition";
 import {
   extractEmbeddedSchemePoints,
   extractJawapanText,
-} from "../analysis/markSchemeInference";
-import { embeddedSchemeLooksLikeCalculation } from "../analysis/calculationStructureDetect";
+} from "../case/markSchemeInference";
+import { embeddedSchemeLooksLikeCalculation } from "../case/calculationStructureDetect";
 import {
   finalizeCalculationAssessmentCase,
   validateAcfTopology,
@@ -36,8 +42,11 @@ import { retrieveEvidenceContext, type RetrievedEvidenceContext } from "./ground
 import type {
   AssessmentCaseFile,
   AssessmentIntent,
+  ComparisonDimension,
+  ComparisonModel,
   EvidenceRelation,
   EvidenceUnit,
+  ExaminerQuestionDecomposition,
   MarkRule,
   VerifiedCalculationAnswer,
 } from "../shared/types";
@@ -171,6 +180,48 @@ function parseUnits(raw: unknown[]): EvidenceUnit[] {
   return out;
 }
 
+/**
+ * Parse the optional first-class comparison model emitted for comparison-family
+ * questions. Returns undefined unless it has at least two entities and one
+ * dimension, so a malformed or partial object never replaces unit-based scoring.
+ */
+function parseComparisonModel(raw: unknown): ComparisonModel | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const row = raw as Record<string, unknown>;
+
+  const entities = Array.isArray(row["entities"])
+    ? row["entities"]
+        .filter((e): e is string => typeof e === "string")
+        .map((e) => e.trim())
+        .filter(Boolean)
+    : [];
+
+  const dimensions = Array.isArray(row["dimensions"])
+    ? row["dimensions"]
+        .map((item): ComparisonDimension | null => {
+          if (!item || typeof item !== "object") return null;
+          const d = item as Record<string, unknown>;
+          const dimension = typeof d["dimension"] === "string" ? d["dimension"].trim() : "";
+          if (!dimension) return null;
+          const marksRaw = d["marks"];
+          const marks =
+            typeof marksRaw === "number" && Number.isFinite(marksRaw) ? Math.max(0, marksRaw) : 1;
+          return {
+            dimension,
+            entityARequirement:
+              typeof d["entityARequirement"] === "string" ? d["entityARequirement"].trim() : "",
+            entityBRequirement:
+              typeof d["entityBRequirement"] === "string" ? d["entityBRequirement"].trim() : "",
+            marks,
+          };
+        })
+        .filter((d): d is ComparisonDimension => d != null)
+    : [];
+
+  if (entities.length < 2 || dimensions.length === 0) return undefined;
+  return { entities, dimensions };
+}
+
 function parseRelations(raw: unknown[]): EvidenceRelation[] {
   return raw
     .map((item, idx) => {
@@ -214,6 +265,7 @@ async function buildReferenceModelAnswer(params: {
   const system = withMandatoryMarkingLanguage(
     [
       "You MUST write an SPM Form 4/5 reference model answer — one full exemplar sentence per marking point.",
+      "WORKFLOW: the marking points were already decided from the QUESTION. You only write exemplars — do NOT invent, merge, or drop marking points.",
       formatSpmStudentFriendlyRulesBlock(),
       buildModelAnswerQualityRulesBlock(params.maxScore, params.question),
       buildKssmTextbookModelAnswerWordingBlock(),
@@ -292,6 +344,8 @@ export async function extractEvidenceForAssessment(params: {
   intent: AssessmentIntent;
   evidenceContext: RetrievedEvidenceContext;
   verifiedCalculationAnswer?: VerifiedCalculationAnswer;
+  /** Examiner decomposition — binding plan for theory units (question → marks → points). */
+  decomposition?: ExaminerQuestionDecomposition;
 }): Promise<
   Pick<
     AssessmentCaseFile,
@@ -300,9 +354,11 @@ export async function extractEvidenceForAssessment(params: {
     | "relations"
     | "markRule"
     | "referenceModelAnswer"
+    | "comparison"
     | "verifiedAt"
     | "verificationMethod"
     | "verificationNote"
+    | "decomposition"
   >
 > {
   const openPool =
@@ -310,11 +366,25 @@ export async function extractEvidenceForAssessment(params: {
     (questionInvitesOpenTopicRecall(params.question) || params.intent.family === "recall");
   const defaultKind = defaultMarkRuleKind(params.intent.family, openPool);
   const guidance = intentGuidanceForLlm(params.intent, params.maxScore, params.question, params.subject);
+  const plannedUnits =
+    params.decomposition && params.intent.family !== "calculation"
+      ? unitsFromExaminerDecomposition(params.decomposition)
+      : null;
+  const decompositionBlock =
+    params.decomposition && params.intent.family !== "calculation"
+      ? formatExaminerDecompositionForPrompt(params.decomposition)
+      : "";
 
   const system = withMandatoryMarkingLanguage(
     [
-      "You MUST extract syllabus-grounded evidence for SPM assessment — NOT a rubric row list.",
-      "You MUST build evidence units and relationships that represent what an examiner would credit.",
+      "You are an SPM examiner building a mark scheme.",
+      "WORKFLOW (binding): Question → question decomposition → mark allocation → marking points → (then) model answer. NEVER work backwards from a model answer.",
+      "You MUST extract syllabus-grounded evidence for SPM assessment — NOT a free-form essay.",
+      "Marking points MUST come from the QUESTION's assessable requirements. Textbook is ONLY for accurate wording/aliases — NEVER invent extra credit marks from textbook detail the stem did not ask for.",
+      ...COMMAND_WORD_DEPTH_POLICY_LINES,
+      plannedUnits
+        ? "A BINDING examiner marking plan is provided. You MUST create exactly those credit units (same count, same order, same ids). You MAY refine wording/aliases using textbook evidence. You MUST NOT add, drop, or merge planned credit units."
+        : "If no binding plan is provided: derive independent marking points from the stem only — one whole mark per assessable requirement.",
       params.intent.family === "calculation"
         ? "CALCULATION questions: you MUST follow calculation guidance exactly. NEVER use coverage_chain."
         : null,
@@ -323,12 +393,18 @@ export async function extractEvidenceForAssessment(params: {
         : null,
       "Supporting facts: creditWeight=0, required=false — MUST NEVER be load-bearing in requiredForMarks relations.",
       'For EVERY unit you MUST also output "coreConcept": the shortest phrase (1–5 words) a student must express to earn this mark — the minimal creditable essence of "content", with no filler, examples, or explanation. Same rule for every subject and question.',
+      params.intent.family === "comparison"
+        ? 'COMPARISON questions: you MUST ALSO output "comparison": { "entities": string[], "dimensions": [{ "dimension", "entityARequirement", "entityBRequirement", "marks" }] }. List the entities being compared, and one dimension per contrasted concept with what EACH entity must express. Derive dimensions from the underlying concepts — NOT from contrast words. Keep one credit unit per contrasted side so each side is scored independently.'
+        : null,
       "",
       'You MUST return JSON only: {',
       '  "assessedUnderstanding": string,',
       '  "markRule": { "kind": "count_distinct_units|coverage_chain|ordered_stages|paired_entities|claim_plus_reason", "openPool": boolean },',
       '  "units": [{ "id", "type", "content", "coreConcept", "aliases", "creditWeight", "required", "supports" }],',
       '  "relations": [{ "id", "type", "from", "to", "requiredForMarks" }]',
+      params.intent.family === "comparison"
+        ? '  ,"comparison": { "entities": string[], "dimensions": [{ "dimension", "entityARequirement", "entityBRequirement", "marks" }] }'
+        : null,
       "}",
     ]
       .filter((line): line is string => Boolean(line))
@@ -343,13 +419,15 @@ export async function extractEvidenceForAssessment(params: {
     `Intent category: ${params.intent.category}`,
     `Intent family: ${params.intent.family}`,
     "",
+    decompositionBlock,
+    "",
     "Guidance:",
     ...guidance.map((g) => `- ${g}`),
     "",
     params.evidenceContext.dskpExcerpt ? `DSKP:\n${params.evidenceContext.dskpExcerpt.slice(0, 3000)}` : "",
     params.evidenceContext.textbookExcerpt
-      ? `Textbook evidence:\n${params.evidenceContext.textbookExcerpt.slice(0, 6000)}`
-      : "Textbook evidence: (none — use SPM syllabus knowledge)",
+      ? `Textbook evidence (for wording/aliases ONLY — do not invent marks):\n${params.evidenceContext.textbookExcerpt.slice(0, 6000)}`
+      : "Textbook evidence: (none — use SPM syllabus knowledge for wording only)",
   ]
     .filter(Boolean)
     .join("\n");
@@ -360,11 +438,48 @@ export async function extractEvidenceForAssessment(params: {
       ? parsed.assessedUnderstanding.trim()
       : params.intent.assessedUnderstanding;
 
-  const units = parseUnits(Array.isArray(parsed?.units) ? parsed.units : []);
+  let units = parseUnits(Array.isArray(parsed?.units) ? parsed.units : []);
   const relations = parseRelations(Array.isArray(parsed?.relations) ? parsed.relations : []);
+  const comparison =
+    params.intent.family === "comparison" ? parseComparisonModel(parsed?.comparison) : undefined;
+
+  // Enforce the examiner plan: wrong count → restore planned units (keep any aliases/wording).
+  if (plannedUnits && plannedUnits.length > 0) {
+    if (units.length !== plannedUnits.length) {
+      console.warn("[acf] unit extract ignored examiner plan count — restoring planned units", {
+        got: units.length,
+        expected: plannedUnits.length,
+      });
+      units = plannedUnits.map((u, i) => {
+        const enriched = units[i];
+        return {
+          ...u,
+          aliases: enriched?.aliases?.length ? enriched.aliases : u.aliases,
+          content: enriched?.content?.trim() || u.content,
+          coreConcept: enriched?.coreConcept?.trim() || u.coreConcept,
+        };
+      });
+    } else {
+      units = units.map((u, i) => {
+        const plan = plannedUnits[i]!;
+        return {
+          ...u,
+          id: plan.id,
+          creditWeight: plan.creditWeight,
+          required: true,
+          coreConcept: u.coreConcept?.trim() || plan.coreConcept,
+          content: u.content?.trim() || plan.content,
+        };
+      });
+    }
+  }
 
   if (units.length === 0) {
-    throw new Error("Evidence extraction returned no units");
+    if (plannedUnits && plannedUnits.length > 0) {
+      units = plannedUnits;
+    } else {
+      throw new Error("Evidence extraction returned no units");
+    }
   }
 
   const ruleRaw = parsed?.markRule && typeof parsed.markRule === "object" ? (parsed.markRule as Record<string, unknown>) : {};
@@ -451,8 +566,10 @@ export async function extractEvidenceForAssessment(params: {
     markRule: acfSlice.markRule,
     referenceModelAnswer:
       params.verifiedCalculationAnswer?.referenceModelAnswer || referenceModelAnswer || undefined,
+    comparison,
     verifiedAt: params.verifiedCalculationAnswer?.verifiedAt,
     verificationMethod: params.verifiedCalculationAnswer?.verificationMethod,
+    decomposition: params.decomposition,
   };
 
   if (isChemCalc && params.verifiedCalculationAnswer) {
@@ -524,7 +641,7 @@ export async function buildAssessmentCaseFile(params: {
   chapterHint?: string;
 }): Promise<AssessmentCaseFile> {
   const question = params.question.trim();
-  const maxScore = Math.max(1, Math.floor(params.maxScore));
+  let maxScore = Math.max(1, Math.floor(params.maxScore));
   const subject = params.subject.trim() || "General";
   const form = params.form.trim() || "General";
 
@@ -574,6 +691,34 @@ export async function buildAssessmentCaseFile(params: {
     return finalizeAssessmentCase(draft);
   }
 
+  // Examiner-first: Question → decomposition → mark allocation → marking points
+  // (before textbook retrieval / model answer). Skip for calculation (stage plan owns structure).
+  let decomposition: ExaminerQuestionDecomposition | undefined;
+  if (intent.family !== "calculation") {
+    decomposition = await decomposeQuestionAsExaminer({
+      question,
+      subject,
+      form,
+      maxScoreHint: maxScore,
+      intent,
+      questionAnalysis: params.questionAnalysis ?? intent.analysis,
+    });
+    if (decomposition.recommendedMaxScore > maxScore) {
+      console.info("[acf] maxScore raised from examiner decomposition", {
+        from: maxScore,
+        to: decomposition.recommendedMaxScore,
+      });
+      maxScore = decomposition.recommendedMaxScore;
+    } else if (
+      decomposition.recommendedMaxScore >= 1 &&
+      decomposition.recommendedMaxScore !== maxScore &&
+      decomposition.markingPoints.reduce((s, p) => s + p.marks, 0) === decomposition.recommendedMaxScore
+    ) {
+      // Prefer the examiner's whole-mark total when it matches the planned points.
+      maxScore = decomposition.recommendedMaxScore;
+    }
+  }
+
   const evidenceContext =
     params.evidenceContext ??
     (await retrieveEvidenceContext({
@@ -596,6 +741,7 @@ export async function buildAssessmentCaseFile(params: {
     intent,
     evidenceContext,
     verifiedCalculationAnswer: params.verifiedCalculationAnswer,
+    decomposition,
   });
 
   const draft: AssessmentCaseFile = {
@@ -608,8 +754,10 @@ export async function buildAssessmentCaseFile(params: {
     assessedUnderstanding: extracted.assessedUnderstanding,
     units: extracted.units,
     relations: extracted.relations,
-    markRule: extracted.markRule,
+    markRule: { ...extracted.markRule, maxMarks: maxScore },
     referenceModelAnswer: extracted.referenceModelAnswer,
+    comparison: extracted.comparison,
+    decomposition: extracted.decomposition ?? decomposition,
     chunkRefs: evidenceContext.chunkRefs,
     contextSource: evidenceContext.contextSource,
     verifiedAt: extracted.verifiedAt,

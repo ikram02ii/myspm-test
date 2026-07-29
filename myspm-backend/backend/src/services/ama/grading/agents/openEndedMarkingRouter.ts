@@ -1,19 +1,29 @@
 /**
- * Open-ended marking router (Phase 2).
+ * Open-ended marking router.
  *
- * Loads / builds the assessment case, then dispatches to exactly one agent:
- * theory XOR calculation. Speaking and MCQ never enter this function.
+ * Flow:
+ *   1) Question Classification Agent — sole calc↔theory (and top-level) authority
+ *   2) Deterministic stem helpers (command word / suggested marks)
+ *   3) Build or load assessment case
+ *   4) Dispatch calculation XOR theory agent from locked case intent
+ *
+ * Speaking and MCQ never enter this function.
  */
 
 import type { GradeSubmissionInput } from "../../types";
-import { analyzeQuestion } from "../analysis/questionAnalysisService";
-import { applyLlmQuestionTypeToAnalysis } from "../analysis/questionTypeLlmClassifier";
-import { hasEmbeddedMarkScheme } from "../analysis/markSchemeInference";
+import { analyzeQuestion } from "../shared/questionAnalysisService";
+import { hasEmbeddedMarkScheme } from "../case/markSchemeInference";
 import {
   getAssessmentCaseById,
   getOrCreateAssessmentCase,
 } from "../case/assessmentCaseService";
+import { recommendWholeMarkCountForStem } from "../extraction/markingPointDecomposition";
+import { resolveCalculationMaxScore } from "../case/calculationAcfPolicy";
 import { runCalculationMarkingAgent } from "./calculationMarkingAgent";
+import {
+  classifyQuestionTypeAgent,
+  topLevelUsesCalculationAgent,
+} from "./questionClassificationAgent";
 import {
   parseClientQuestionTypeHint,
   resolveOpenEndedMarkingAgent,
@@ -23,30 +33,65 @@ import { runTheoryMarkingAgent } from "./theoryMarkingAgent";
 
 export type PipelineResult = OpenEndedPipelineResult;
 
-/** @deprecated Prefer runOpenEndedMarking — kept for gradePipelineService alias. */
-export async function gradeOpenEndedV3(input: GradeSubmissionInput): Promise<PipelineResult> {
-  return runOpenEndedMarking(input);
-}
-
 export async function runOpenEndedMarking(input: GradeSubmissionInput): Promise<PipelineResult> {
   const question = input.question.trim();
   const studentAnswer = input.studentAnswer.trim();
   const maxScoreRaw = typeof input.maxScore === "number" ? input.maxScore : Number.NaN;
-  const maxScore = Number.isFinite(maxScoreRaw) ? Math.max(1, Math.floor(maxScoreRaw)) : 10;
+  let maxScore = Number.isFinite(maxScoreRaw) ? Math.max(1, Math.floor(maxScoreRaw)) : 10;
   const subject = input.subject?.trim() || "General";
   const form = input.form?.trim() || "General";
 
   const auditedExcerpt = (input.mergedGradingContextText ?? "").trim();
   const usedAuditedContext = auditedExcerpt.length > 0;
 
-  const regexAnalysis = input.questionAnalysis ?? analyzeQuestion(question, subject);
-  // Skip extra LLM when Jawapan/Marking points already define the scheme (practice AI items).
-  const questionAnalysis = hasEmbeddedMarkScheme(question)
-    ? regexAnalysis
-    : await applyLlmQuestionTypeToAnalysis(regexAnalysis, question);
+  // --- Step 1: Question Classification Agent (before any marking) ---
+  const topLevel = await classifyQuestionTypeAgent({ question, subject });
+  console.info("[grade] question classification agent", {
+    questionType: topLevel.questionType,
+    confidence: topLevel.confidence,
+    reasoning: topLevel.reasoning.slice(0, 160),
+  });
+
+  let questionAnalysis = input.questionAnalysis ?? analyzeQuestion(question, subject);
+  questionAnalysis = {
+    ...questionAnalysis,
+    topLevelQuestionType: topLevel.questionType,
+    topLevelConfidence: topLevel.confidence,
+    topLevelReasoning: topLevel.reasoning,
+    questionType: topLevelUsesCalculationAgent(topLevel.questionType)
+      ? "calculation"
+      : questionAnalysis.questionType === "calculation"
+        ? "general"
+        : questionAnalysis.questionType,
+  };
 
   const savedCaseId = input.rubricId?.trim() || "";
   const usedSavedCase = savedCaseId.length > 0;
+
+  if (!usedSavedCase && !hasEmbeddedMarkScheme(question)) {
+    const recommended = recommendWholeMarkCountForStem(question, questionAnalysis);
+    if (recommended != null && recommended > maxScore) {
+      console.info("[grade] raised maxScore to whole-mark allocation", {
+        from: maxScore,
+        to: recommended,
+        commandWord: questionAnalysis.commandWord,
+      });
+      maxScore = recommended;
+    }
+    if (topLevelUsesCalculationAgent(topLevel.questionType)) {
+      const resolved = resolveCalculationMaxScore(question, maxScore);
+      if (resolved > maxScore) {
+        console.info("[grade] raised calc maxScore for independent asks", {
+          from: maxScore,
+          to: resolved,
+        });
+        maxScore = resolved;
+      } else if (maxScore < 3) {
+        maxScore = 3;
+      }
+    }
+  }
+
   const stored = usedSavedCase
     ? await getAssessmentCaseById(savedCaseId)
     : await getOrCreateAssessmentCase({
@@ -76,12 +121,13 @@ export async function runOpenEndedMarking(input: GradeSubmissionInput): Promise<
   const clientHint = parseClientQuestionTypeHint(clientHintRaw);
 
   if (clientHint && clientHint !== agent) {
-    console.warn("[grade:v3] client questionType hint differs from case intent — case wins", {
+    console.warn("[grade] client questionType hint differs from case intent — case wins", {
       caseId: stored.caseId,
       agent,
       clientHint,
       clientQuestionType: clientHintRaw,
       intentFamily: stored.acf.intent.family,
+      topLevel: topLevel.questionType,
     });
   }
 
@@ -97,10 +143,11 @@ export async function runOpenEndedMarking(input: GradeSubmissionInput): Promise<
     questionContext: input.questionContext?.trim() || undefined,
   });
 
-  console.info("[grade:v3] dispatch marking agent", {
+  console.info("[grade] dispatch marking agent", {
     caseId: stored.caseId,
     agent,
     intent: stored.acf.intent.family,
+    topLevel: topLevel.questionType,
     units: stored.acf.units.length,
     markRule: stored.acf.markRule.kind,
     maSource: ctx.officialMa.source,
