@@ -27,6 +27,8 @@ Penjelasan: <satu ayat ringkas isi sahaja; jangan rujuk sumber>
 Soalan 2
 ... (same pattern)
 
+For bilingual subjects (not BM-only), stems AND each option A–D must use EN: then BM: on the next line under that letter.
+
 Strict bans (violation = wrong answer):
 - No "Rujuk", "rujuk", "#1", "#2", "doc=", "chunk=", "[1]", "konteks", "bersumber", "eksplisit", "lihat #", "berdasarkan konteks di".
 - No emojis, no footnotes, no "Jawapan betul" — use the exact label "Jawapan:" only.
@@ -89,7 +91,7 @@ function mcqFormatReminder(query: string, subject?: string | null): string {
   if (!isMcqGenerationQuery(query)) return "";
   const mcqLine = isForceBmSubject(subject)
     ? "Soalan 1 → BM stem only (no EN:) → A. B. C. D. → Jawapan: <one letter> → Penjelasan:"
-    : "Soalan 1 → EN: / BM: (two lines) → A. B. C. D. → Jawapan: <one letter> → Penjelasan:";
+    : "Soalan 1 → EN: / BM: (two lines) → A–D each with EN: / BM: under the letter → Jawapan: <one letter> → Penjelasan:";
   const physicsDiagramBias = isPhysicsSubject(subject)
     ? `
 

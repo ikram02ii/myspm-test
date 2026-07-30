@@ -61,7 +61,9 @@ import {
   type SpeakingGradeResponse,
 } from "../services/mobileSpeaking";
 import {
+  formatOptionForLangView,
   formatQuestionStemForLangView,
+  optionHasBilingualText,
   questionHasBilingualStem,
   type QuestionLangView,
 } from "../utils/bilingualQuestionStem";
@@ -1039,7 +1041,12 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
         : 1;
   const showSpeakingFeedbackPanel =
     showFeedback || (isSpeakingQuestion && speakingReadyForNext);
-  const showLangToggle = Boolean(q && !isSpeakingQuestion && questionHasBilingualStem(q.questionText));
+  const showLangToggle = Boolean(
+    q &&
+      !isSpeakingQuestion &&
+      (questionHasBilingualStem(q.questionText) ||
+        (q.options?.some((opt) => optionHasBilingualText(opt)) ?? false)),
+  );
   const displayQuestionText = q
     ? formatQuestionStemForLangView(q.questionText, questionLangView)
     : "";
@@ -1611,7 +1618,8 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
       {!isSpeakingQuestion && isMcq && q.options.length > 0 ? (
         <View style={styles.optionsGrid}>
           {q.options.map((opt, i) => {
-            const matrixOption = isMatrixOnlyOption(opt);
+            const displayOpt = formatOptionForLangView(opt, questionLangView);
+            const matrixOption = isMatrixOnlyOption(displayOpt);
             const on = selected.has(i);
             const isCorrectOption = correctIndices.has(i);
             let border = "rgba(15, 23, 42, 0.12)";
@@ -1644,7 +1652,7 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
                 disabled={showFeedback}
               >
                 <MathFormattedText textStyle={styles.optionTileLabel} matrixCompact>
-                  {opt}
+                  {displayOpt}
                 </MathFormattedText>
               </Pressable>
             );

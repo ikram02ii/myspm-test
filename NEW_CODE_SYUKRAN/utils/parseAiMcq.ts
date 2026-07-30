@@ -235,7 +235,8 @@ export function parseAiGeneratedMcqAnswer(answer: string): PracticeSetQuestion[]
     while ((optMatch = optRegex.exec(block))) {
       const letter = optMatch[1].toUpperCase() as "A" | "B" | "C" | "D";
       if (firstOptionIndex < 0) firstOptionIndex = optMatch.index;
-      optionsByLetter[letter] = (optMatch[2] ?? "").replace(/\s+/g, " ").trim();
+      // Keep EN:/BM: on separate lines when the model returns bilingual options.
+      optionsByLetter[letter] = formatBilingualQuestionStem(optMatch[2] ?? "");
     }
 
     const options = (["A", "B", "C", "D"] as const).map((letter) => optionsByLetter[letter] ?? "");
