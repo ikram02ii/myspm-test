@@ -160,7 +160,12 @@ For every soalan stem (except pure-BM-only subjects like Sejarah), you MUST use 
 EN: <stem in English>
 BM: <same meaning in Bahasa Melayu>
 The BM line MUST start on a new line immediately after the EN line. Never place EN and BM on the same line.
-Then A–D (option text may stay in English only if clearer; you MUST NOT duplicate four long bilingual blocks).
+For every MCQ option A–D (except pure-BM-only subjects), you MUST also use bilingual format under that letter:
+A. EN: <English option>
+BM: <same meaning in Bahasa Melayu>
+B. EN: <English option>
+BM: <same meaning in Bahasa Melayu>
+(and likewise for C and D). The BM line for each option MUST start on a new line after that option's EN line. For pure numbers/matrices/symbols, EN and BM may be identical tokens.
 
 When generating subjective / structured (non-MCQ) SPM questions, you MUST use this EXACT layout for EVERY item:
 
@@ -398,7 +403,10 @@ function bilingualStemReminder(subject: string | null | undefined): string {
 Each soalan stem must be bilingual on two lines:
 EN: <English stem>
 BM: <Bahasa Melayu stem — new line, not same line as EN>
-Then A–D, Jawapan:, Penjelasan:.`;
+Each MCQ option A–D must also be bilingual under that letter:
+A. EN: <English option>
+BM: <Bahasa Melayu option>
+Then Jawapan:, Penjelasan:.`;
 }
 
 function isPhysicsSubject(subject: string | null | undefined): boolean {
@@ -462,7 +470,7 @@ Physics diagram-friendly stems (IMPORTANT):
     : "";
   const mcqLine = isForceBmSubject(subject)
     ? "Soalan 1 → BM stem only (no EN:) → A. B. C. D. → Jawapan: <one letter> → Penjelasan:"
-    : "Soalan 1 → EN: / BM: (two lines) → A. B. C. D. → Jawapan: <one letter> → Penjelasan:";
+    : "Soalan 1 → EN: / BM: (two lines) → A–D each with EN: / BM: under the letter → Jawapan: <one letter> → Penjelasan:";
 
   return `
 
@@ -494,7 +502,7 @@ function graphJsonReminder(subject: string | null | undefined, query: string): s
   const subjectLabel = isPhysicsSubject(subject) ? "Physics" : "Math";
   return `
 
-Subject is **${subjectLabel}**: use bilingual stems for every soalan (EN: on one line, BM: on the next line), then options A–D, then Jawapan: and Penjelasan: as usual. Penjelasan should be in Bahasa Melayu when the rest is mixed EN/BM.
+Subject is **${subjectLabel}**: use bilingual stems for every soalan (EN: on one line, BM: on the next line), and bilingual options A–D (each letter has EN: then BM: on the next line), then Jawapan: and Penjelasan: as usual. Penjelasan should be in Bahasa Melayu when the rest is mixed EN/BM.
 For graph-based or motion-graph questions, prefer returning a JSON field "rajah_spec" (deterministic shape spec) and optionally "rajah_svg". Supported rajah_spec kinds are:
 - {"kind":"triangle","points":[{"x":0,"y":0,"label":"A"},{"x":4,"y":0,"label":"B"},{"x":1,"y":3,"label":"C"}],"title":"..."}
 - {"kind":"cartesian_line","xMin":0,"xMax":10,"yMin":0,"yMax":20,"points":[{"x":0,"y":0,"label":"P"},{"x":5,"y":10,"label":"Q"}],"title":"..."}

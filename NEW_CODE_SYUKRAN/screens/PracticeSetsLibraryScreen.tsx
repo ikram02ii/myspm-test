@@ -903,7 +903,7 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
     const isBmOnlySubject = isBmOnlyGenerationSubject(subject);
     const stemLanguageRule = isBmOnlySubject
       ? `Write every soalan stem, all options A–D, Jawapan, and Penjelasan in Bahasa Melayu only (no EN: line, no English). `
-      : `Each question stem must be bilingual on two separate lines: first line "EN: ...", second line "BM: ..." (BM must start on a new line, not the same line as EN). `;
+      : `Each question stem must be bilingual on two separate lines: first line "EN: ...", second line "BM: ..." (BM must start on a new line, not the same line as EN). Each option A–D must ALSO be bilingual on two lines under that letter: "EN: ..." then "BM: ..." on the next line (same meaning). `;
 
     const diagramHint = isScienceDiagramSubject(subject)
       ? " Do not output any Perlu rajah or diagram-needed line inside the questions. Diagram decisions will be made in a second pass after the questions are generated. "
@@ -915,13 +915,13 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
         : "";
 
     const matrixFormatHint = /^(math|additional math)$/i.test(subject.trim())
-      ? " For matrix MCQ options, write each matrix as one token in semicolon row form, e.g. [3 2; 1 4] (rows separated by ;, entries by spaces). "
+      ? " For matrix/number-only MCQ options, still use EN: and BM: lines but both may contain the same matrix token in semicolon row form, e.g. EN: [3 2; 1 4] then BM: [3 2; 1 4]. "
       : " ";
 
     if (aiQuestionType === "mcq") {
       const mcqFormatRule = isBmOnlySubject
-        ? "Use exact format: Soalan 1, then the BM soalan stem (one or two sentences), then A. B. C. D. options, then Jawapan: (one letter A-D only), then Penjelasan:."
-        : "Use exact format: Soalan 1, then EN: and BM: stems on separate lines, then A. B. C. D. options, then Jawapan: (one letter A-D only), then Penjelasan:.";
+        ? "Use exact format: Soalan 1, then the BM soalan stem (one or two sentences), then A. B. C. D. options (BM text only), then Jawapan: (one letter A-D only), then Penjelasan:."
+        : "Use exact format: Soalan 1, then EN: and BM: stems on separate lines, then for each option A–D write EN: and BM: on separate lines under that letter, then Jawapan: (one letter A-D only), then Penjelasan:.";
       return `Generate ${aiQuestionCount} SPM ${subject} MCQ (A-D) objective questions${topicPart}. ${variationInstructions} ${graphInstructions}${stemLanguageRule}${diagramHint}${physicsDiagramFriendly}${matrixFormatHint}${mcqFormatRule} You MUST NOT use Markah or Marking points. Repeat for Soalan 2, 3, etc.`;
     }
 

@@ -66,3 +66,26 @@ export function formatQuestionStemForLangView(
 
   return stripMarksSuffixFromStem(body);
 }
+
+/** True when an MCQ option stores bilingual EN:/BM: text. */
+export function optionHasBilingualText(optionText: string): boolean {
+  return questionHasBilingualStem(optionText);
+}
+
+/**
+ * Display one MCQ option in EN or BM.
+ * Plain (legacy) options without EN:/BM: are shown unchanged for both views.
+ */
+export function formatOptionForLangView(
+  optionText: string,
+  view: QuestionLangView,
+): string {
+  const raw = (optionText || "").trim();
+  if (!raw) return "";
+
+  const parsed = parseBilingualQuestionStem(raw);
+  if (!parsed) return raw;
+
+  const body = view === "en" ? parsed.en || parsed.bm : parsed.bm || parsed.en;
+  return (body || raw).trim();
+}
