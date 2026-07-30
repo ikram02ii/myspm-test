@@ -320,7 +320,12 @@ export function suggestMaxMarksFromQuestionStructure(
   question: string,
   analysis?: Pick<QuestionAnalysis, "commandWord" | "questionType" | "isCompoundQuestion"> | null,
 ): number {
-  const q = (question || "").trim();
+  // Strip "(N marks)" so a display suffix cannot collapse allocation via \b1\b.
+  const q = (question || "")
+    .replace(/\(\s*\d{1,2}\s*(?:marks?|markah)\s*\)/gi, " ")
+    .replace(/\[\s*\d{1,2}\s*(?:marks?|markah)\s*\]/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
   const s = norm(q);
   const resolved =
     analysis ??
@@ -365,10 +370,15 @@ export function suggestMaxMarksFromQuestionStructure(
   ) {
     return 2;
   }
-  if (/\b(one|1|a\s+single|only\s+one)\b/.test(s) && /\b(state|give|name|identify|nyatakan|namakan)/i.test(s)) {
+  // Explicit verbal "one" only — never match digit 1 from a "(1 mark)" display suffix.
+  if (
+    /\b(one|a\s+single|only\s+one)\b/i.test(s) &&
+    /\b(state|give|name|identify|nyatakan|namakan)\b/i.test(s)
+  ) {
     return 1;
   }
-  if (/\bwhich\s+(type|kind|sort)\s+of\b/.test(s) || /\bidentify\b|\bkenal\s*pasti\b/i.test(s)) return 1;
+  // Narrow single-answer cue only. Bare "identify" is handled by whole-mark plan / fixed_answer.
+  if (/\bwhich\s+(type|kind|sort)\s+of\b/i.test(s)) return 1;
 
   const compound =
     resolved.isCompoundQuestion || hasCompoundAndDemand(q) || hasTwoDistinctDemandsJoinedByAnd(q);

@@ -143,7 +143,7 @@ export type MarkSchemeMaxScoreResult = {
 
 /**
  * maxScore follows the mark scheme / model answer, not question-stem wording alone.
- * Priority: marking-point bullets → distinct Jawapan points → Markah: line → client fallback.
+ * Uses the strongest signal among marking points, Markah:, and multi-point Jawapan.
  */
 export function inferMaxScoreFromMarkScheme(
   question: string,
@@ -152,34 +152,47 @@ export function inferMaxScoreFromMarkScheme(
   const safeFallback = clampMarks(fallback);
 
   const markingPoints = extractMarkingPointBullets(question);
-  if (markingPoints.length >= 1) {
-    const maxScore = clampMarks(markingPoints.length);
-    return {
-      maxScore,
-      source: "marking_points",
-      reason: `${maxScore} mark(s) from ${markingPoints.length} distinct marking point(s) in the scheme.`,
-    };
-  }
-
-  const jawapan = extractJawapanText(question);
-  if (jawapan) {
-    const pointCount = countDistinctModelAnswerPoints(jawapan);
-    if (pointCount >= 1) {
-      const maxScore = clampMarks(pointCount);
-      return {
-        maxScore,
-        source: "model_answer",
-        reason: `${maxScore} mark(s) from ${pointCount} distinct point(s) required in the model answer.`,
-      };
-    }
-  }
-
   const markah = parseMarkahFromQuestion(question);
+  const jawapan = extractJawapanText(question);
+  const jawapanCount = jawapan ? countDistinctModelAnswerPoints(jawapan) : 0;
+
+  type Cand = { score: number; source: MarkSchemeMaxScoreSource; reason: string };
+  const cands: Cand[] = [];
+  if (markingPoints.length >= 1) {
+    cands.push({
+      score: clampMarks(markingPoints.length),
+      source: "marking_points",
+      reason: `${markingPoints.length} mark(s) from ${markingPoints.length} distinct marking point(s) in the scheme.`,
+    });
+  }
   if (markah != null) {
-    return {
-      maxScore: markah,
+    cands.push({
+      score: markah,
       source: "markah_line",
       reason: `Markah: ${markah} from the supplied mark scheme.`,
+    });
+  }
+  if (jawapanCount >= 2) {
+    cands.push({
+      score: clampMarks(jawapanCount),
+      source: "model_answer",
+      reason: `${jawapanCount} mark(s) from ${jawapanCount} distinct point(s) required in the model answer.`,
+    });
+  }
+
+  if (cands.length > 0) {
+    const rank = (s: MarkSchemeMaxScoreSource) =>
+      s === "marking_points" ? 0 : s === "markah_line" ? 1 : 2;
+    cands.sort((a, b) => b.score - a.score || rank(a.source) - rank(b.source));
+    const best = cands[0]!;
+    return { maxScore: best.score, source: best.source, reason: best.reason };
+  }
+
+  if (jawapanCount === 1) {
+    return {
+      maxScore: 1,
+      source: "model_answer",
+      reason: "1 mark(s) from 1 distinct point(s) required in the model answer.",
     };
   }
 
