@@ -24,7 +24,6 @@ import {
 import { withStrictGenerationLanguage } from "../ama/grading/shared/gradingMandatoryLanguage";
 import { retrieveChunks, retrieveGeneralSyllabusChunks } from "../ama/retrieval/retrievalService";
 import type { RetrievedChunk } from "../ama/types";
-import { buildEnglishSpeakingPdfContext } from "../ama/speaking/englishSpeakingPdfService";
 import { englishSpeakingPartFromQuery } from "../ama/speaking/englishSpeakingTypes";
 import { generateQuestionFromRagContext } from "./ragQuestionGenerator";
 import {
@@ -46,7 +45,6 @@ export type GenerateRagInput = {
   skipRetrieval?: boolean;
   /** Use English oral-exam prompt instead of textbook MCQ template. */
   englishSpeaking?: boolean;
-  englishSpeakingPdfPath?: string | null;
 };
 
 /** Retrieval should use syllabus/topic keywords — not the full MCQ generation prompt. */
@@ -79,8 +77,10 @@ export function buildGenerationRetrievalQuery(
     .join(" ");
 }
 
-/** Parse "Variation seed: abc-123" from mobile generation query. */
+/** Parse "Variation seed: abc-123" or "Unique run ID (...): abc-123" from mobile generation query. */
 export function parseVariationSeedFromQuery(query: string): string | undefined {
+  const unique = query.match(/Unique\s+run\s+ID[^:]*:\s*(\S+)/i);
+  if (unique?.[1]?.trim()) return unique[1].trim();
   const m = query.match(/Variation\s*seed:\s*(\S+)/i);
   return m?.[1]?.trim() || undefined;
 }
@@ -639,50 +639,75 @@ function buildGraphDiagrams(
   return [];
 }
 
-const ENGLISH_SPEAKING_SYSTEM = `You are an expert SPM English oral exam question writer for Malaysian Form 4/5 students.
-Generate realistic speaking practice prompts only — no textbook citations, no MCQ format, no bilingual BM lines unless the user asks.
-Use natural Malaysian classroom English. Follow the user's output format exactly. Do not add preamble or process commentary.`;
+const ENGLISH_SPEAKING_SYSTEM = `You are an expert SPM English Speaking Test question writer for Malaysian Form 4/5 students (ages 16–17, CEFR B1–B2).
+Generate ORIGINAL speaking practice prompts only — no textbook citations, no MCQ, no bilingual BM lines.
+Write like an SPM oral examiner: warm, clear, natural spoken English.
+Follow the user's output format exactly. Do not add preamble.
 
-async function buildEnglishSpeakingUserContent(input: GenerateRagInput): Promise<string> {
-  const tail = `${input.query}\n\nOutput the speaking prompts only, using the exact format specified above.`;
-  let pdfContext: { excerpt: string; pdfPath: string } | null = null;
-  try {
-    const part = englishSpeakingPartFromQuery(input.query);
-    pdfContext = await buildEnglishSpeakingPdfContext({
-      pdfPath: input.englishSpeakingPdfPath,
-      part: part === "part1" ? "all" : part,
-    });
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.warn("[rag][english-speaking] PDF context unavailable:", msg);
-  }
+PART 1 STYLE (mandatory when generating Part 1):
+- Short personal interview questions, one at a time.
+- Simple conversational English a student can answer in 20–40 seconds.
+- Everyday Malaysian teen life: school, home, hobbies, friends, food, sports, free time, technology, plans.
+- Prefer stems like: Tell me about… / What do you usually… / Do you prefer… Why? / How do you… / Which… and why?
+- Keep each question to one or two short sentences. No long multi-clause / brand-list questions.
+- Avoid childish one-word prompts and IELTS/university abstraction.
 
-  if (!pdfContext) {
-    return tail;
-  }
+QUALITY (mandatory):
+- Honour the student's chosen topic category strictly (or vary freely if Random).
+- Never vague, repetitive, or stock-copied. Every Unique run ID must produce freshly worded prompts.
+- Part 1 = exactly 5 short interview questions.
+- Part 2 = exactly 1 long cue-card task that supports 1.5–2 minutes of speech.
+- Never generate Part 3 / group discussion tasks.`;
 
-  return [
-    "Official SPM English Speaking reference (extracted from syllabus PDF — Part 2 & Part 3).",
-    "Follow task types, timings, and examiner style from this material when writing new practice prompts.",
-    "Do not copy long passages verbatim; create original prompts in the same SPM format.",
+function extractTopicCategoryFromSpeakingQuery(query: string): string | null {
+  const focused = query.match(/Focus on the topic category:\s*(.+?)(?:\.|$)/im);
+  if (focused?.[1]?.trim()) return focused[1].trim();
+  const topicFocus = query.match(/Topic focus:\s*(.+?)(?:\.|$)/im);
+  if (topicFocus?.[1]?.trim()) return topicFocus[1].trim();
+  const categoryLine = query.match(/Student-selected topic category:\s*(.+?)(?:\.|$)/im);
+  if (categoryLine?.[1]?.trim()) return categoryLine[1].trim();
+  return null;
+}
+
+function buildEnglishSpeakingUserContent(input: GenerateRagInput): string {
+  const part = englishSpeakingPartFromQuery(input.query);
+  const seed = parseVariationSeedFromQuery(input.query);
+  const category = extractTopicCategoryFromSpeakingQuery(input.query);
+  const partLabel =
+    part === "part1"
+      ? "Part 1 (Short Interview — exactly 5 questions)"
+      : "Part 2 (Individual Long Turn — exactly 1 cue card, 1.5–2 minutes speaking)";
+  const lines = [
+    `SPM English Speaking — ${partLabel}.`,
+    category
+      ? `Student-selected topic category: ${category}. ALL prompts MUST fit this category (unless category is Random — then vary freely across SPM-appropriate themes for 16–17 year olds).`
+      : "Vary topics realistically for Malaysian Form 4/5 students.",
+    seed
+      ? `Unique run ID: ${seed}. Treat this as a hard uniqueness key — wording MUST differ from any previous generation with a different ID.`
+      : "Make this set distinctly different from typical default examples.",
+    "Create original prompts. Do NOT copy past-paper wording or previous AI outputs.",
+    "Do NOT generate Part 3 / group discussion.",
+    part === "part1"
+      ? "Part 1 questions must sound like a real SPM short interview — short, personal, conversational."
+      : "Part 2 must support a full 1.5–2 minute long turn.",
     "",
-    pdfContext.excerpt,
+    input.query.trim(),
     "",
-    "---",
-    "",
-    tail,
-  ].join("\n");
+    "Output the speaking prompts only, using the exact format specified above.",
+  ];
+  return lines.join("\n");
 }
 
 async function generateEnglishSpeaking(input: GenerateRagInput): Promise<GenerateRagResult> {
   const answerRaw = await chatCompletion(
     [
       { role: "system", content: ENGLISH_SPEAKING_SYSTEM },
-      { role: "user", content: await buildEnglishSpeakingUserContent(input) },
+      { role: "user", content: buildEnglishSpeakingUserContent(input) },
     ],
     {
       subject: input.subject,
       query: input.query,
+      temperature: 1.2,
     },
   );
 

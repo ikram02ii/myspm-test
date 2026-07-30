@@ -606,11 +606,9 @@ export function EnglishSpeakingPart2Exam({
           {pendingTranscript.trim() ? (
 
             <SpeakingFeedbackPanel
-
               transcript={pendingTranscript}
-
               markingText="Marking your long turn…"
-
+              transcriptResetKey="part2-pending"
             />
 
           ) : (

@@ -9,6 +9,8 @@ type ChatMessage = {
 type ChatOpts = {
   subject?: string | null;
   query?: string;
+  /** Override default temperature (0.7). */
+  temperature?: number;
 };
 
 export type LlmProvider = "auto" | "dashscope" | "gemini";
@@ -67,7 +69,10 @@ export async function chatCompletion(
     body: JSON.stringify({
       model,
       messages,
-      temperature: 0.7,
+      temperature:
+        typeof opts?.temperature === "number" && Number.isFinite(opts.temperature)
+          ? Math.max(0, Math.min(1.5, opts.temperature))
+          : 0.7,
     }),
   });
 

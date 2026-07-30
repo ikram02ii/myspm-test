@@ -14,8 +14,11 @@ import { EnglishSpeakingPart1InterviewCard } from "./EnglishSpeakingPart1Intervi
 
 import {
   SPEAKING_PART1_ANSWER_SEC,
+  SPEAKING_PART1_BETWEEN_MS,
   SPEAKING_PART1_EXAMINER_INTRO,
+  SPEAKING_PART1_THINK_SEC,
   formatCountdown,
+  waitForUiPaint,
 } from "../constants/englishSpeakingExam";
 import { fonts } from "../constants/fonts";
 import { colors } from "../constants/colors";
@@ -47,7 +50,7 @@ function formatRecordedDuration(seconds: number): string {
 }
 
 function formatAnswerRecorded(seconds: number): string {
-  return `Answer recorded · ${formatRecordedDuration(seconds)}`;
+  return formatRecordedDuration(seconds);
 }
 
 type Props = {
@@ -56,6 +59,8 @@ type Props = {
   formLevel: string;
   skipToIndex: number;
   onSessionComplete: (result: Part1InterviewSessionResult) => void;
+  /** Fires when the live interview advances so the session header can stay in sync. */
+  onActiveQuestionIndexChange?: (localIndex: number) => void;
 };
 
 function emptyTurn(q: InterviewQuestion): Part1InterviewTurn {
@@ -155,7 +160,9 @@ function LiveQuestionDeck({
   const cardsBehind = Math.min(2, Math.max(0, totalQuestions - questionIndex - 1));
   const isIntro = liveSubStep === "examiner_intro";
   const isSpeaking = liveSubStep === "examiner_asking";
-  const listeningMode = isIntro ? "intro" : isSpeaking ? "question" : null;
+  // Intro may hide stem; once a question is active, always show the text before/during TTS.
+  const listeningMode = isIntro ? "intro" : null;
+  const audioPlaying = isIntro || isSpeaking;
 
   useEffect(() => {
     fadeAnim.setValue(0);
@@ -168,36 +175,42 @@ function LiveQuestionDeck({
 
   return (
     <View style={styles.deckWrap}>
-      {cardsBehind >= 2 ? <View style={[styles.stackCard, styles.stackCardFar]} /> : null}
-      {cardsBehind >= 1 ? <View style={[styles.stackCard, styles.stackCardNear]} /> : null}
+      <View style={styles.deckStack}>
+        {cardsBehind >= 2 ? <View style={[styles.stackCard, styles.stackCardFar]} /> : null}
+        {cardsBehind >= 1 ? <View style={[styles.stackCard, styles.stackCardNear]} /> : null}
 
-      <Animated.View style={[styles.deckFront, { opacity: fadeAnim }]}>
-        <EnglishSpeakingPart1InterviewCard
-          variant="question"
-          questionText={cardText}
-          questionIndex={questionIndex}
-          totalQuestions={totalQuestions}
-          phaseLabel={phaseLabel}
-          isIntroScript={isIntro}
-          listeningMode={listeningMode}
-        />
+        <Animated.View style={[styles.deckFront, { opacity: fadeAnim }]}>
+          <EnglishSpeakingPart1InterviewCard
+            variant="question"
+            questionText={cardText}
+            totalQuestions={totalQuestions}
+            phaseLabel={phaseLabel}
+            isIntroScript={isIntro}
+            listeningMode={listeningMode}
+          />
+        </Animated.View>
+      </View>
 
-        {recordedPill ? (
-          <View style={styles.recordedPill}>
-            <Text style={styles.recordedPillText}>{recordedPill}</Text>
-            <View style={styles.checkBadge}>
-              <Check size={12} color="#FFFFFF" strokeWidth={3} />
-            </View>
+      {recordedPill ? (
+        <View style={styles.recordedStatus}>
+          <View style={styles.checkBadge}>
+            <Check size={14} color="#FFFFFF" strokeWidth={3} />
           </View>
-        ) : null}
-
-        {listeningMode ? (
-          <View style={styles.listenRow}>
-            <ActivityIndicator size="small" color={theme.brand} />
-            <Text style={styles.listenText}>Audio playing…</Text>
+          <View style={styles.recordedStatusTextCol}>
+            <Text style={styles.recordedStatusTitle}>Answer recorded</Text>
+            <Text style={styles.recordedStatusMeta}>
+              {recordedPill} · Next question shortly
+            </Text>
           </View>
-        ) : null}
-      </Animated.View>
+        </View>
+      ) : audioPlaying ? (
+        <View style={styles.listenStatus}>
+          <ActivityIndicator size="small" color={theme.brand} />
+          <Text style={styles.listenText}>
+            {isIntro ? "Examiner speaking…" : "Examiner asking — read along"}
+          </Text>
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -208,6 +221,7 @@ export function EnglishSpeakingPart1InterviewExam({
   formLevel,
   skipToIndex,
   onSessionComplete,
+  onActiveQuestionIndexChange,
 }: Props) {
   const [step, setStep] = useState<InterviewStep>("intro");
   const [liveSubStep, setLiveSubStep] = useState<LiveSubStep>("examiner_intro");
@@ -239,6 +253,11 @@ export function EnglishSpeakingPart1InterviewExam({
   useEffect(() => {
     questionIndexRef.current = questionIndex;
   }, [questionIndex]);
+
+  useEffect(() => {
+    if (step !== "live" && step !== "waiting_grades") return;
+    onActiveQuestionIndexChange?.(questionIndex);
+  }, [step, questionIndex, onActiveQuestionIndexChange]);
 
   const clearTimer = useCallback(() => {
     if (timerRef.current) {
@@ -372,9 +391,14 @@ export function EnglishSpeakingPart1InterviewExam({
         setStep("waiting_grades");
         return;
       }
+      // Stepper updates immediately; TTS for the next question starts after a short gap.
       setQuestionIndex(nextIdx);
-      flowGenRef.current += 1;
-      void runQuestionFlowRef.current(nextIdx, flowGenRef.current);
+      setLiveSubStep("between_questions");
+      setTimeout(() => {
+        if (!mountedRef.current) return;
+        flowGenRef.current += 1;
+        void runQuestionFlowRef.current(nextIdx, flowGenRef.current);
+      }, SPEAKING_PART1_BETWEEN_MS);
     },
     [questions.length],
   );
@@ -408,11 +432,8 @@ export function EnglishSpeakingPart1InterviewExam({
       setRecordedPill(formatAnswerRecorded(durationSec));
       gradeTurnInBackground(idx, questionText, uri, durationSec);
       processingRecordingRef.current = false;
-      setTimeout(() => {
-        if (mountedRef.current) {
-          advanceAfterRecordingRef.current(idx);
-        }
-      }, 750);
+      // Advance immediately (no delayed setTimeout wrapper) so "N of 5" updates now.
+      advanceAfterRecordingRef.current(idx);
     },
     [clearTimer, gradeTurnInBackground, stopRecording],
   );
@@ -461,8 +482,17 @@ export function EnglishSpeakingPart1InterviewExam({
       if (!q) return;
 
       setRecordedPill(null);
+      // Ensure index + question text are committed before any audio.
+      setQuestionIndex(idx);
       setLiveSubStep("examiner_asking");
+      // Wait for question card paint + fade-in (~280ms) before any TTS.
+      await waitForUiPaint(320);
+      if (!mountedRef.current || flowGenRef.current !== gen) return;
+
       await speakExaminerText(q.text);
+      if (!mountedRef.current || flowGenRef.current !== gen) return;
+
+      await waitForUiPaint(SPEAKING_PART1_THINK_SEC * 1000);
       if (!mountedRef.current || flowGenRef.current !== gen) return;
 
       void startRecordingRef.current(idx, q.text);
@@ -484,6 +514,8 @@ export function EnglishSpeakingPart1InterviewExam({
     setStep("live");
 
     setLiveSubStep("examiner_intro");
+    await waitForUiPaint(320);
+    if (!mountedRef.current || flowGenRef.current !== gen) return;
     await speakExaminerText(SPEAKING_PART1_EXAMINER_INTRO);
     if (!mountedRef.current || flowGenRef.current !== gen) return;
 
@@ -512,7 +544,6 @@ export function EnglishSpeakingPart1InterviewExam({
 
   const currentQuestion = questions[questionIndex];
   const isRecording = liveSubStep === "recording";
-  const isAnswering = step === "live" && (isRecording || liveSubStep === "between_questions");
 
   const cardText =
     liveSubStep === "examiner_intro"
@@ -610,10 +641,6 @@ export function EnglishSpeakingPart1InterviewExam({
             <Text style={styles.stopBtnText}>Stop early</Text>
           </Pressable>
         </View>
-      ) : isAnswering ? (
-        <View style={styles.listenBox}>
-          <Text style={styles.listenText}>Processing your answer…</Text>
-        </View>
       ) : null}
 
       {error ? <Text style={styles.errorText}>{error}</Text> : null}
@@ -685,9 +712,13 @@ const styles = StyleSheet.create({
   },
   btnPressed: { opacity: 0.9 },
   deckWrap: {
+    width: "100%",
+    gap: 12,
+  },
+  deckStack: {
     position: "relative",
     alignItems: "center",
-    paddingBottom: 4,
+    width: "100%",
   },
   stackCard: {
     position: "absolute",
@@ -710,39 +741,53 @@ const styles = StyleSheet.create({
   },
   deckFront: {
     width: "100%",
-    gap: 10,
   },
-  recordedPill: {
+  recordedStatus: {
     flexDirection: "row",
     alignItems: "center",
-    alignSelf: "center",
-    gap: 8,
+    alignSelf: "stretch",
+    gap: 12,
+    paddingVertical: 12,
     paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 999,
+    borderRadius: 14,
+    backgroundColor: "#ECFDF5",
+    borderWidth: 1,
+    borderColor: "rgba(21, 128, 61, 0.22)",
+  },
+  recordedStatusTextCol: {
+    flex: 1,
+    gap: 2,
+  },
+  recordedStatusTitle: {
+    fontSize: 14,
+    fontFamily: fonts.semiBold,
+    color: "#166534",
+  },
+  recordedStatusMeta: {
+    fontSize: 12,
+    fontFamily: fonts.regular,
+    color: "#3F6212",
+  },
+  checkBadge: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: "#16A34A",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  listenStatus: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    alignSelf: "stretch",
+    gap: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 14,
     backgroundColor: theme.brandSoftSage,
     borderWidth: 1,
     borderColor: "rgba(152, 168, 105, 0.35)",
-  },
-  recordedPillText: {
-    fontSize: 13,
-    fontFamily: fonts.semiBold,
-    color: theme.brandDeep,
-  },
-  checkBadge: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    backgroundColor: theme.brandSecondary,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  listenRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    paddingVertical: 4,
   },
   listenBox: {
     alignItems: "center",

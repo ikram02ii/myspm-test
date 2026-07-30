@@ -581,7 +581,6 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
   const [aiQuestionCount, setAiQuestionCount] = useState<number>(5);
   const [englishSpeakingPart, setEnglishSpeakingPart] = useState<EnglishSpeakingPart>("part1");
   const [englishTopicCategory, setEnglishTopicCategory] = useState(() => defaultTopicForPart("part1"));
-  const [englishQuestionCount, setEnglishQuestionCount] = useState<number>(5);
 
   function backendSubjectFromPracticeCode(code: string | null): string | null {
     if (!code) return null;
@@ -966,17 +965,10 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
     setAiGenerating(true);
     try {
       const topic = englishTopicCategory.trim() || defaultTopicForPart(englishSpeakingPart);
-      const count =
-        englishSpeakingPart === "part1"
-          ? englishQuestionCount
-          : englishSpeakingPart === "part3"
-            ? Math.min(6, Math.max(2, englishQuestionCount))
-            : 1;
       const query = buildEnglishSpeakingQuery({
         form: aiFormLevelLabel,
         part: englishSpeakingPart,
         topicCategory: topic,
-        questionCount: count,
       });
       const result = await ragApiPost<RagGenerateResponse>("/rag/generate", {
         query,
@@ -995,9 +987,7 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
         title:
           englishSpeakingPart === "part1"
             ? "English Speaking Part 1"
-            : englishSpeakingPart === "part3"
-              ? "English Speaking Part 3"
-              : "English Speaking Part 2",
+            : "English Speaking Part 2",
         questions: parsed,
         subject: backendSubject,
         formLevel: aiFormLevelLabel,
@@ -1451,33 +1441,6 @@ export default function PracticeSetsLibraryScreen({ navigation }: Props) {
                   ))}
                 </View>
 
-                {englishSpeakingPart === "part1" ? (
-                  <>
-                    <Text style={styles.fieldLabel}>Number of questions</Text>
-                    <View style={styles.choiceRow}>
-                      {[5, 8, 10].map((count) => (
-                        <Pressable
-                          key={count}
-                          style={[
-                            styles.choiceChip,
-                            englishQuestionCount === count && styles.choiceChipActive,
-                          ]}
-                          onPress={() => setEnglishQuestionCount(count)}
-                          disabled={aiGenerating}
-                        >
-                          <Text
-                            style={[
-                              styles.choiceChipText,
-                              englishQuestionCount === count && styles.choiceChipTextActive,
-                            ]}
-                          >
-                            {count}
-                          </Text>
-                        </Pressable>
-                      ))}
-                    </View>
-                  </>
-                ) : null}
               </>
             ) : (
               <>

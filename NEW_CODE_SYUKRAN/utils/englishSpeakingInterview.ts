@@ -75,6 +75,8 @@ export function isPart1InterviewActiveAt(
 export function buildPart1InterviewSessionSummary(turns: Part1InterviewTurn[]): {
   transcript: string;
   markingText: string;
+  grades: SpeakingGradeResponse[];
+  gradeTitles: string[];
   totalScore: number;
   totalMax: number;
   averageScore: number;
@@ -85,6 +87,8 @@ export function buildPart1InterviewSessionSummary(turns: Part1InterviewTurn[]): 
 
   const transcriptParts: string[] = [];
   const markingParts: string[] = [];
+  const grades: SpeakingGradeResponse[] = [];
+  const gradeTitles: string[] = [];
 
   turns.forEach((turn, idx) => {
     transcriptParts.push(
@@ -95,6 +99,8 @@ export function buildPart1InterviewSessionSummary(turns: Part1InterviewTurn[]): 
       totalScore += turn.grade.score;
       totalMax += turn.grade.maxScore;
       gradedCount += 1;
+      grades.push(turn.grade);
+      gradeTitles.push(`Question ${idx + 1}`);
       markingParts.push(
         `--- Question ${idx + 1} (${turn.grade.score}/${turn.grade.maxScore}) ---`,
         formatSpeakingGradeSummary(turn.grade),
@@ -114,6 +120,8 @@ export function buildPart1InterviewSessionSummary(turns: Part1InterviewTurn[]): 
   return {
     transcript: transcriptParts.join("\n\n"),
     markingText: markingParts.join("\n\n"),
+    grades,
+    gradeTitles,
     totalScore,
     totalMax,
     averageScore,

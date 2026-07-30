@@ -9,7 +9,6 @@ import { colors } from "../constants/colors";
 import { fonts } from "../constants/fonts";
 import { theme } from "../constants/palette";
 import {
-  formatSpeakingGradeSummary,
   gradeSpeakingResponse,
   transcribeSpeakingAudio,
   type SpeakingGradeResponse,
@@ -158,6 +157,7 @@ export function EnglishSpeakingPart1Exam({ questionText, subject, formLevel, onG
             <SpeakingFeedbackPanel
               transcript={transcript}
               markingText="Marking your response…"
+              transcriptResetKey={questionText}
             />
           ) : (
             <>
@@ -171,7 +171,8 @@ export function EnglishSpeakingPart1Exam({ questionText, subject, formLevel, onG
       {grade ? (
         <SpeakingFeedbackPanel
           transcript={transcript}
-          markingText={formatSpeakingGradeSummary(grade)}
+          grade={grade}
+          transcriptResetKey={questionText}
         />
       ) : null}
 

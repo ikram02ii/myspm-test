@@ -1,17 +1,22 @@
-export type EnglishSpeakingPart = "part1" | "part2" | "part3";
+export type EnglishSpeakingPart = "part1" | "part2";
 
 export const ENGLISH_SPEAKING_PART_OPTIONS: Array<{ id: EnglishSpeakingPart; label: string }> = [
   { id: "part1", label: "Part 1" },
   { id: "part2", label: "Part 2" },
-  { id: "part3", label: "Part 3" },
 ];
 
 export const ENGLISH_PART1_TOPIC_CATEGORIES = [
-  "Daily Life",
-  "School",
-  "Hobbies",
+  "School Life",
+  "Hobbies & Interests",
   "Family & Friends",
-  "Food & Lifestyle",
+  "Technology & Social Media",
+  "Health & Lifestyle",
+  "Sports",
+  "Reading & Media",
+  "Travelling",
+  "Future Ambitions",
+  "Daily Routines",
+  "Environment",
   "Random",
 ] as const;
 
@@ -24,17 +29,8 @@ export const ENGLISH_PART2_TOPIC_CATEGORIES = [
   "Health & Lifestyle",
   "Environment",
   "School Life",
-  "Random",
-] as const;
-
-export const ENGLISH_PART3_TOPIC_CATEGORIES = [
-  "Social Issues",
   "Technology",
-  "Education",
-  "Health",
-  "Environment",
-  "Youth & Society",
-  "School Life",
+  "Future Ambitions",
   "Random",
 ] as const;
 
@@ -49,7 +45,6 @@ export function isEnglishPracticeCode(code: string | null): boolean {
 
 export function topicCategoriesForPart(part: EnglishSpeakingPart): readonly string[] {
   if (part === "part1") return ENGLISH_PART1_TOPIC_CATEGORIES;
-  if (part === "part3") return ENGLISH_PART3_TOPIC_CATEGORIES;
   return ENGLISH_PART2_TOPIC_CATEGORIES;
 }
 

@@ -513,10 +513,6 @@ router.post("/generate", async (req, res) => {
       generateImage,
       imagePrompt,
       englishSpeaking: req.body?.englishSpeaking === true,
-      englishSpeakingPdfPath:
-        typeof req.body?.englishSpeakingPdfPath === "string"
-          ? req.body.englishSpeakingPdfPath.trim()
-          : undefined,
       skipRetrieval: req.body?.skipRetrieval === true || req.body?.englishSpeaking === true,
     });
 

@@ -56,7 +56,18 @@ export const SPM_SPEAKING_CRITERIA: readonly SpeakingCriterionDefinition[] = [
 export const SPM_SPEAKING_CRITERION_MAX = 2;
 export const SPM_SPEAKING_OVERALL_MAX = SPM_SPEAKING_CRITERIA.length * SPM_SPEAKING_CRITERION_MAX;
 
-export function phaseAssessmentNotes(phase: SpeakingExamPhase): string {
+function looksLikePart2LongTurn(cueCard: string): boolean {
+  const t = (cueCard || "").toLowerCase();
+  return (
+    /you\s+should\s+talk\s+about/.test(t) ||
+    /preparation\s+time/.test(t) ||
+    /speaking\s+time/.test(t) ||
+    /1\.5\s*[-–]\s*2\s*minutes?/.test(t) ||
+    (/topic\s*:/.test(t) && (t.match(/^\s*[-•*]/gm) || []).length >= 3)
+  );
+}
+
+export function phaseAssessmentNotes(phase: SpeakingExamPhase, cueCard?: string): string {
   if (phase === "prepare") {
     return [
       "Exam phase: 1-minute PREPARATION (planning aloud).",
@@ -64,14 +75,39 @@ export function phaseAssessmentNotes(phase: SpeakingExamPhase): string {
       "A short but well-developed plan can score highly; do not expect full long-turn length.",
     ].join(" ");
   }
+  if (cueCard && looksLikePart2LongTurn(cueCard)) {
+    return [
+      "Exam phase: PART 2 INDIVIDUAL LONG TURN (about 1.5–2 minutes of speech).",
+      "Judge sustained response: introduction, multiple points with reasons/examples, opinions, transitions, and a clear ending.",
+      "Reward depth and coherence; penalise only when meaning breaks down.",
+    ].join(" ");
+  }
   return [
-    "Exam phase: INDIVIDUAL LONG TURN / spoken response (Part 1 Q&A or Part 2 long turn).",
-    "Judge the full spoken response against all five criteria.",
-    "Reward opinions, reasons, examples, and sustained answers; penalise only when meaning breaks down.",
+    "Exam phase: PART 1 short spoken response (about 20–40 seconds).",
+    "Judge relevance, clarity, and brief development (opinion/reason/example).",
+    "Reward clear communication; do not demand long-turn length.",
   ].join(" ");
 }
 
-export function buildSpmSpeakingAssessmentSystemPrompt(phase: SpeakingExamPhase): string {
+function modelResponseInstruction(phase: SpeakingExamPhase, cueCard?: string): string {
+  if (phase === "prepare") {
+    return `"modelResponse": "<higher-band preparation plan for THIS cue card; 4–6 short spoken sentences outlining what the student will say>"`;
+  }
+  if (cueCard && looksLikePart2LongTurn(cueCard)) {
+    return [
+      `"modelResponse": "<FULL spoken model answer for THIS Part 2 task that naturally lasts about 1.5–2 minutes when read aloud.",
+      "Must include: clear introduction; multiple supporting points; personal opinions; reasons; concrete examples; smooth transitions; strong conclusion.",
+      "Write as continuous natural spoken English (paragraphs OK). NO bullet points. NO robotic filler. Sound like a high-scoring SPM student.",
+      "Aim for roughly 220–320 words.>"`,
+    ].join(" ");
+  }
+  return `"modelResponse": "<higher-band sample spoken answer for THIS Part 1 question; 4–7 short natural sentences (~20–40 seconds)>"`;
+}
+
+export function buildSpmSpeakingAssessmentSystemPrompt(
+  phase: SpeakingExamPhase,
+  cueCard?: string,
+): string {
   const criterionLines = SPM_SPEAKING_CRITERIA.map(
     (c) =>
       `- ${c.id}: ${c.label} (0–${SPM_SPEAKING_CRITERION_MAX}). ${c.focus}`,
@@ -79,7 +115,7 @@ export function buildSpmSpeakingAssessmentSystemPrompt(phase: SpeakingExamPhase)
 
   return [
     "You are a Malaysian SPM English Speaking examiner.",
-    phaseAssessmentNotes(phase),
+    phaseAssessmentNotes(phase, cueCard),
     "",
     "ASSESSMENT PRINCIPLES (mandatory):",
     "- Evaluate communication effectiveness, NOT perfect grammatical accuracy.",
@@ -88,7 +124,8 @@ export function buildSpmSpeakingAssessmentSystemPrompt(phase: SpeakingExamPhase)
     "- Give credit for well-developed opinions, explanations, comparisons, suggestions, and justifications.",
     "- Distinguish weak (0), adequate (1), and strong (2) using depth and clarity, not isolated mistakes.",
     "- Language Accuracy must NOT dominate the overall impression.",
-    "- Feedback: constructive, concise, SPM Form 4/5 level English.",
+    "- Feedback: constructive, concise, SPM Form 4/5 level English. Keep overall feedback to 2 short sentences max.",
+    "- Justifications: one short sentence each. Strengths/improvements: max 3 short bullets each.",
     "",
     "SCORING (each criterion):",
     criterionLines,
@@ -99,13 +136,13 @@ export function buildSpmSpeakingAssessmentSystemPrompt(phase: SpeakingExamPhase)
     "Return ONLY valid JSON (no markdown fences):",
     `{`,
     `  "criteria": [`,
-    `    { "id": "<criterionId>", "score": <0-2>, "band": "weak"|"adequate"|"strong", "justification": "<1-2 sentences citing transcript evidence>" }`,
+    `    { "id": "<criterionId>", "score": <0-2>, "band": "weak"|"adequate"|"strong", "justification": "<one short sentence>" }`,
     `  ],`,
     `  "overallBand": "<e.g. Excellent / Good / Fair / Weak>",`,
-    `  "feedback": "<2-4 sentences overall>",`,
-    `  "strengths": ["<point>", "..."],`,
-    `  "improvements": ["<point>", "..."],`,
-    `  "modelResponse": "<higher-band sample answer for THIS prompt only; 4-8 sentences; SPM-appropriate>"`,
+    `  "feedback": "<2 short sentences overall>",`,
+    `  "strengths": ["<short point>", "..."],`,
+    `  "improvements": ["<short point>", "..."],`,
+    `  ${modelResponseInstruction(phase, cueCard)}`,
     `}`,
     "Include all five criterion ids exactly once.",
   ].join("\n");

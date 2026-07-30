@@ -149,7 +149,7 @@ export async function gradeSpeakingPhase(params: {
     );
   }
 
-  const system = buildSpmSpeakingAssessmentSystemPrompt(params.phase);
+  const system = buildSpmSpeakingAssessmentSystemPrompt(params.phase, params.cueCard);
 
   const user = [
     `Subject: ${params.subject ?? "English"}`,

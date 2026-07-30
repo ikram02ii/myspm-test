@@ -1,73 +1,134 @@
+/**
+ * Build LLM queries for SPM English speaking practice (Part 1 / Part 2 only).
+ * Fixed structure: Part 1 = 5 questions, Part 2 = 1 long task. No Part 3.
+ */
+
 import type { EnglishSpeakingPart } from "../constants/englishSpeaking";
+import { SPEAKING_PART1_QUESTIONS_PER_SESSION } from "../constants/englishSpeakingExam";
 import type { PracticeSetQuestion } from "../services/mobilePracticeSets";
 
 function normalizeNewlines(s: string): string {
   return (s ?? "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
 }
 
+function newVariationSeed(): string {
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}-${Math.random()
+    .toString(36)
+    .slice(2, 8)}`;
+}
+
+/** Light angle hints so each Part 1 run steers away from the last common set. */
+const PART1_ANGLE_HINTS = [
+  "after-school routines",
+  "weekend habits",
+  "friends and family time",
+  "favourite school subjects",
+  "sports or outdoor activities",
+  "food and eating habits",
+  "reading or watching shows",
+  "helping at home",
+  "using phones / the internet carefully",
+  "plans for the near future",
+  "a memorable school event",
+  "travelling within Malaysia",
+  "healthy living",
+  "hobbies you enjoy alone",
+  "group projects at school",
+] as const;
+
+function pickPart1AngleHints(count = 3): string[] {
+  const pool = [...PART1_ANGLE_HINTS];
+  for (let i = pool.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [pool[i], pool[j]] = [pool[j]!, pool[i]!];
+  }
+  return pool.slice(0, count);
+}
+
+const SPM_SPEAKING_QUALITY_RULES = [
+  "QUALITY (mandatory — official SPM English Speaking Test standard):",
+  "- Target Malaysian Form 4/5 students (ages 16–17), CEFR B1–B2.",
+  "- Sound like an SPM oral examiner: warm, clear, natural spoken English.",
+  "- Avoid childish yes/no-only prompts AND avoid long IELTS-style academic questions.",
+  "- Encourage short personal answers with a reason or example (about 20–40 seconds).",
+  "- Age-appropriate Malaysian school life topics only.",
+  "- Every generation MUST be freshly worded — never recycle the same set.",
+].join("\n");
+
 export function buildEnglishSpeakingQuery(params: {
   form: string;
   part: EnglishSpeakingPart;
   topicCategory: string;
-  questionCount: number;
 }): string {
   const form = params.form.trim();
-  const topic = params.topicCategory.trim();
-  const randomNote =
-    topic.toLowerCase() === "random"
-      ? "Pick varied, realistic SPM-style topics suitable for Malaysian students."
-      : `Focus on the topic category: ${topic}.`;
-
-  if (params.part === "part3") {
-    const n = Math.max(2, Math.min(6, params.questionCount));
-    return [
-      `Generate ${n} SPM English Speaking Part 3 (Group Discussion) practice prompts for Malaysian ${form} students.`,
-      randomNote,
-      "Part 3 = examiner-led group discussion; each prompt should invite opinion, reasons, and interaction.",
-      "Requirements:",
-      "- Questions suitable for 30–60 seconds of speech each in a practice session.",
-      "- Align with official SPM Part 3 discussion style from the syllabus PDF.",
-      "- Do NOT use Part 2 cue-card format.",
-      "Output format exactly:",
-      "Soalan 1",
-      "<discussion question>",
-      "Sample answer:",
-      "<2–3 short sentences a strong student might say>",
-      "Soalan 2",
-      "...",
-    ].join("\n");
-  }
+  const topic = params.topicCategory.trim() || "Random";
+  const seed = newVariationSeed();
+  const isRandom = topic.toLowerCase() === "random";
+  const topicRule = isRandom
+    ? "Vary topics across realistic SPM Part 1 themes for Malaysian teens (school, hobbies, family, friends, food, sports, free time, technology, health, future plans)."
+    : `Focus on the topic category: ${topic}. Every question MUST clearly fit "${topic}".`;
 
   if (params.part === "part1") {
-    const n = Math.max(3, Math.min(12, params.questionCount));
+    const n = SPEAKING_PART1_QUESTIONS_PER_SESSION;
+    const angles = pickPart1AngleHints(3).join("; ");
     return [
-      `Generate ${n} SPM English Speaking Part 1 (Short Q&A) practice prompts for Malaysian ${form} students.`,
-      randomNote,
-      "Part 1 = short personal questions an examiner would ask in an oral interview.",
+      `Generate exactly ${n} ORIGINAL SPM English Speaking Part 1 interview questions for Malaysian ${form} students.`,
+      topicRule,
+      `Unique run ID (must change the wording vs any other run): ${seed}`,
+      `Fresh angle hints for this run (weave in naturally; do not list them as titles): ${angles}`,
+      SPM_SPEAKING_QUALITY_RULES,
+      "",
+      "What real SPM Part 1 sounds like:",
+      "- Short personal interview questions asked one by one by the examiner.",
+      "- Simple, conversational, and easy to understand when heard aloud.",
+      "- Usually about everyday life: school, home, hobbies, friends, free time, food, sports, technology, plans.",
+      "- Often start with Tell me about… / What do you usually… / Do you prefer… Why? / How do you… / Which… and why?",
+      "",
+      "GOOD Part 1 examples (style only — do NOT copy these wording):",
+      "- Tell me about your school.",
+      "- What do you usually do after school?",
+      "- Do you prefer studying alone or with friends? Why?",
+      "- What is your favourite subject, and why do you like it?",
+      "- Tell me about a festival or celebration you enjoy.",
+      "",
+      "AVOID:",
+      "- Long multi-clause questions with dashes or brand lists (e.g. 'like Google Classroom or Zoom').",
+      "- Abstract / university / IELTS discussion prompts.",
+      "- Childish one-word questions with no room to explain.",
+      "- Repeating the same stem shape five times.",
+      "- Any question you have generated before for a different Unique run ID.",
+      "",
       "Requirements:",
-      "- Use clear, natural Malaysian classroom English (not too formal).",
-      "- Questions must be answerable in 15–30 seconds of speech each.",
-      "- Do NOT include Part 2 cue-card format.",
+      `- Exactly ${n} questions — no more, no fewer.`,
+      "- Each question: one or two short sentences max; invite ~20–40 seconds of speech.",
+      "- Mix question shapes across the set.",
+      "- Require a reason, preference, or brief personal example — not yes/no only.",
+      "- Do NOT use Part 2 cue-card format.",
+      "- All five questions must be clearly different from each other.",
+      "",
       "Output format exactly:",
       "Soalan 1",
-      "<interviewer question on its own line>",
+      "<one short examiner question on its own line>",
       "Sample answer:",
-      "<2–3 short sentences a strong student might say>",
+      "<3–5 short sentences a strong SPM student might say aloud>",
       "Soalan 2",
       "...",
     ].join("\n");
   }
 
   return [
-    "Generate 1 SPM English Speaking Part 2 (Individual Long Turn) cue card for Malaysian " +
-      form +
-      " students.",
-    randomNote,
-    "Part 2 = one cue card with a main topic and bullet prompts; student speaks 1–2 minutes.",
+    `Generate exactly 1 ORIGINAL SPM English Speaking Part 2 (Individual Long Turn) cue card for Malaysian ${form} students.`,
+    topicRule,
+    `Unique run ID (must change the wording vs any other run): ${seed}`,
+    SPM_SPEAKING_QUALITY_RULES,
+    "Part 2 = one cue card; student speaks for about 1.5–2 minutes after 1 minute preparation.",
     "Requirements:",
-    "- Include preparation time (1 minute) and speaking time (1–2 minutes) in the instructions.",
+    "- Exactly one task — must NOT be answerable in only a few sentences.",
+    "- Student must describe, explain, compare, justify opinions, give reasons, and examples.",
+    "- Include preparation time (1 minute) and speaking time (1.5–2 minutes) in the instructions.",
     "- Use bullet points starting with hyphen (-).",
     "- Do NOT include Part 1 short Q&A questions.",
+    "- Create a fresh topic and prompts for this Unique run ID.",
     "Output format exactly:",
     "Soalan 1",
     "Topic: <short title>",
@@ -75,9 +136,11 @@ export function buildEnglishSpeakingQuery(params: {
     "- <prompt 1>",
     "- <prompt 2>",
     "- <prompt 3>",
-    "(add 2–4 more bullets if helpful)",
-    "Instructions: Preparation time 1 minute. Speaking time 1–2 minutes.",
+    "- <prompt 4>",
+    "- <prompt 5>",
+    "Instructions: Preparation time 1 minute. Speaking time 1.5–2 minutes.",
     "Sample outline:",
+    "- <brief sample point>",
     "- <brief sample point>",
     "- <brief sample point>",
   ].join("\n");
@@ -181,6 +244,9 @@ export function parseEnglishSpeakingAnswer(
     if (body) blocks.push({ index, body });
   }
 
+  const questionType = part === "part1" ? "speaking_part1" : "speaking_part2";
+  const maxPart1 = SPEAKING_PART1_QUESTIONS_PER_SESSION;
+
   if (blocks.length === 0) {
     const trimmed = text.trim();
     if (!trimmed) return [];
@@ -189,30 +255,25 @@ export function parseEnglishSpeakingAnswer(
         id: 1,
         sortOrder: 1,
         questionText: trimmed,
-        questionType:
-          part === "part1"
-            ? "speaking_part1"
-            : part === "part3"
-              ? "speaking_part3"
-              : "speaking_part2",
+        questionType,
         difficulty: "mixed",
         options: [],
         correctAnswer: "",
         explanation: null,
         questionForGrade: trimmed,
+        maxMarks: part === "part1" ? 10 : undefined,
       },
     ];
   }
 
-  const questionType =
-    part === "part1" ? "speaking_part1" : part === "part3" ? "speaking_part3" : "speaking_part2";
+  const limited = part === "part1" ? blocks.slice(0, maxPart1) : blocks.slice(0, 1);
 
-  return blocks.map((block, idx) => {
+  return limited.map((block, idx) => {
     const body = block.body;
     let questionText = body;
     let explanation: string | null = null;
 
-    if (part === "part1" || part === "part3") {
+    if (part === "part1") {
       const sampleIdx = body.search(/\n\s*Sample answer\s*:/i);
       if (sampleIdx >= 0) {
         questionText = body.slice(0, sampleIdx).trim();
@@ -247,7 +308,7 @@ export function parseEnglishSpeakingAnswer(
       correctAnswer: "",
       explanation: explanation || null,
       questionForGrade: storedText.replace(/\s+/g, " ").trim() || storedText,
-      maxMarks: part === "part1" || part === "part3" ? 10 : undefined,
+      maxMarks: part === "part1" ? 10 : undefined,
     };
   });
 }

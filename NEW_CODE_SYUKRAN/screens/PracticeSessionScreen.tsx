@@ -57,7 +57,6 @@ import { EnglishSpeakingPart1InterviewExam } from "../components/EnglishSpeaking
 import { EnglishSpeakingPart2Exam } from "../components/EnglishSpeakingPart2Exam";
 import { SpeakingFeedbackPanel } from "../components/SpeakingFeedbackPanel";
 import {
-  formatSpeakingGradeSummary,
   type SpeakingGradeResponse,
 } from "../services/mobileSpeaking";
 import {
@@ -493,6 +492,8 @@ type QuestionSessionState = {
   openEndedFeedback: OpenEndedFeedback | null;
   speakingTranscript: string | null;
   speakingMarkingText: string | null;
+  speakingGrades: SpeakingGradeResponse[] | null;
+  speakingGradeTitles: string[] | null;
   speakingReadyForNext: boolean;
 };
 
@@ -504,13 +505,15 @@ function emptyQuestionSession(): QuestionSessionState {
     openEndedFeedback: null,
     speakingTranscript: null,
     speakingMarkingText: null,
+    speakingGrades: null,
+    speakingGradeTitles: null,
     speakingReadyForNext: false,
   };
 }
 
 function isSpeakingQuestionType(questionType: string | null | undefined): boolean {
   const t = (questionType ?? "").toLowerCase();
-  return t === "speaking_part1" || t === "speaking_part2" || t === "speaking_part3";
+  return t === "speaking_part1" || t === "speaking_part2";
 }
 
 function questionAllowsMultiSelect(q: PracticeSetQuestion, correct: Set<number>): boolean {
@@ -626,6 +629,8 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
   const [part1InterviewSessionScore, setPart1InterviewSessionScore] = useState<QuestionMarkResult | null>(null);
   const [speakingTranscript, setSpeakingTranscript] = useState<string | null>(null);
   const [speakingMarkingText, setSpeakingMarkingText] = useState<string | null>(null);
+  const [speakingGrades, setSpeakingGrades] = useState<SpeakingGradeResponse[] | null>(null);
+  const [speakingGradeTitles, setSpeakingGradeTitles] = useState<string[] | null>(null);
   const [openEndedBgBusy, setOpenEndedBgBusy] = useState(Boolean(openEndedBackground));
   const [questionLangView, setQuestionLangView] = useState<QuestionLangView>("en");
   const [aiSourceLabel, setAiSourceLabel] = useState(
@@ -873,6 +878,8 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
       openEndedFeedback,
       speakingTranscript,
       speakingMarkingText,
+      speakingGrades,
+      speakingGradeTitles,
       speakingReadyForNext,
     };
   }, [
@@ -882,6 +889,8 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
     openEndedFeedback,
     speakingTranscript,
     speakingMarkingText,
+    speakingGrades,
+    speakingGradeTitles,
     speakingReadyForNext,
   ]);
 
@@ -892,6 +901,8 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
     setOpenEndedFeedback(state.openEndedFeedback);
     setSpeakingTranscript(state.speakingTranscript);
     setSpeakingMarkingText(state.speakingMarkingText);
+    setSpeakingGrades(state.speakingGrades ?? null);
+    setSpeakingGradeTitles(state.speakingGradeTitles ?? null);
     setSpeakingReadyForNext(state.speakingReadyForNext);
     setOcrError(null);
     setOcrBusy(false);
@@ -1019,7 +1030,7 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
   const isReviewMode = showFeedback || (isSpeakingQuestion && speakingReadyForNext);
   const speakingCompleted = isSpeakingQuestion && (showFeedback || speakingReadyForNext);
   const isSpeakingPart1Interview =
-    isSpeakingQuestion && isPart1InterviewStart && !speakingCompleted;
+    isSpeakingQuestion && isInsidePart1InterviewBlock && !speakingCompleted;
   const isMcq =
     q &&
     !isSpeakingQuestion &&
@@ -1193,7 +1204,9 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
     (result: SpeakingGradeResponse, transcript: string) => {
       recordSpeakingResult(result.score, result.maxScore);
       setSpeakingTranscript(transcript.trim() || null);
-      setSpeakingMarkingText(formatSpeakingGradeSummary(result));
+      setSpeakingGrades([result]);
+      setSpeakingGradeTitles(null);
+      setSpeakingMarkingText(null);
       setOpenEndedFeedback(null);
       setShowFeedback(true);
     },
@@ -1213,7 +1226,9 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
       });
       const summary = buildPart1InterviewSessionSummary(payload.turns);
       setSpeakingTranscript(summary.transcript || null);
-      setSpeakingMarkingText(summary.markingText || null);
+      setSpeakingGrades(summary.grades.length > 0 ? summary.grades : null);
+      setSpeakingGradeTitles(summary.gradeTitles.length > 0 ? summary.gradeTitles : null);
+      setSpeakingMarkingText(summary.grades.length > 0 ? null : summary.markingText || null);
       setPart1InterviewSessionScore({
         earned: summary.averageScore,
         max: payload.totalMax,
@@ -1224,6 +1239,20 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
       setSpeakingReadyForNext(false);
     },
     [],
+  );
+
+  const onSpeakingPart1InterviewQuestionChange = useCallback(
+    (localIndex: number) => {
+      const block = getPart1InterviewBlock(questions, index);
+      if (!block) return;
+      const nextIndex = block.startIndex + localIndex;
+      if (nextIndex < block.startIndex || nextIndex > block.endIndex) return;
+      if (nextIndex === index) return;
+      // Keep the interview mounted; only sync the session header progress.
+      skipQuestionEnterAnim.current = true;
+      setIndex(nextIndex);
+    },
+    [questions, index],
   );
 
   const onSpeakingPart2Complete = useCallback(
@@ -1245,14 +1274,19 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
       }
       setSpeakingTranscript(transcriptParts.length > 0 ? transcriptParts.join("\n\n") : null);
 
-      const markingParts: string[] = [];
+      const grades: SpeakingGradeResponse[] = [];
+      const titles: string[] = [];
       if (payload.prepareGrade) {
-        markingParts.push(formatSpeakingGradeSummary(payload.prepareGrade));
+        grades.push(payload.prepareGrade);
+        titles.push("Preparation");
       }
       if (speak) {
-        markingParts.push(formatSpeakingGradeSummary(speak));
+        grades.push(speak);
+        titles.push("Long turn");
       }
-      setSpeakingMarkingText(markingParts.length > 0 ? markingParts.join("\n\n\n") : null);
+      setSpeakingGrades(grades.length > 0 ? grades : null);
+      setSpeakingGradeTitles(titles.length > 0 ? titles : null);
+      setSpeakingMarkingText(null);
       setOpenEndedFeedback(null);
       setShowFeedback(true);
     },
@@ -1457,7 +1491,7 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
             <Text style={styles.progressText}>
               Question {index + 1} of {total}
             </Text>
-            {index > 0 ? (
+            {index > 0 && !isSpeakingPart1Interview ? (
               <Pressable
                 style={({ pressed }) => [styles.backLink, pressed && styles.backLinkPressed]}
                 onPress={onPrevious}
@@ -1537,7 +1571,7 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
               })}
             </View>
           ) : null}
-          {isSpeakingQuestion && !isSpeakingPart2 && !isPart1InterviewStart ? (
+          {isSpeakingQuestion && !isSpeakingPart2 && !isSpeakingPart1Interview ? (
             <Text style={styles.questionText}>{displayQuestionText}</Text>
           ) : !isSpeakingQuestion ? (
             <MathFormattedText textStyle={styles.questionText}>{displayQuestionText}</MathFormattedText>
@@ -1576,11 +1610,6 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
             formLevel={speakingForm}
             onExamComplete={onSpeakingPart2Complete}
           />
-        ) : isPart1InterviewFollower ? (
-          <Text style={styles.speakingFollowerHint}>
-            This question is part of the Part 1 interview on question {part1InterviewBlock!.startIndex + 1}.
-            Tap Next to continue.
-          </Text>
         ) : isSpeakingPart1Interview && part1InterviewBlock ? (
           <EnglishSpeakingPart1InterviewExam
             key={`part1-interview-${part1InterviewBlock.startIndex}`}
@@ -1592,7 +1621,13 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
             formLevel={speakingForm}
             skipToIndex={part1InterviewBlock.endIndex + 1}
             onSessionComplete={onSpeakingPart1InterviewComplete}
+            onActiveQuestionIndexChange={onSpeakingPart1InterviewQuestionChange}
           />
+        ) : isPart1InterviewFollower ? (
+          <Text style={styles.speakingFollowerHint}>
+            This question is part of the Part 1 interview on question {part1InterviewBlock!.startIndex + 1}.
+            Tap Next to continue.
+          </Text>
         ) : (
           <EnglishSpeakingPart1Exam
             key={q.id}
@@ -1744,6 +1779,9 @@ export default function PracticeSessionScreen({ navigation, route }: Props) {
             <SpeakingFeedbackPanel
               transcript={speakingTranscript}
               markingText={speakingMarkingText}
+              grades={speakingGrades}
+              gradeTitles={speakingGradeTitles}
+              transcriptResetKey={q?.id ?? index}
             />
           ) : openEndedFeedback ? (
             openEndedFeedback.showCalculationLayout ? (
