@@ -531,6 +531,30 @@ export type AcceptedConceptBundle = {
   acceptedPhrases: string[];
 };
 
+/** Debug-only payload so clients can inspect retrieval quality (does not affect scoring). */
+export type RetrievalChunkDebug = {
+  chunkId: string;
+  sourceType: RetrievedChunkSource;
+  title: string;
+  chapter?: string;
+  score: number;
+  content: string;
+  questionRef?: string;
+  usedForMarking: boolean;
+};
+
+export type RetrievalDebugPayload = {
+  skipped: boolean;
+  skipReason?: string;
+  /** Stem-only query actually used for retrieval (not the full grade payload). */
+  retrievalQuery?: string;
+  retrievedCount: number;
+  usedCount: number;
+  lowConfidence: boolean;
+  auditReason?: string;
+  chunks: RetrievalChunkDebug[];
+};
+
 export type GradeSubmissionResult = {
   submissionId: string;
   score: number;
@@ -575,6 +599,8 @@ export type GradeSubmissionResult = {
   warning?: string;
   contextAudit: ContextAuditResult;
   context: GradingContextPayload;
+  /** Optional debug view of retrieved vs used chunks (UI inspection only). */
+  retrievalDebug?: RetrievalDebugPayload;
   topicConsistencyPassed?: boolean;
   topicConsistencyWarning?: string;
   /** Structured pre-grade analysis (command word, demand type, suggested marks). */

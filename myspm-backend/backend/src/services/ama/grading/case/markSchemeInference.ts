@@ -133,6 +133,32 @@ export function hasEmbeddedMarkScheme(question: string): boolean {
   return extractEmbeddedSchemePoints(question).length >= 1;
 }
 
+/**
+ * Compact stem-only query for textbook/past-paper retrieval during grading.
+ * Full grade payloads (A–D options, Jawapan, Penjelasan, marking points) dilute
+ * lexical overlap so every chunk scores below the retrieval gate → 0 results.
+ */
+export function buildGradeRetrievalQuery(question: string): string {
+  let text = (question ?? "").replace(/\r\n/g, "\n");
+
+  // Drop answer / scheme sections
+  text = text.split(
+    /(?:^|\n)\s*(?:Markah|Marks?|Jawapan|Answer|Model answer|Penjelasan|Explanation|Marking points?|Mark\s+scheme|Correct answer)\s*[:：]/i,
+  )[0] ?? text;
+
+  // Drop MCQ options (first A./B. block)
+  text = text.split(/(?:^|\n)\s*[A-Da-d]\s*[).:\-]\s*/)[0] ?? text;
+
+  const en = text.match(/(?:^|\n)\s*EN\s*:\s*(.+)/i)?.[1]?.trim();
+  const bm = text.match(/(?:^|\n)\s*BM\s*:\s*(.+)/i)?.[1]?.trim();
+  // Prefer English stem for token match against mostly-EN textbook chunks
+  let stem = (en || bm || text).replace(/\s+/g, " ").trim();
+  stem = stem.replace(/^\s*(?:Soalan|Question)\s*\d+\s*[:.)-]?\s*/i, "").trim();
+  stem = stem.replace(/\(\s*\d{1,2}\s*(?:marks?|markah)\s*\)\s*$/i, "").trim();
+
+  return stem.slice(0, 400);
+}
+
 export type MarkSchemeMaxScoreSource = "marking_points" | "model_answer" | "markah_line" | "client";
 
 export type MarkSchemeMaxScoreResult = {

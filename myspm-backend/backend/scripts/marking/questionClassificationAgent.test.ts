@@ -8,6 +8,8 @@ import { analyzeQuestion } from "../../src/services/ama/grading/shared/questionA
 import { classifyAssessmentIntent } from "../../src/services/ama/grading/agents/classifyIntent.js";
 import {
   topLevelUsesCalculationAgent,
+  looksLikeCalculationAnswerStructure,
+  looksLikeNumericSolveStem,
   type TopLevelQuestionType,
 } from "../../src/services/ama/grading/agents/questionClassificationAgent.js";
 import {
@@ -165,6 +167,49 @@ describe("analyzeQuestion no longer marks numeric theory as calculation", () => 
       assert.notEqual(analysis.demandType, "calculation");
     });
   }
+});
+
+describe("process-based calc signals (no calculate keyword)", () => {
+  test("formula + working + final scheme looks like calculation structure", () => {
+    const q = [
+      "A car travels 100 km in 2.0 hours. What is its average speed?",
+      "Markah: 2",
+      "Marking points:",
+      "- Correct formula",
+      "- Correct working / substitution",
+      "- Correct final answer with unit",
+    ].join("\n");
+    assert.equal(looksLikeCalculationAnswerStructure(q), true);
+  });
+
+  test("numeric data + what is the value looks like numeric solve stem", () => {
+    assert.equal(
+      looksLikeNumericSolveStem(
+        "A car travels 100 km in 2.0 hours. What is its average speed? (2 marks)",
+      ),
+      true,
+    );
+  });
+
+  test("state two functions is NOT a numeric solve stem", () => {
+    assert.equal(
+      looksLikeNumericSolveStem("State TWO functions of the mitochondria in animal cells."),
+      false,
+    );
+  });
+
+  test("calculation topLevel without calculate verb still routes to calc family", () => {
+    const q = "A car travels 100 km in 2.0 hours. What is its average speed?";
+    const analysis = withTopLevel(analyzeQuestion(q, "Physics"), "calculation");
+    const intent = classifyAssessmentIntent({
+      question: q,
+      subject: "Physics",
+      maxScore: 2,
+      questionAnalysis: analysis,
+    });
+    assert.equal(intent.family, "calculation");
+    assert.equal(intent.category, "calculate");
+  });
 });
 
 // Keep AssessmentIntent import used for typing in helpers

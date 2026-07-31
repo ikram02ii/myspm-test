@@ -8,8 +8,13 @@ import { parseMarkahFromQuestion } from "./markSchemeInference";
 /** Keep in sync with CALCULATION_REQUIRED_STAGE_COUNT in calculationAcfPolicy. */
 const STAGES_PER_CALC_ASK = 3;
 
+/**
+ * Signals that a clause is a numeric/quantitative solve demand.
+ * Intentionally broader than the verb "calculate" — SPM stems often use
+ * find / determine / what is the value / show that with given data.
+ */
 const CALC_DEMAND_RE =
-  /\b(calculate|kira(?:kan)?|hitung(?:lah)?|compute|evaluate|find\s+(?:the\s+)?(?:value|acceleration|velocity|speed|distance|displacement|force|mass|volume|rate|mole|moles|halaju|pecutan|sesaran|jisim|isipadu|kadar)|determine\s+(?:the\s+)?(?:value|acceleration|velocity|speed|distance|displacement|force|mass|volume|rate|mole|moles|halaju|pecutan|sesaran))\b/i;
+  /\b(calculate|kira(?:kan)?|hitung(?:lah)?|compute|evaluate|find\s+(?:the\s+)?(?:value|acceleration|velocity|speed|distance|displacement|force|mass|volume|rate|mole|moles|current|voltage|resistance|pressure|density|halaju|pecutan|sesaran|jisim|isipadu|kadar)|determine\s+(?:the\s+)?(?:value|acceleration|velocity|speed|distance|displacement|force|mass|volume|rate|mole|moles|current|voltage|resistance|pressure|density|halaju|pecutan|sesaran)|what\s+is\s+(?:the\s+)?(?:value|average\s+speed|speed|acceleration|force|mass|distance|mole|volume|rate|pressure|density)|show\s+that|berapa|apakah\s+(?:nilai|halaju|pecutan|daya|jisim|jarak|isipadu|kadar))\b/i;
 
 const QUANTITY_RE =
   /\b(acceleration|velocity|speed|distance|displacement|force|mass|volume|rate|mole|moles|halaju|pecutan|sesaran|jisim|isipadu|kadar|time|masa|momentum|energy|kuasa|tekanan|pressure|density|ketumpatan)\b/i;
@@ -83,18 +88,24 @@ export function countIndependentCalculationAsks(question: string): number {
     if (calcParts.length === 1) return 1;
   }
 
-  const verbHits = stem.match(/\b(calculate|kira(?:kan)?|hitung(?:lah)?|compute)\b/gi);
-  if (verbHits && verbHits.length >= 2) return verbHits.length;
+  const verbHits = stem.match(
+    /\b(calculate|kira(?:kan)?|hitung(?:lah)?|compute|evaluate|find|determine)\b/gi,
+  );
+  if (verbHits && verbHits.length >= 2) {
+    // Only count repeated solve verbs when they look like calc asks overall.
+    if (looksLikeCalcAsk(stem)) return Math.min(verbHits.length, 4);
+  }
 
-  // "Calculate the acceleration and the distance …"
+  // "Find/Determine/Calculate the acceleration and the distance …"
   if (
-    /\b(calculate|kira(?:kan)?|hitung(?:lah)?)\b/i.test(stem) &&
+    /\b(calculate|kira(?:kan)?|hitung(?:lah)?|find|determine|evaluate)\b/i.test(stem) &&
     /\b(and|dan)\b/i.test(stem)
   ) {
-    const after = stem.split(/\b(calculate|kira(?:kan)?|hitung(?:lah)?)\b/i).slice(2).join("");
-    const quantities = after.match(
-      new RegExp(QUANTITY_RE.source, "gi"),
-    );
+    const after = stem
+      .split(/\b(calculate|kira(?:kan)?|hitung(?:lah)?|find|determine|evaluate)\b/i)
+      .slice(2)
+      .join("");
+    const quantities = after.match(new RegExp(QUANTITY_RE.source, "gi"));
     if (quantities && quantities.length >= 2) return 2;
   }
 

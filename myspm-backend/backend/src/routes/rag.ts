@@ -9,6 +9,7 @@ import { gradeSubmission } from "../services/ama/grading/gradeService";
 import { buildGradingContextPayload, retrieveChunks } from "../services/ama/retrieval/retrievalService";
 import { listTextbooks, registerTextbook } from "../services/ama/ingestion/textbookService";
 import { gradeSpeakingPhase } from "../services/ama/speaking/speakingGradeService";
+import { synthesizeSpeakingTts } from "../services/ama/speaking/speakingTtsService";
 import { transcribeSpeakingAudio } from "../services/ama/speaking/speakingTranscribeService";
 import { generateWithRag } from "../services/ai gen/generateFromRag";
 import { generateOpenEndedQuestionStep } from "../services/ai gen/generateOpenEndedStep";
@@ -804,6 +805,21 @@ router.post("/speaking/grade", async (req, res) => {
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to grade speaking";
     console.error("[rag] speaking grade failed", error);
+    return res.status(500).json({ error: message });
+  }
+});
+
+router.post("/speaking/tts", async (req, res) => {
+  try {
+    const text = typeof req.body?.text === "string" ? req.body.text : "";
+    if (!text.trim()) {
+      return res.status(400).json({ error: "text is required" });
+    }
+    const result = await synthesizeSpeakingTts(text);
+    return res.json(result);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to synthesize speech";
+    console.error("[rag] speaking tts failed", error);
     return res.status(500).json({ error: message });
   }
 });
