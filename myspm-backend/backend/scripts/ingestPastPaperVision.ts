@@ -126,5 +126,7 @@ async function run(): Promise<void> {
 
 run().catch((error) => {
   console.error("[ingest:past-paper-vision] failed:", error instanceof Error ? error.message : error);
+  if (error instanceof Error && error.stack) console.error(error.stack);
+  if (error && typeof error === "object") console.error("[ingest:past-paper-vision] detail:", error);
   process.exit(1);
 });

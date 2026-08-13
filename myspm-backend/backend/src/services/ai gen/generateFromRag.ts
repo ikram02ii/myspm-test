@@ -655,14 +655,16 @@ Follow the user's output format exactly. Do not add preamble.
 PART 1 STYLE (mandatory when generating Part 1):
 - Short personal interview questions, one at a time.
 - Simple conversational English a student can answer in 20–40 seconds.
-- Everyday Malaysian teen life: school, home, hobbies, friends, food, sports, free time, technology, plans.
-- Prefer stems like: Tell me about… / What do you usually… / Do you prefer… Why? / How do you… / Which… and why?
+- Everyday Malaysian teen life — vary the specific angle every Unique run ID (do not default to the same school/hobby set).
+- Mix openers across a set; never use the same opener pattern for all five questions.
 - Keep each question to one or two short sentences. No long multi-clause / brand-list questions.
 - Avoid childish one-word prompts and IELTS/university abstraction.
+- NEVER output stock SPM-practice clones such as: "Tell me about your school", "What do you usually do after school?", "Do you prefer studying alone or with friends?", "What is your favourite subject and why?", "Tell me about your family/hobbies".
 
 QUALITY (mandatory):
 - Honour the student's chosen topic category strictly (or vary freely if Random).
-- Never vague, repetitive, or stock-copied. Every Unique run ID must produce freshly worded prompts.
+- Never vague, repetitive, or stock-copied. Every Unique run ID must produce freshly worded prompts with different concrete details.
+- If the user lists angle hints or banned questions, obey them strictly.
 - Part 1 = exactly 5 short interview questions.
 - Part 2 = exactly 1 long cue-card task that supports 1.5–2 minutes of speech.
 - Never generate Part 3 / group discussion tasks.`;
@@ -691,13 +693,13 @@ function buildEnglishSpeakingUserContent(input: GenerateRagInput): string {
       ? `Student-selected topic category: ${category}. ALL prompts MUST fit this category (unless category is Random — then vary freely across SPM-appropriate themes for 16–17 year olds).`
       : "Vary topics realistically for Malaysian Form 4/5 students.",
     seed
-      ? `Unique run ID: ${seed}. Treat this as a hard uniqueness key — wording MUST differ from any previous generation with a different ID.`
+      ? `Unique run ID: ${seed}. Hard uniqueness key — do NOT reuse stock school/hobby interview sets; change concrete details vs any other ID.`
       : "Make this set distinctly different from typical default examples.",
-    "Create original prompts. Do NOT copy past-paper wording or previous AI outputs.",
+    "Create original prompts. Do NOT copy past-paper wording, previous AI outputs, or common online SPM speaking sample questions.",
     "Do NOT generate Part 3 / group discussion.",
     part === "part1"
-      ? "Part 1 questions must sound like a real SPM short interview — short, personal, conversational."
-      : "Part 2 must support a full 1.5–2 minute long turn.",
+      ? "Part 1 questions must sound like a real SPM short interview — short, personal, conversational — and must NOT be the usual five stock questions."
+      : "Part 2 must support a full 1.5–2 minute long turn with a fresh topic for this Unique run ID.",
     "",
     input.query.trim(),
     "",

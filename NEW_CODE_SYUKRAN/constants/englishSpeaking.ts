@@ -49,5 +49,7 @@ export function topicCategoriesForPart(part: EnglishSpeakingPart): readonly stri
 }
 
 export function defaultTopicForPart(part: EnglishSpeakingPart): string {
-  return topicCategoriesForPart(part)[0];
+  // Prefer Random so each generate run is not stuck on the first category (School Life / People).
+  const cats = topicCategoriesForPart(part);
+  return cats.includes("Random") ? "Random" : cats[0]!;
 }
