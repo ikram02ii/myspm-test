@@ -144,7 +144,7 @@ C. <pilihan>
 D. <pilihan>
 
 Jawapan: <satu huruf A/B/C/D sahaja>
-Penjelasan: <satu ayat ringkas isi sahaja; jangan rujuk sumber>
+Penjelasan: <one short English sentence explaining why the correct option is right; never Bahasa Melayu; do not cite sources>
 
 Soalan 2
 ... (same pattern)
@@ -193,7 +193,13 @@ Rules for Jawapan, Penjelasan, and Marking points:
 - You MUST write at Malaysian SPM Form 4/5 level only — KSSM textbook vocabulary, NEVER A-Level/STPM/university.
 ${buildKssmTextbookModelAnswerWordingBlock()}
 ${buildJawapanVerbFormatRulesForGeneration()}
-- Penjelasan (MCQ): exactly one simple SPM-level sentence explaining why the correct option is right.`;
+- Penjelasan (MCQ): exactly one simple SPM-level sentence in English explaining why the correct option is right. NEVER write Penjelasan in Bahasa Melayu.
+- MCQ option quality (mandatory):
+  - Provide exactly four realistic options A–D of similar length and detail (SPM style).
+  - Distractors must be plausible misconceptions — not silly, trivial, or obviously wrong.
+  - Do NOT make two options nearly identical (wording or meaning).
+  - Do NOT make the correct option much longer, more technical, or more detailed than the others.
+  - Only one option must be clearly correct.`;
 
 const LANGUAGE_RULE_DEFAULT =
   "You MUST respond in the same language as the user's request (Bahasa Melayu or English) unless asked otherwise.";
@@ -218,9 +224,10 @@ function isForceBmSubject(subject: string | null | undefined): boolean {
 const BM_ONLY_SUBJECT_FORMAT_APPEND = `
 
 BM-only subject rules (override any bilingual instruction above):
-- Write every soalan stem, option, Jawapan, Penjelasan, Marking points, and model answer in Bahasa Melayu only.
-- Do NOT use EN: or BM: prefixes. Do not include any English question stem.
-- For MCQ: Soalan N → BM stem → A. B. C. D. → Jawapan: → Penjelasan:
+- Write every soalan stem, option, Jawapan, Marking points, and model answer in Bahasa Melayu only.
+- Exception: Penjelasan (MCQ feedback) MUST still be written in clear English (one short sentence).
+- Do NOT use EN: or BM: prefixes on stems/options. Do not include any English question stem.
+- For MCQ: Soalan N → BM stem → A. B. C. D. → Jawapan: → Penjelasan: (English)
 - For subjective: Soalan N → BM stem → Markah: → Jawapan: → Marking points:`;
 
 function systemPromptForSubject(subject: string | null | undefined): string {
@@ -406,7 +413,7 @@ BM: <Bahasa Melayu stem — new line, not same line as EN>
 Each MCQ option A–D must also be bilingual under that letter:
 A. EN: <English option>
 BM: <Bahasa Melayu option>
-Then Jawapan:, Penjelasan:.`;
+Then Jawapan:, Penjelasan: (Penjelasan MUST be one short English sentence — never BM).`;
 }
 
 function isPhysicsSubject(subject: string | null | undefined): boolean {
@@ -469,13 +476,14 @@ Physics diagram-friendly stems (IMPORTANT):
 - Prefer stems that refer to a diagram or labelled setup; do not make the whole set pure calculation with no visual.`
     : "";
   const mcqLine = isForceBmSubject(subject)
-    ? "Soalan 1 → BM stem only (no EN:) → A. B. C. D. → Jawapan: <one letter> → Penjelasan:"
-    : "Soalan 1 → EN: / BM: (two lines) → A–D each with EN: / BM: under the letter → Jawapan: <one letter> → Penjelasan:";
+    ? "Soalan 1 → BM stem only (no EN:) → A. B. C. D. → Jawapan: <one letter> → Penjelasan: (English only)"
+    : "Soalan 1 → EN: / BM: (two lines) → A–D each with EN: / BM: under the letter → Jawapan: <one letter> → Penjelasan: (English only)";
 
   return `
 
 The user wants objective MCQ (A–D) questions ONLY. Use the MCQ template from the system message:
 ${mcqLine}
+Penjelasan MUST be English. Options A–D must be plausible, similar in length, and not near-duplicates (SPM-style distractors).
 Do NOT use Markah:, Marking points:, or essay-style model answers for MCQ.
 Output at least one full Soalan block before any other text.${scienceDiagramRule}${physicsDiagramBias}`;
 }
@@ -502,7 +510,7 @@ function graphJsonReminder(subject: string | null | undefined, query: string): s
   const subjectLabel = isPhysicsSubject(subject) ? "Physics" : "Math";
   return `
 
-Subject is **${subjectLabel}**: use bilingual stems for every soalan (EN: on one line, BM: on the next line), and bilingual options A–D (each letter has EN: then BM: on the next line), then Jawapan: and Penjelasan: as usual. Penjelasan should be in Bahasa Melayu when the rest is mixed EN/BM.
+Subject is **${subjectLabel}**: use bilingual stems for every soalan (EN: on one line, BM: on the next line), and bilingual options A–D (each letter has EN: then BM: on the next line), then Jawapan: and Penjelasan: as usual. Penjelasan MUST be in English (never Bahasa Melayu), even when stems/options are bilingual.
 For graph-based or motion-graph questions, prefer returning a JSON field "rajah_spec" (deterministic shape spec) and optionally "rajah_svg". Supported rajah_spec kinds are:
 - {"kind":"triangle","points":[{"x":0,"y":0,"label":"A"},{"x":4,"y":0,"label":"B"},{"x":1,"y":3,"label":"C"}],"title":"..."}
 - {"kind":"cartesian_line","xMin":0,"xMax":10,"yMin":0,"yMax":20,"points":[{"x":0,"y":0,"label":"P"},{"x":5,"y":10,"label":"Q"}],"title":"..."}
@@ -667,7 +675,8 @@ QUALITY (mandatory):
 - If the user lists angle hints or banned questions, obey them strictly.
 - Part 1 = exactly 5 short interview questions.
 - Part 2 = exactly 1 long cue-card task that supports 1.5–2 minutes of speech.
-- Never generate Part 3 / group discussion tasks.`;
+- Never generate Part 3 / group discussion tasks.
+- PLAIN TEXT ONLY in student-facing lines: no Markdown and no decorative symbols such as *, _, #, (), [], {}.`;
 
 function extractTopicCategoryFromSpeakingQuery(query: string): string | null {
   const focused = query.match(/Focus on the topic category:\s*(.+?)(?:\.|$)/im);

@@ -146,43 +146,31 @@ function cleanupPlainText(text: string): string {
     .trim();
 }
 
+export type OcrNormalizeMode = "equation" | "prose" | "mixed";
+
 /**
  * Normalize raw OCR model output to clean multi-line plain text.
+ * `prose` still strips LaTeX but avoids turning narrative answers into equation-heavy cleanup.
  */
-export function normalizeOcrExtractedText(raw: string): string {
+export function normalizeOcrExtractedText(
+  raw: string,
+  mode: OcrNormalizeMode = "mixed",
+): string {
   if (!raw?.trim()) return "";
 
   let t = unwrapLatexWrappers(raw);
   t = replaceLineBreaksAndSpacing(t);
   t = replaceFractions(t);
   t = replaceChemAndMathSymbols(t);
-  t = replaceSubscriptsAndSuperscripts(t);
+  // Biology prose: keep latex cleanup, but skip subscript rewriting that can mangle words.
+  if (mode !== "prose") {
+    t = replaceSubscriptsAndSuperscripts(t);
+  } else {
+    // Still flatten obvious LaTeX subscripts to plain digits in formulas if present.
+    t = t.replace(/([A-Za-z])_\{(\d+)\}/g, "$1$2").replace(/([A-Za-z])_(\d+)/g, "$1$2");
+  }
   t = stripRemainingLatexCommands(t);
   t = stripMathDelimiters(t);
   t = replaceFractions(t);
   return cleanupPlainText(t);
 }
-
-/** LaTeX / displaylines cleanup used by the OCR post-process pipeline. */
-export function parseOcrMathStructure(raw: string): string {
-  return normalizeOcrExtractedText(raw);
-}
-
-export const OCR_EXTRACTION_PROMPT = [
-  "Transcribe the STUDENT'S ANSWER or working from this image — not the exam question.",
-  "Output clean plain text only — suitable for a student answer box.",
-  "Rules:",
-  "- If the image shows a question at the top and an answer below, transcribe ONLY the answer/working area.",
-  "- NEVER output bilingual question stems (lines starting with EN: or BM:), Soalan text, or the question sentence in Malay/English.",
-  "- Skip question numbers, Soalan labels, EN:/BM: question stems, and (N marks) in question headers.",
-  "- One step / equation per line, in the same order as the student's writing.",
-  "- Do NOT use LaTeX, \\(, \\), \\[, \\], $, \\frac, \\displaylines, markdown, or code fences.",
-  "- Write math as plain text: V = u + at, a = 2 m/s², S = (1/2)at^2.",
-  "- Fractions: use slash form like 1/2 or (1/2), never \\frac or '1 / (2)'.",
-  "- Powers: use ^ (e.g. 10^2). Multiplication: × or x as shown.",
-  "- Chemical formulas: write with subscripts in the text (e.g. C2H5OH, CH3COOH, H2SO4) — not C_{2}H_{5}OH.",
-  "- Keep units with numbers (mol, g, cm, m/s, etc.).",
-  "- Copy numbers exactly; do not solve or add steps not in the image.",
-  "- Transcribe ONLY what is visible in THIS image. Do not invent or append working from another subject or question.",
-  "- No commentary before or after the transcription.",
-].join("\n");

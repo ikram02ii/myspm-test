@@ -3,8 +3,9 @@ import multer from "multer";
 import OSS from "ali-oss";
 import { randomUUID } from "node:crypto";
 import { removeQuestionStemFromOcrText } from "../services/ama/ocr/ocrAnswerFilter";
-import { normalizeOcrExtractedText, OCR_EXTRACTION_PROMPT } from "../services/ama/ocr/ocrTextNormalize";
+import { normalizeOcrExtractedText } from "../services/ama/ocr/ocrTextNormalize";
 import { runOcrPostProcessPipeline } from "../services/ama/ocr/ocrPipelineService";
+import { resolveOcrSubjectProfile } from "../services/ama/ocr/ocrSubjectProfiles";
 
 const router: IRouter = Router();
 
@@ -162,7 +163,11 @@ function messageContentToString(content: unknown): string {
  *   or public: `https://dashscope-intl.aliyuncs.com/compatible-mode/v1`
  * Do not use the native DashScope `.../api/v1` base here — this route calls `POST .../chat/completions`.
  */
-async function qwenOcrFromImageBuffer(buffer: Buffer, mime: string): Promise<string> {
+async function qwenOcrFromImageBuffer(
+  buffer: Buffer,
+  mime: string,
+  subject?: string,
+): Promise<string> {
   const primaryKey = process.env.QWEN_OCR_API_KEY?.trim();
   const primaryBase = process.env.QWEN_OCR_BASE_URL?.trim().replace(/\/+$/, "");
   const fallbackKey =
@@ -194,11 +199,12 @@ async function qwenOcrFromImageBuffer(buffer: Buffer, mime: string): Promise<str
     "qwen-vl-plus",
   ].filter((m, i, arr): m is string => Boolean(m) && arr.indexOf(m) === i);
 
+  const profile = resolveOcrSubjectProfile(subject);
   const messageBody = {
     role: "user" as const,
     content: [
       { type: "image_url", image_url: { url: dataUrlForBuffer(buffer, mime) } },
-      { type: "text", text: OCR_EXTRACTION_PROMPT },
+      { type: "text", text: profile.extractionPrompt },
     ],
   };
 
@@ -271,53 +277,43 @@ function ocrPostProcessEnabled(): boolean {
   return v !== "0" && v !== "false" && v !== "no" && v !== "off";
 }
 
-async function runExtractOnlyScan(
-  buffer: Buffer,
-  mime: string,
-  email: string,
-  context?: { question?: string },
-): Promise<{ text: string; format: "plain"; validationWarning?: string }> {
-  const oss = makeOssClient();
-  await uploadScanImageToOss(oss, buffer, mime, email);
-  const rawOcr = await qwenOcrFromImageBuffer(buffer, mime);
-  let text = normalizeOcrExtractedText(rawOcr).trim();
-  const question = context?.question?.trim();
-  if (question) {
-    const filtered = removeQuestionStemFromOcrText(text, question);
-    text = filtered.text;
-    if (filtered.lookedLikeQuestionOnly) {
-      return {
-        text: "",
-        format: "plain",
-        validationWarning:
-          "The scan looks like the question text (e.g. BM/EN stem), not your answer. Photo only your written answer.",
-      };
-    }
-  }
-  return { text, format: "plain" };
-}
-
+/**
+ * Student-answer OCR path.
+ * - extract: subject OCR prompt + normalize + light stem-line cleanup
+ * - full: same OCR + repair + light stem-line cleanup (no topic/stem blocking)
+ */
 async function runScanPipeline(
   buffer: Buffer,
   mime: string,
   email: string,
-  context?: { question?: string; subject?: string },
-): Promise<{ text: string; format: "plain"; validationWarning?: string }> {
+  context?: { question?: string; subject?: string; extractOnly?: boolean },
+): Promise<{ text: string; format: "plain" }> {
   const oss = makeOssClient();
   await uploadScanImageToOss(oss, buffer, mime, email);
-  const rawOcr = await qwenOcrFromImageBuffer(buffer, mime);
-  if (!ocrPostProcessEnabled()) {
-    return { text: rawOcr.trim(), format: "plain" };
+  const subject = context?.subject;
+  const profile = resolveOcrSubjectProfile(subject);
+  const rawOcr = await qwenOcrFromImageBuffer(buffer, mime, subject);
+  console.log("[scan] ocr profile", { profileId: profile.id, subject: subject || null });
+
+  if (context?.extractOnly || !ocrPostProcessEnabled()) {
+    let text = normalizeOcrExtractedText(rawOcr, profile.normalizeMode).trim();
+    const question = context?.question?.trim();
+    if (question) {
+      const filtered = removeQuestionStemFromOcrText(text, question);
+      // Never blank the transcription if stem filtering removes everything.
+      text = filtered.text.trim().length > 0 ? filtered.text.trim() : text;
+    }
+    return { text, format: "plain" };
   }
+
   const processed = await runOcrPostProcessPipeline({
     rawOcrText: rawOcr,
     question: context?.question,
-    subject: context?.subject,
+    subject,
   });
   return {
     text: processed.text,
     format: processed.format,
-    validationWarning: processed.validationWarning,
   };
 }
 
@@ -367,19 +363,25 @@ router.post("/scan", upload.any(), async (req, res) => {
     const subject =
       typeof (req.body as any)?.subject === "string" ? (req.body as any).subject.trim() : "";
 
-    const { text, format, validationWarning } = extractOnly
-      ? await runExtractOnlyScan(imageFile.buffer, mime, emailForStorage, {
-          question: question || undefined,
-        })
-      : await runScanPipeline(imageFile.buffer, mime, emailForStorage, {
-          question: question || undefined,
-          subject: subject || undefined,
-        });
-    console.log("[scan] ocr text", { length: text?.length ?? 0, preview: (text ?? "").slice(0, 200) });
+    const { text, format } = await runScanPipeline(
+      imageFile.buffer,
+      mime,
+      emailForStorage,
+      {
+        question: question || undefined,
+        subject: subject || undefined,
+        extractOnly,
+      },
+    );
+    console.log("[scan] ocr text", {
+      length: text?.length ?? 0,
+      preview: (text ?? "").slice(0, 200),
+      subject: subject || null,
+      extractOnly,
+    });
     return res.json({
       text,
       format,
-      ...(validationWarning ? { validationWarning } : {}),
     });
   } catch (e) {
     const err = e as any;

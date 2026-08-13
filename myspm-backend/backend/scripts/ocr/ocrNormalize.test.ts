@@ -1,11 +1,11 @@
 /**
- * Deterministic OCR plain-text cleanup + topic-bleed heuristics.
+ * Deterministic OCR plain-text cleanup.
  * Run: npx tsx ./scripts/ocr/ocrNormalize.test.ts
  */
 import assert from "node:assert/strict";
 import { test, describe } from "node:test";
 import { normalizeOcrExtractedText } from "../../src/services/ama/ocr/ocrTextNormalize.ts";
-import { detectOcrTopicBleed } from "../../src/services/ama/ocr/ocrTopicBleed.ts";
+import { repairLooksFaithful } from "../../src/services/ama/ocr/ocrRepairService.ts";
 
 describe("normalizeOcrExtractedText", () => {
   test("strips \\( \\) math delimiters", () => {
@@ -38,30 +38,21 @@ describe("normalizeOcrExtractedText", () => {
   });
 });
 
-describe("detectOcrTopicBleed", () => {
-  test("flags physics + chemistry concatenation", () => {
-    const hit = detectOcrTopicBleed({
-      question: "A car accelerates from rest. Find acceleration and displacement. (m/s)",
-      subject: "Physics",
-      studentAnswer: [
-        "a) V = u + at",
-        "V = 10a",
-        "a = 2 m/s",
-        "b) S = 100 m",
-        "Bil mol HA = (0.1)(50)/1000 = 0.005 mol",
-        "Isi padu gas hidrogen = 0.0025 × 24 = 0.06 dm³",
-      ].join("\n"),
-    });
-    assert.equal(hit.mixed, true);
-    assert.ok(hit.warning);
+describe("repairLooksFaithful", () => {
+  test("accepts light symbol cleanup", () => {
+    assert.equal(
+      repairLooksFaithful("C3H8 + 5O2 -> 4H2O + 3CO2", "C3H8 + 5O2 → 4H2O + 3CO2"),
+      true,
+    );
   });
 
-  test("allows clean physics working", () => {
-    const hit = detectOcrTopicBleed({
-      question: "Find acceleration using v = u + at",
-      subject: "Physics",
-      studentAnswer: "V = u + at\nV = 0 + a × 10\na = 2 m/s",
-    });
-    assert.equal(hit.mixed, false);
+  test("rejects invented answer that replaces equations", () => {
+    assert.equal(
+      repairLooksFaithful(
+        "C3H8 + 5O2 → 4H2O + 3CO2\nCH4 + 2O2 → CO2 + 2H2O",
+        "P adalah gas, Q adalah gas, R adalah cecair, S adalah pepejal",
+      ),
+      false,
+    );
   });
 });

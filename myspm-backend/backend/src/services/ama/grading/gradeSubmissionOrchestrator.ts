@@ -14,6 +14,7 @@ import type {
   GradeSubmissionInput,
   GradeSubmissionResult,
   MarkBreakdownItem,
+  RetrievalDebugPayload,
   RetrievedChunk,
 } from "../types";
 import { inferAdjustedMaxScore } from "./shared/gradingChecks";
@@ -27,7 +28,7 @@ import {
   buildEnrichedRetrievalQuery,
 } from "./extraction/diagramFactExtraction";
 import { gradingNeedsVisionExtract } from "./shared/gradingPolicy";
-import { hasEmbeddedMarkScheme } from "./case/markSchemeInference";
+import { buildGradeRetrievalQuery, hasEmbeddedMarkScheme } from "./case/markSchemeInference";
 import { recommendWholeMarkCountForStem } from "./extraction/markingPointDecomposition";
 import {
   gradeWithLegacyPipeline,
@@ -41,6 +42,38 @@ function filterChunksByAudit(chunks: RetrievedChunk[], relevantChunkIds: string[
   if (relevantChunkIds.length === 0) return [];
   const allowed = new Set(relevantChunkIds);
   return chunks.filter((chunk) => allowed.has(chunk.chunkId));
+}
+
+/** Serialize retrieval for client inspection — never used in scoring. */
+function buildRetrievalDebug(params: {
+  skipped: boolean;
+  skipReason?: string;
+  retrievalQuery?: string;
+  retrieved: RetrievedChunk[];
+  used: RetrievedChunk[];
+  lowConfidence: boolean;
+  auditReason?: string;
+}): RetrievalDebugPayload {
+  const usedIds = new Set(params.used.map((c) => c.chunkId));
+  return {
+    skipped: params.skipped,
+    skipReason: params.skipReason,
+    retrievalQuery: params.retrievalQuery,
+    retrievedCount: params.retrieved.length,
+    usedCount: params.used.length,
+    lowConfidence: params.lowConfidence,
+    auditReason: params.auditReason,
+    chunks: params.retrieved.map((chunk) => ({
+      chunkId: chunk.chunkId,
+      sourceType: chunk.sourceType,
+      title: chunk.title,
+      chapter: chunk.chapter,
+      score: chunk.score,
+      content: chunk.content,
+      questionRef: chunk.questionRef,
+      usedForMarking: usedIds.has(chunk.chunkId),
+    })),
+  };
 }
 
 export async function gradeSubmission(input: GradeSubmissionInput): Promise<GradeSubmissionResult> {
@@ -134,11 +167,13 @@ export async function gradeSubmission(input: GradeSubmissionInput): Promise<Grad
     });
   }
 
-  // Embedded Jawapan / Marking points: skip chunk retrieval + LLM audit (often filters to 0 anyway).
+  // Stem-only query: full grade payload (options + Jawapan + Penjelasan) dilutes lexical
+  // scores so the 0.35 gate drops every candidate → 0 chunks.
+  const gradeRetrievalQuery = buildGradeRetrievalQuery(question);
   const retrievalPromise = selfContainedScheme
-    ? Promise.resolve({ chunks: [] as RetrievedChunk[] })
+    ? Promise.resolve({ chunks: [] as RetrievedChunk[], query: gradeRetrievalQuery, count: 0 })
     : retrieveChunks({
-        query: buildEnrichedRetrievalQuery(question, undefined),
+        query: gradeRetrievalQuery || buildEnrichedRetrievalQuery(question, undefined),
         subject: input.subject?.trim(),
         form: input.form?.trim(),
         topK: input.topK,
@@ -167,6 +202,7 @@ export async function gradeSubmission(input: GradeSubmissionInput): Promise<Grad
     count: retrieval.chunks.length,
     submissionId,
     skipped: selfContainedScheme,
+    retrievalQuery: gradeRetrievalQuery.slice(0, 160),
   });
 
   const contextAudit = selfContainedScheme
@@ -354,6 +390,17 @@ export async function gradeSubmission(input: GradeSubmissionInput): Promise<Grad
       warning: warning ?? undefined,
       contextAudit,
       context,
+      retrievalDebug: buildRetrievalDebug({
+        skipped: selfContainedScheme,
+        skipReason: selfContainedScheme
+          ? "Self-contained mark scheme in question; textbook retrieval skipped."
+          : undefined,
+        retrievalQuery: gradeRetrievalQuery,
+        retrieved: retrieval.chunks,
+        used: effectiveChunks,
+        lowConfidence,
+        auditReason: contextAudit.reason,
+      }),
       decisionLog: gradedV2.decisionLog,
     };
   }
@@ -511,5 +558,16 @@ export async function gradeSubmission(input: GradeSubmissionInput): Promise<Grad
     warning: warning ?? undefined,
     contextAudit,
     context,
+    retrievalDebug: buildRetrievalDebug({
+      skipped: selfContainedScheme,
+      skipReason: selfContainedScheme
+        ? "Self-contained mark scheme in question; textbook retrieval skipped."
+        : undefined,
+      retrievalQuery: gradeRetrievalQuery,
+      retrieved: retrieval.chunks,
+      used: effectiveChunks,
+      lowConfidence,
+      auditReason: contextAudit.reason,
+    }),
   };
 }
